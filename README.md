@@ -15,6 +15,10 @@ A modern, self-hosted disc ripping solution with smart identification and media 
 - **Auto-Detection** - Scans for Docker containers and imports API keys
 - **Systemd Service** - Runs on boot, survives reboots
 
+## Dashboard
+<img width="1663" height="1114" alt="image" src="https://github.com/user-attachments/assets/8258c12f-05ef-48e4-8f82-b0f576f859e8" />
+
+
 ## Requirements
 
 - Linux (tested on Ubuntu 24.04)
