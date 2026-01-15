@@ -472,8 +472,54 @@ class RipEngine:
             self._update_step("move", "active", "Moving files...")
             job.status = RipStatus.MOVING
 
-            # TODO: Actual file move
-            self._update_step("move", "complete", f"Moved to {self.movies_path}")
+            try:
+                import shutil
+                import glob
+
+                # Determine destination folder name
+                dest_folder_name = job.identified_title or job.disc_label.replace("_", " ").title()
+                dest_path = os.path.join(self.movies_path, dest_folder_name)
+
+                # Create destination if it doesn't exist
+                Path(dest_path).mkdir(parents=True, exist_ok=True)
+
+                # Find all mkv files in source
+                source_path = job.output_path
+                mkv_files = glob.glob(os.path.join(source_path, "*.mkv"))
+
+                if mkv_files:
+                    for mkv_file in mkv_files:
+                        # Rename to title.mkv format
+                        new_filename = f"{dest_folder_name}.mkv"
+                        dest_file = os.path.join(dest_path, new_filename)
+
+                        # If multiple files, append number
+                        if len(mkv_files) > 1:
+                            idx = mkv_files.index(mkv_file) + 1
+                            new_filename = f"{dest_folder_name} - Part {idx}.mkv"
+                            dest_file = os.path.join(dest_path, new_filename)
+
+                        # Move the file
+                        shutil.move(mkv_file, dest_file)
+
+                    # Remove empty source directory
+                    try:
+                        os.rmdir(source_path)
+                    except OSError:
+                        pass  # Directory not empty or other issue
+
+                    # Update job output path
+                    job.output_path = dest_path
+
+                    # Log the move
+                    activity.file_moved(dest_folder_name, dest_path)
+                    self._update_step("move", "complete", f"Moved to {dest_path}")
+                else:
+                    self._update_step("move", "complete", "No files to move")
+
+            except Exception as e:
+                activity.log_error(f"Move failed: {str(e)}")
+                self._update_step("move", "error", f"Move failed: {str(e)}")
 
             # Step 8: Trigger Plex scan
             self._update_step("scan-plex", "active", "Triggering scan...")
