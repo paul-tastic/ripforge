@@ -199,12 +199,13 @@ class MakeMKV:
 
         args = [
             "-r",  # Robot mode (parseable output)
-            "--minlength=2700",  # 45 min minimum
             "mkv",
             f"disc:{disc_num}",
             str(track),
             output_dir
         ]
+        # Note: --minlength is NOT a valid CLI switch, only a GUI setting
+        # Track filtering must be done before calling rip_track()
 
         process = self._run_cmd(args)
         last_error = ""
@@ -376,12 +377,15 @@ class RipEngine:
 
             output_dir = os.path.join(self.raw_path, job.disc_label)
 
+            # Log where we're saving
+            activity.log_info(f"Saving to {output_dir}/")
+
             # Track last logged milestone to avoid duplicate logs
             last_milestone = [0]
 
             def progress_cb(percent):
                 self._set_progress(percent, f"{100-percent}% remaining")
-                self._update_step("rip", "active", f"{percent}%")
+                self._update_step("rip", "active", f"Ripping... {percent}%")
                 # Log at 25%, 50%, 75% milestones
                 for milestone in [25, 50, 75]:
                     if percent >= milestone and last_milestone[0] < milestone:
@@ -389,9 +393,8 @@ class RipEngine:
                         last_milestone[0] = milestone
 
             def message_cb(msg):
-                # Update step detail with latest MakeMKV message
-                if "Saving" in msg or "Copy" in msg:
-                    self._update_step("rip", "active", msg[:50])
+                # Ignore raw MakeMKV messages - we show clean progress instead
+                pass
 
             success, error_msg = self.makemkv.rip_track(
                 job.device,
@@ -411,6 +414,17 @@ class RipEngine:
             job.output_path = output_dir
             self._update_step("rip", "complete", "Rip finished")
             self._set_progress(100)
+
+            # Log completed rip with file size
+            try:
+                import glob
+                mkv_files = glob.glob(os.path.join(output_dir, "*.mkv"))
+                if mkv_files:
+                    total_size = sum(os.path.getsize(f) for f in mkv_files)
+                    size_gb = total_size / (1024**3)
+                    activity.log_success(f"Rip output: {output_dir}/ ({size_gb:.1f} GB)")
+            except Exception:
+                pass
 
             # Step 5: Identify content
             self._update_step("identify", "active", "Identifying...")
