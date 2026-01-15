@@ -127,6 +127,9 @@ class SmartIdentifier:
         # Remove disc number suffixes
         parsed = re.sub(r'_?(DISC_?\d*|D\d+)$', '', parsed, flags=re.IGNORECASE)
 
+        # Remove region codes and common suffixes
+        parsed = re.sub(r'_?(PS|US|UK|EU|AU|CA|JP|KR|FR|DE|ES|IT|NL|BR|MX|R1|R2|R3|R4|REGION_?\d)$', '', parsed, flags=re.IGNORECASE)
+
         # Replace underscores with spaces
         parsed = parsed.replace('_', ' ')
 

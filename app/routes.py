@@ -5,6 +5,7 @@ RipForge Web Routes
 from flask import Blueprint, render_template, jsonify, request
 from . import config
 from . import ripper
+from . import email as email_utils
 
 main = Blueprint('main', __name__)
 
@@ -254,14 +255,51 @@ def api_import_keys():
 @main.route('/api/activity-log')
 def api_activity_log():
     """Get recent activity log entries (newest first)"""
-    log_file = "/mnt/media/docker/arm/rip-activity.log"
-    try:
-        with open(log_file) as f:
-            lines = f.readlines()[-100:]  # Last 100 lines
-            lines.reverse()  # Newest first
-            return jsonify({'log': [line.strip() for line in lines]})
-    except FileNotFoundError:
-        return jsonify({'log': []})
+    import glob
+    from pathlib import Path
+
+    logs_dir = Path(__file__).parent.parent / "logs"
+    log_files = [
+        logs_dir / "ripforge.log",
+        logs_dir / "disc-detect.log",
+        logs_dir / "rip-activity.log",
+    ]
+
+    all_lines = []
+    for log_file in log_files:
+        try:
+            if log_file.exists():
+                with open(log_file) as f:
+                    lines = f.readlines()[-50:]  # Last 50 lines per file
+                    all_lines.extend([line.strip() for line in lines if line.strip()])
+        except Exception:
+            continue
+
+    # Sort by timestamp if possible (newest first)
+    def get_timestamp(line):
+        try:
+            # Extract timestamp from start of line
+            import re
+            match = re.match(r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})', line)
+            if match:
+                return match.group(1)
+        except Exception:
+            pass
+        return '0000-00-00 00:00:00'
+
+    all_lines.sort(key=get_timestamp, reverse=True)
+
+    # Add log level detection if not present
+    formatted_lines = []
+    for line in all_lines[:100]:  # Limit to 100 entries
+        # Add INFO level if no level detected
+        if not any(lvl in line.upper() for lvl in ['INFO', 'ERROR', 'WARN', 'SUCCESS', 'DEBUG']):
+            # Insert INFO after timestamp
+            import re
+            line = re.sub(r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s*-?\s*', r'\1 | INFO | ', line)
+        formatted_lines.append(line)
+
+    return jsonify({'log': formatted_lines})
 
 
 @main.route('/api/hardware')
@@ -380,3 +418,44 @@ def api_newsletter_send_test():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+
+@main.route('/api/email/test', methods=['POST'])
+def api_email_test():
+    """Send a test email to verify configuration"""
+    data = request.json or {}
+    recipients = data.get('recipients', [])
+
+    if not recipients:
+        cfg = config.load_config()
+        recipients = cfg.get('notifications', {}).get('email', {}).get('recipients', [])
+
+    if not recipients:
+        return jsonify({'success': False, 'error': 'No recipients configured'})
+
+    success = email_utils.send_test_email(recipients)
+    return jsonify({'success': success})
+
+
+@main.route('/api/email/weekly-recap', methods=['POST'])
+def api_email_weekly_recap():
+    """Send weekly recap email"""
+    data = request.json or {}
+    recipients = data.get('recipients', [])
+
+    if not recipients:
+        cfg = config.load_config()
+        recipients = cfg.get('notifications', {}).get('email', {}).get('recipients', [])
+
+    if not recipients:
+        return jsonify({'success': False, 'error': 'No recipients configured'})
+
+    success = email_utils.send_weekly_recap(recipients)
+    return jsonify({'success': success})
+
+
+@main.route('/api/plex/users')
+def api_plex_users():
+    """Get Plex users with their emails"""
+    users = config.get_plex_users()
+    return jsonify({'users': users})

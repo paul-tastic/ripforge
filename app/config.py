@@ -428,6 +428,69 @@ def import_existing_api_keys() -> dict:
     return keys
 
 
+def get_plex_users() -> list:
+    """Retrieve Plex users (owner and shared) with their emails from Plex.tv API"""
+    users = []
+    cfg = load_config()
+
+    plex_cfg = cfg.get('integrations', {}).get('plex', {})
+    token = plex_cfg.get('token', '')
+
+    if not token:
+        return users
+
+    headers = {
+        'X-Plex-Token': token,
+        'X-Plex-Client-Identifier': 'ripforge',
+        'Accept': 'application/json'
+    }
+
+    try:
+        # Get main account owner
+        r = requests.get('https://plex.tv/api/v2/user', headers=headers, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get('email'):
+                users.append({
+                    'username': data.get('username', 'Owner'),
+                    'email': data['email'],
+                    'type': 'owner',
+                    'thumb': data.get('thumb', '')
+                })
+
+        # Get home users
+        r = requests.get('https://plex.tv/api/v2/home/users', headers=headers, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            for user in data.get('users', []):
+                # Skip if same as owner (already added)
+                if user.get('email') and not any(u['email'] == user['email'] for u in users):
+                    users.append({
+                        'username': user.get('username', user.get('title', '')),
+                        'email': user['email'],
+                        'type': 'home',
+                        'thumb': user.get('thumb', '')
+                    })
+
+        # Get friends/shared users
+        r = requests.get('https://plex.tv/api/v2/friends', headers=headers, timeout=10)
+        if r.status_code == 200:
+            friends = r.json()
+            for friend in friends:
+                if friend.get('email') and not any(u['email'] == friend['email'] for u in users):
+                    users.append({
+                        'username': friend.get('username', friend.get('title', '')),
+                        'email': friend['email'],
+                        'type': 'friend',
+                        'thumb': friend.get('thumb', '')
+                    })
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching Plex users: {e}")
+
+    return users
+
+
 def run_auto_setup() -> dict:
     """Run full auto-detection and apply discovered configuration"""
     print("Running auto-detection...")

@@ -185,23 +185,57 @@
 
     <!-- Notifications -->
     <section class="card">
-        <h2>Notifications</h2>
-        <div class="settings-grid">
-            <div class="field">
-                <label class="toggle-label">
-                    <input type="checkbox" id="notify-complete" {% if config.notifications.email.on_complete %}checked{% endif %}>
-                    <span>Email on Complete</span>
-                </label>
+        <h2>Email Notifications</h2>
+
+        <div class="notification-config">
+            <h3 style="color: var(--text-muted); font-size: 14px; margin-bottom: 16px;">Recipients</h3>
+
+            <!-- Plex Users -->
+            <div class="recipient-list" id="plex-users-list">
+                <div class="recipient-loading">Loading Plex users...</div>
             </div>
-            <div class="field">
-                <label class="toggle-label">
-                    <input type="checkbox" id="notify-error" {% if config.notifications.email.on_error %}checked{% endif %}>
-                    <span>Email on Error</span>
-                </label>
+
+            <!-- Manual Recipients -->
+            <div class="field" style="margin-top: 16px; margin-bottom: 20px;">
+                <label style="color: var(--text-muted); font-size: 12px;">Additional Recipients</label>
+                <input type="text" id="notify-recipients-manual" value="" placeholder="extra@example.com, another@example.com">
+                <small>Additional addresses not from Plex (comma-separated)</small>
             </div>
-            <div class="field">
-                <label>Recipients</label>
-                <input type="text" id="notify-recipients" value="{{ config.notifications.email.recipients | join(', ') }}">
+
+            <h3 style="color: var(--text-muted); font-size: 14px; margin-bottom: 16px;">Notification Events</h3>
+            <div class="settings-grid" style="margin-bottom: 20px;">
+                <div class="field">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="notify-complete" {% if config.notifications.email.on_complete %}checked{% endif %}>
+                        <span>Email on Rip Complete</span>
+                    </label>
+                    <small>Send email when a disc finishes ripping</small>
+                </div>
+                <div class="field">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="notify-error" {% if config.notifications.email.on_error %}checked{% endif %}>
+                        <span>Email on Error</span>
+                    </label>
+                    <small>Send email if ripping fails</small>
+                </div>
+                <div class="field">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="notify-weekly" {% if config.notifications.email.weekly_recap %}checked{% endif %}>
+                        <span>Weekly Recap</span>
+                    </label>
+                    <small>Send weekly summary of ripping activity</small>
+                </div>
+            </div>
+
+            <h3 style="color: var(--text-muted); font-size: 14px; margin-bottom: 16px;">Test Email</h3>
+            <div class="email-test-buttons">
+                <button class="btn btn-small" id="btn-test-email" onclick="testEmail()">
+                    Send Test Email
+                </button>
+                <button class="btn btn-small btn-secondary" id="btn-test-recap" onclick="testWeeklyRecap()">
+                    Send Weekly Recap Now
+                </button>
+                <span class="email-test-status" id="email-test-status"></span>
             </div>
         </div>
     </section>
@@ -217,6 +251,87 @@
 
 {% block scripts %}
 <script>
+    // Store Plex users and their enabled state
+    let plexUsers = [];
+    const configuredRecipients = {{ config.notifications.email.recipients | tojson | safe }};
+
+    // Load Plex users on page load
+    function loadPlexUsers() {
+        fetch('/api/plex/users')
+            .then(r => r.json())
+            .then(data => {
+                plexUsers = data.users || [];
+                renderPlexUsers();
+            })
+            .catch(err => {
+                console.error('Error loading Plex users:', err);
+                document.getElementById('plex-users-list').innerHTML =
+                    '<div class="recipient-error">Could not load Plex users</div>';
+            });
+    }
+
+    function renderPlexUsers() {
+        const container = document.getElementById('plex-users-list');
+
+        if (plexUsers.length === 0) {
+            container.innerHTML = '<div class="recipient-empty">No Plex users found</div>';
+        } else {
+            let html = '';
+            plexUsers.forEach((user, idx) => {
+                // Check if this email is in the configured recipients
+                const isEnabled = configuredRecipients.includes(user.email);
+                const typeLabel = user.type === 'owner' ? 'Owner' : (user.type === 'home' ? 'Home' : 'Friend');
+
+                html += `
+                    <div class="recipient-item">
+                        <label class="recipient-checkbox">
+                            <input type="checkbox" class="plex-user-checkbox" data-email="${user.email}" ${isEnabled ? 'checked' : ''}>
+                            <span class="recipient-info">
+                                <span class="recipient-email">${user.email}</span>
+                                <span class="recipient-meta">
+                                    <span class="recipient-username">${user.username}</span>
+                                    <span class="recipient-type">${typeLabel}</span>
+                                </span>
+                            </span>
+                        </label>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        // Populate "Additional Recipients" with configured emails not from Plex
+        const plexEmails = plexUsers.map(u => u.email);
+        const nonPlexRecipients = configuredRecipients.filter(email => !plexEmails.includes(email));
+        document.getElementById('notify-recipients-manual').value = nonPlexRecipients.join(', ');
+    }
+
+    // Get all selected recipients (Plex users + manual)
+    function getSelectedRecipients() {
+        const recipients = [];
+
+        // Get enabled Plex users
+        document.querySelectorAll('.plex-user-checkbox:checked').forEach(cb => {
+            recipients.push(cb.dataset.email);
+        });
+
+        // Get manual recipients
+        const manual = document.getElementById('notify-recipients-manual').value;
+        if (manual) {
+            manual.split(',').map(s => s.trim()).filter(s => s).forEach(email => {
+                if (!recipients.includes(email)) {
+                    recipients.push(email);
+                }
+            });
+        }
+
+        return recipients;
+    }
+
+    // Initialize on page load
+    loadPlexUsers();
+
     // Auto-detect button
     document.getElementById('btn-auto-detect').addEventListener('click', function() {
         this.disabled = true;
@@ -300,6 +415,94 @@
         });
     }
 
+    // Test email
+    function testEmail() {
+        const btn = document.getElementById('btn-test-email');
+        const status = document.getElementById('email-test-status');
+        btn.disabled = true;
+        btn.textContent = 'Sending...';
+        status.textContent = '';
+        status.className = 'email-test-status';
+
+        const recipients = getSelectedRecipients();
+
+        if (recipients.length === 0) {
+            status.textContent = 'No recipients selected';
+            status.className = 'email-test-status error';
+            btn.disabled = false;
+            btn.textContent = 'Send Test Email';
+            return;
+        }
+
+        fetch('/api/email/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipients })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                status.textContent = 'Email sent!';
+                status.className = 'email-test-status success';
+            } else {
+                status.textContent = data.error || 'Failed';
+                status.className = 'email-test-status error';
+            }
+        })
+        .catch(err => {
+            status.textContent = 'Error';
+            status.className = 'email-test-status error';
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = 'Send Test Email';
+        });
+    }
+
+    // Test weekly recap
+    function testWeeklyRecap() {
+        const btn = document.getElementById('btn-test-recap');
+        const status = document.getElementById('email-test-status');
+        btn.disabled = true;
+        btn.textContent = 'Sending...';
+        status.textContent = '';
+        status.className = 'email-test-status';
+
+        const recipients = getSelectedRecipients();
+
+        if (recipients.length === 0) {
+            status.textContent = 'No recipients selected';
+            status.className = 'email-test-status error';
+            btn.disabled = false;
+            btn.textContent = 'Send Weekly Recap Now';
+            return;
+        }
+
+        fetch('/api/email/weekly-recap', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipients })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                status.textContent = 'Recap sent!';
+                status.className = 'email-test-status success';
+            } else {
+                status.textContent = data.error || 'Failed';
+                status.className = 'email-test-status error';
+            }
+        })
+        .catch(err => {
+            status.textContent = 'Error';
+            status.className = 'email-test-status error';
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = 'Send Weekly Recap Now';
+        });
+    }
+
     // Save settings
     document.getElementById('btn-save').addEventListener('click', function() {
         const settings = {
@@ -344,7 +547,8 @@
                 email: {
                     on_complete: document.getElementById('notify-complete').checked,
                     on_error: document.getElementById('notify-error').checked,
-                    recipients: document.getElementById('notify-recipients').value.split(',').map(s => s.trim())
+                    weekly_recap: document.getElementById('notify-weekly').checked,
+                    recipients: getSelectedRecipients()
                 }
             }
         };
