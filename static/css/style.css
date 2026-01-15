@@ -460,7 +460,8 @@ body {
     background: var(--bg-dark);
     border-radius: 8px;
     padding: 12px;
-    max-height: 300px;
+    max-height: 400px;
+    min-height: 280px;
     overflow-y: auto;
     font-family: 'SF Mono', Monaco, 'Courier New', monospace;
     font-size: 12px;
