@@ -6,6 +6,7 @@ from flask import Blueprint, render_template, jsonify, request
 from . import config
 from . import ripper
 from . import email as email_utils
+from . import activity
 
 main = Blueprint('main', __name__)
 
@@ -87,8 +88,11 @@ def api_rip_start():
 
     success = engine.start_rip(device, custom_title=custom_title)
     if success:
+        title = custom_title or "Unknown disc"
+        activity.rip_started(title, "main feature only")
         return jsonify({'success': True, 'message': 'Rip started'})
     else:
+        activity.log_warning("Rip start failed - already ripping or no disc")
         return jsonify({'success': False, 'error': 'Already ripping or no disc'}), 400
 
 
@@ -148,11 +152,13 @@ def api_disc_scan_identify():
         return jsonify({'error': 'Engine not initialized'}), 500
 
     device = request.args.get('device', '/dev/sr0')
+    activity.scan_started(device)
 
     # Get disc info from MakeMKV
     info = engine.makemkv.get_disc_info(device)
 
     if not info.get('disc_label'):
+        activity.scan_failed("No disc found")
         return jsonify({'error': 'No disc found'})
 
     # Get main feature runtime in seconds
@@ -186,6 +192,16 @@ def api_disc_scan_identify():
         'suggested_title': search_term  # Fallback to parsed label
     }
 
+    # Get runtime string for logging
+    runtime_str = None
+    if runtime_seconds:
+        hours, remainder = divmod(runtime_seconds, 3600)
+        minutes, _ = divmod(remainder, 60)
+        runtime_str = f"{int(hours)}h {int(minutes)}m" if hours else f"{int(minutes)}m"
+
+    # Log scan completion
+    activity.scan_completed(info['disc_label'], info.get('disc_type', 'disc').upper(), runtime_str)
+
     if result:
         response['identified'] = {
             'title': result.title,
@@ -196,6 +212,8 @@ def api_disc_scan_identify():
             'folder_name': result.folder_name
         }
         response['suggested_title'] = result.folder_name
+        # Log identification
+        activity.rip_identified(info['disc_label'], result.folder_name, result.confidence)
 
     return jsonify(response)
 
@@ -255,51 +273,22 @@ def api_import_keys():
 @main.route('/api/activity-log')
 def api_activity_log():
     """Get recent activity log entries (newest first)"""
-    import glob
     from pathlib import Path
 
     logs_dir = Path(__file__).parent.parent / "logs"
-    log_files = [
-        logs_dir / "ripforge.log",
-        logs_dir / "disc-detect.log",
-        logs_dir / "rip-activity.log",
-    ]
+    activity_log = logs_dir / "activity.log"
 
-    all_lines = []
-    for log_file in log_files:
-        try:
-            if log_file.exists():
-                with open(log_file) as f:
-                    lines = f.readlines()[-50:]  # Last 50 lines per file
-                    all_lines.extend([line.strip() for line in lines if line.strip()])
-        except Exception:
-            continue
+    lines = []
+    try:
+        if activity_log.exists():
+            with open(activity_log) as f:
+                lines = f.readlines()[-100:]  # Last 100 lines
+                lines = [line.strip() for line in lines if line.strip()]
+                lines.reverse()  # Newest first
+    except Exception:
+        pass
 
-    # Sort by timestamp if possible (newest first)
-    def get_timestamp(line):
-        try:
-            # Extract timestamp from start of line
-            import re
-            match = re.match(r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})', line)
-            if match:
-                return match.group(1)
-        except Exception:
-            pass
-        return '0000-00-00 00:00:00'
-
-    all_lines.sort(key=get_timestamp, reverse=True)
-
-    # Add log level detection if not present
-    formatted_lines = []
-    for line in all_lines[:100]:  # Limit to 100 entries
-        # Add INFO level if no level detected
-        if not any(lvl in line.upper() for lvl in ['INFO', 'ERROR', 'WARN', 'SUCCESS', 'DEBUG']):
-            # Insert INFO after timestamp
-            import re
-            line = re.sub(r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s*-?\s*', r'\1 | INFO | ', line)
-        formatted_lines.append(line)
-
-    return jsonify({'log': formatted_lines})
+    return jsonify({'log': lines})
 
 
 @main.route('/api/hardware')
@@ -433,7 +422,12 @@ def api_email_test():
     if not recipients:
         return jsonify({'success': False, 'error': 'No recipients configured'})
 
+    activity.test_email_requested(recipients)
     success = email_utils.send_test_email(recipients)
+    if success:
+        activity.email_sent("Test", recipients)
+    else:
+        activity.email_failed("Test", "Send failed")
     return jsonify({'success': success})
 
 
@@ -451,6 +445,10 @@ def api_email_weekly_recap():
         return jsonify({'success': False, 'error': 'No recipients configured'})
 
     success = email_utils.send_weekly_recap(recipients)
+    if success:
+        activity.weekly_recap_sent(recipients)
+    else:
+        activity.email_failed("Weekly recap", "Send failed")
     return jsonify({'success': success})
 
 

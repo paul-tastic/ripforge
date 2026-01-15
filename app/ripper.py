@@ -15,6 +15,8 @@ from typing import Optional, Dict, List, Callable
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
+from . import activity
+
 
 class RipStatus(Enum):
     IDLE = "idle"
@@ -284,6 +286,9 @@ class RipEngine:
                 # Add to history if it had meaningful progress
                 if self.current_job.status not in [RipStatus.IDLE]:
                     self.job_history.append(self.current_job)
+                # Log cancellation if rip was in progress
+                if self.current_job.status in [RipStatus.RIPPING, RipStatus.SCANNING, RipStatus.DETECTING]:
+                    activity.rip_cancelled(self.current_job.identified_title or self.current_job.disc_label or "Unknown")
                 self.current_job = None
             return True
 
@@ -347,6 +352,7 @@ class RipEngine:
             job.disc_label = disc_info.get("disc_label", "UNKNOWN")
             job.disc_type = disc_info.get("disc_type", "unknown")
 
+            activity.disc_detected(job.disc_type.upper(), job.disc_label)
             self._update_step("detect", "complete", f"{job.disc_type.upper()}: {job.disc_label}")
 
             # Step 3: Scan tracks
@@ -370,9 +376,17 @@ class RipEngine:
 
             output_dir = os.path.join(self.raw_path, job.disc_label)
 
+            # Track last logged milestone to avoid duplicate logs
+            last_milestone = [0]
+
             def progress_cb(percent):
                 self._set_progress(percent, f"{100-percent}% remaining")
                 self._update_step("rip", "active", f"{percent}%")
+                # Log at 25%, 50%, 75% milestones
+                for milestone in [25, 50, 75]:
+                    if percent >= milestone and last_milestone[0] < milestone:
+                        activity.rip_progress(job.identified_title or job.disc_label, milestone)
+                        last_milestone[0] = milestone
 
             def message_cb(msg):
                 # Update step detail with latest MakeMKV message
@@ -391,6 +405,7 @@ class RipEngine:
                 self._update_step("rip", "error", error_msg or "Rip failed")
                 job.status = RipStatus.ERROR
                 job.error_message = error_msg or "MakeMKV rip failed"
+                activity.rip_failed(job.identified_title or job.disc_label, error_msg or "MakeMKV rip failed")
                 return
 
             job.output_path = output_dir
@@ -451,10 +466,21 @@ class RipEngine:
 
             # TODO: Plex API integration
             self._update_step("scan-plex", "complete", "Plex notified")
+            activity.plex_scan_triggered("Movies")
 
             # Done!
             job.status = RipStatus.COMPLETE
             job.completed_at = datetime.now().isoformat()
+
+            # Calculate duration
+            if job.started_at:
+                start = datetime.fromisoformat(job.started_at)
+                duration = datetime.now() - start
+                duration_str = str(duration).split('.')[0]  # Remove microseconds
+            else:
+                duration_str = None
+
+            activity.rip_completed(job.identified_title or job.disc_label, duration_str)
 
             # Add to history
             self.job_history.append(job)
@@ -463,6 +489,7 @@ class RipEngine:
             if self.current_job:
                 self.current_job.status = RipStatus.ERROR
                 self.current_job.error_message = str(e)
+                activity.rip_failed(self.current_job.identified_title or self.current_job.disc_label, str(e))
 
     def check_disc(self, device: str = "/dev/sr0") -> dict:
         """Check if a disc is present and get basic info"""

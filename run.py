@@ -7,6 +7,7 @@ from flask import Flask
 from app.routes import main
 from app import config
 from app import ripper
+from app import activity
 
 def create_app():
     app = Flask(__name__,
@@ -27,6 +28,7 @@ if __name__ == '__main__':
     # Initialize the rip engine
     ripper.init_engine(cfg)
     print("  Rip engine initialized")
+    activity.service_started()
     app = create_app()
 
     host = cfg.get('ripforge', {}).get('host', '0.0.0.0')
