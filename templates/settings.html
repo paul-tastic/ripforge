@@ -1,0 +1,360 @@
+{% extends "base.html" %}
+
+{% block title %}RipForge - Settings{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+<div class="settings">
+    <!-- Auto-detect Banner -->
+    <section class="card auto-detect">
+        <div class="auto-detect-content">
+            <div>
+                <h3>Auto-Detect Services</h3>
+                <p>Scan for Docker containers and import existing API keys</p>
+            </div>
+            <button class="btn btn-primary" id="btn-auto-detect">
+                <span class="btn-icon">🔍</span> Auto-Detect
+            </button>
+        </div>
+    </section>
+
+    <!-- Integrations -->
+    <section class="card">
+        <h2>Integrations</h2>
+
+        <!-- Radarr -->
+        <div class="integration-config">
+            <div class="integration-header">
+                <label class="toggle">
+                    <input type="checkbox" id="radarr-enabled" {% if config.integrations.radarr.enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="integration-title">Radarr</span>
+                <span class="integration-badge" id="radarr-status">Not tested</span>
+            </div>
+            <div class="integration-fields">
+                <div class="field">
+                    <label>URL</label>
+                    <input type="text" id="radarr-url" value="{{ config.integrations.radarr.url }}" placeholder="http://localhost:7878">
+                </div>
+                <div class="field">
+                    <label>API Key</label>
+                    <input type="password" id="radarr-api" value="{{ config.integrations.radarr.api_key }}" placeholder="Enter API key">
+                </div>
+                <button class="btn btn-small" onclick="testConnection('radarr')">Test Connection</button>
+            </div>
+        </div>
+
+        <!-- Sonarr -->
+        <div class="integration-config">
+            <div class="integration-header">
+                <label class="toggle">
+                    <input type="checkbox" id="sonarr-enabled" {% if config.integrations.sonarr.enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="integration-title">Sonarr</span>
+                <span class="integration-badge" id="sonarr-status">Not tested</span>
+            </div>
+            <div class="integration-fields">
+                <div class="field">
+                    <label>URL</label>
+                    <input type="text" id="sonarr-url" value="{{ config.integrations.sonarr.url }}" placeholder="http://localhost:8989">
+                </div>
+                <div class="field">
+                    <label>API Key</label>
+                    <input type="password" id="sonarr-api" value="{{ config.integrations.sonarr.api_key }}" placeholder="Enter API key">
+                </div>
+                <button class="btn btn-small" onclick="testConnection('sonarr')">Test Connection</button>
+            </div>
+        </div>
+
+        <!-- Overseerr -->
+        <div class="integration-config">
+            <div class="integration-header">
+                <label class="toggle">
+                    <input type="checkbox" id="overseerr-enabled" {% if config.integrations.overseerr.enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="integration-title">Overseerr</span>
+                <span class="integration-badge" id="overseerr-status">Not tested</span>
+            </div>
+            <div class="integration-fields">
+                <div class="field">
+                    <label>URL</label>
+                    <input type="text" id="overseerr-url" value="{{ config.integrations.overseerr.url }}" placeholder="http://localhost:5055">
+                </div>
+                <div class="field">
+                    <label>API Key</label>
+                    <input type="password" id="overseerr-api" value="{{ config.integrations.overseerr.api_key }}" placeholder="Enter API key">
+                </div>
+                <button class="btn btn-small" onclick="testConnection('overseerr')">Test Connection</button>
+            </div>
+        </div>
+
+        <!-- Plex -->
+        <div class="integration-config">
+            <div class="integration-header">
+                <label class="toggle">
+                    <input type="checkbox" id="plex-enabled" {% if config.integrations.plex.enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="integration-title">Plex</span>
+                <span class="integration-badge" id="plex-status">Not tested</span>
+            </div>
+            <div class="integration-fields">
+                <div class="field">
+                    <label>URL</label>
+                    <input type="text" id="plex-url" value="{{ config.integrations.plex.url }}" placeholder="http://localhost:32400">
+                </div>
+                <div class="field">
+                    <label>Token</label>
+                    <input type="password" id="plex-token" value="{{ config.integrations.plex.token }}" placeholder="Enter Plex token">
+                </div>
+                <button class="btn btn-small" onclick="testConnection('plex')">Test Connection</button>
+            </div>
+        </div>
+
+        <!-- Tautulli -->
+        <div class="integration-config">
+            <div class="integration-header">
+                <label class="toggle">
+                    <input type="checkbox" id="tautulli-enabled" {% if config.integrations.tautulli.enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="integration-title">Tautulli</span>
+                <span class="integration-badge" id="tautulli-status">Not tested</span>
+            </div>
+            <div class="integration-fields">
+                <div class="field">
+                    <label>URL</label>
+                    <input type="text" id="tautulli-url" value="{{ config.integrations.tautulli.url }}" placeholder="http://localhost:8181">
+                </div>
+                <div class="field">
+                    <label>API Key</label>
+                    <input type="password" id="tautulli-api" value="{{ config.integrations.tautulli.api_key }}" placeholder="Enter API key">
+                </div>
+                <button class="btn btn-small" onclick="testConnection('tautulli')">Test Connection</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Ripping Settings -->
+    <section class="card">
+        <h2>Ripping Settings</h2>
+        <div class="settings-grid">
+            <div class="field">
+                <label>Minimum Track Length (seconds)</label>
+                <input type="number" id="min-length" value="{{ config.ripping.min_length }}">
+                <small>Tracks shorter than this will be skipped (2700 = 45 min)</small>
+            </div>
+            <div class="field">
+                <label class="toggle-label">
+                    <input type="checkbox" id="main-feature-only" {% if config.ripping.main_feature_only %}checked{% endif %}>
+                    <span>Main Feature Only</span>
+                </label>
+                <small>Only rip the longest track (main movie)</small>
+            </div>
+            <div class="field">
+                <label class="toggle-label">
+                    <input type="checkbox" id="skip-transcode" {% if config.ripping.skip_transcode %}checked{% endif %}>
+                    <span>Skip Transcoding</span>
+                </label>
+                <small>Keep original MakeMKV quality</small>
+            </div>
+        </div>
+    </section>
+
+    <!-- Paths -->
+    <section class="card">
+        <h2>Paths</h2>
+        <div class="settings-grid">
+            <div class="field">
+                <label>Raw Rips</label>
+                <input type="text" id="path-raw" value="{{ config.paths.raw_rips }}">
+            </div>
+            <div class="field">
+                <label>Movies Library</label>
+                <input type="text" id="path-movies" value="{{ config.paths.movies }}">
+            </div>
+            <div class="field">
+                <label>TV Library</label>
+                <input type="text" id="path-tv" value="{{ config.paths.tv }}">
+            </div>
+        </div>
+    </section>
+
+    <!-- Notifications -->
+    <section class="card">
+        <h2>Notifications</h2>
+        <div class="settings-grid">
+            <div class="field">
+                <label class="toggle-label">
+                    <input type="checkbox" id="notify-complete" {% if config.notifications.email.on_complete %}checked{% endif %}>
+                    <span>Email on Complete</span>
+                </label>
+            </div>
+            <div class="field">
+                <label class="toggle-label">
+                    <input type="checkbox" id="notify-error" {% if config.notifications.email.on_error %}checked{% endif %}>
+                    <span>Email on Error</span>
+                </label>
+            </div>
+            <div class="field">
+                <label>Recipients</label>
+                <input type="text" id="notify-recipients" value="{{ config.notifications.email.recipients | join(', ') }}">
+            </div>
+        </div>
+    </section>
+
+    <!-- Save Button -->
+    <div class="settings-actions">
+        <button class="btn btn-primary btn-large" id="btn-save">
+            <span class="btn-icon">💾</span> Save Settings
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Auto-detect button
+    document.getElementById('btn-auto-detect').addEventListener('click', function() {
+        this.disabled = true;
+        this.innerHTML = '<span class="btn-icon">⏳</span> Detecting...';
+
+        fetch('/api/auto-detect', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                console.log('Auto-detect result:', data);
+
+                // Fill in detected services
+                for (const [service, info] of Object.entries(data.services)) {
+                    if (info.detected) {
+                        document.getElementById(service + '-url').value = info.url;
+                        document.getElementById(service + '-enabled').checked = true;
+                    }
+                }
+
+                // Fill in imported keys
+                if (data.keys.radarr_api) {
+                    document.getElementById('radarr-api').value = data.keys.radarr_api;
+                }
+                if (data.keys.sonarr_api) {
+                    document.getElementById('sonarr-api').value = data.keys.sonarr_api;
+                }
+                if (data.keys.plex_token) {
+                    document.getElementById('plex-token').value = data.keys.plex_token;
+                }
+                if (data.keys.tautulli_api) {
+                    document.getElementById('tautulli-api').value = data.keys.tautulli_api;
+                }
+
+                alert('Auto-detection complete! Found ' + Object.keys(data.services).length + ' services and ' + Object.keys(data.keys).length + ' API keys.');
+            })
+            .catch(err => {
+                console.error('Auto-detect error:', err);
+                alert('Error during auto-detection');
+            })
+            .finally(() => {
+                this.disabled = false;
+                this.innerHTML = '<span class="btn-icon">🔍</span> Auto-Detect';
+            });
+    });
+
+    // Test connection
+    function testConnection(service) {
+        const url = document.getElementById(service + '-url').value;
+        const apiKey = document.getElementById(service + '-api')?.value || '';
+        const token = document.getElementById(service + '-token')?.value || '';
+        const badge = document.getElementById(service + '-status');
+
+        badge.textContent = 'Testing...';
+        badge.className = 'integration-badge testing';
+
+        fetch('/api/test-connection', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ service, url, api_key: apiKey, token })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.connected) {
+                badge.textContent = 'Connected' + (data.version ? ' (v' + data.version + ')' : '');
+                badge.className = 'integration-badge connected';
+            } else {
+                badge.textContent = 'Failed';
+                badge.className = 'integration-badge error';
+            }
+        })
+        .catch(err => {
+            badge.textContent = 'Error';
+            badge.className = 'integration-badge error';
+        });
+    }
+
+    // Save settings
+    document.getElementById('btn-save').addEventListener('click', function() {
+        const settings = {
+            integrations: {
+                radarr: {
+                    enabled: document.getElementById('radarr-enabled').checked,
+                    url: document.getElementById('radarr-url').value,
+                    api_key: document.getElementById('radarr-api').value
+                },
+                sonarr: {
+                    enabled: document.getElementById('sonarr-enabled').checked,
+                    url: document.getElementById('sonarr-url').value,
+                    api_key: document.getElementById('sonarr-api').value
+                },
+                overseerr: {
+                    enabled: document.getElementById('overseerr-enabled').checked,
+                    url: document.getElementById('overseerr-url').value,
+                    api_key: document.getElementById('overseerr-api').value
+                },
+                plex: {
+                    enabled: document.getElementById('plex-enabled').checked,
+                    url: document.getElementById('plex-url').value,
+                    token: document.getElementById('plex-token').value
+                },
+                tautulli: {
+                    enabled: document.getElementById('tautulli-enabled').checked,
+                    url: document.getElementById('tautulli-url').value,
+                    api_key: document.getElementById('tautulli-api').value
+                }
+            },
+            ripping: {
+                min_length: parseInt(document.getElementById('min-length').value),
+                main_feature_only: document.getElementById('main-feature-only').checked,
+                skip_transcode: document.getElementById('skip-transcode').checked
+            },
+            paths: {
+                raw_rips: document.getElementById('path-raw').value,
+                movies: document.getElementById('path-movies').value,
+                tv: document.getElementById('path-tv').value
+            },
+            notifications: {
+                email: {
+                    on_complete: document.getElementById('notify-complete').checked,
+                    on_error: document.getElementById('notify-error').checked,
+                    recipients: document.getElementById('notify-recipients').value.split(',').map(s => s.trim())
+                }
+            }
+        };
+
+        fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('Settings saved!');
+            }
+        })
+        .catch(err => {
+            alert('Error saving settings');
+        });
+    });
+</script>
+{% endblock %}

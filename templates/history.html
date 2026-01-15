@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}RipForge - History{% endblock %}
+{% block page_title %}Rip History{% endblock %}
+
+{% block content %}
+<div class="history">
+    <section class="card">
+        <div class="history-header">
+            <h2>Recent Rips</h2>
+            <div class="history-filters">
+                <select id="filter-status">
+                    <option value="all">All Status</option>
+                    <option value="success">Success</option>
+                    <option value="error">Errors</option>
+                </select>
+                <select id="filter-type">
+                    <option value="all">All Types</option>
+                    <option value="movie">Movies</option>
+                    <option value="tv">TV Shows</option>
+                </select>
+            </div>
+        </div>
+
+        <table class="history-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Title</th>
+                    <th>Type</th>
+                    <th>Duration</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="history-body">
+                <tr>
+                    <td colspan="6" style="text-align: center; color: var(--text-muted);">
+                        No rip history yet. Insert a disc to get started!
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <!-- Activity Log -->
+    <section class="card">
+        <h2>Activity Log</h2>
+        <div class="activity-log" id="activity-log">
+            <pre id="log-content">Loading activity log...</pre>
+        </div>
+    </section>
+</div>
+
+<style>
+    .history-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .history-filters {
+        display: flex;
+        gap: 12px;
+    }
+
+    .history-filters select {
+        background: var(--bg-dark);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 8px 12px;
+        color: var(--text);
+        font-size: 14px;
+    }
+
+    .activity-log {
+        background: var(--bg-dark);
+        border-radius: 8px;
+        padding: 16px;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .activity-log pre {
+        font-family: 'Monaco', 'Menlo', monospace;
+        font-size: 12px;
+        line-height: 1.6;
+        color: var(--text-muted);
+        white-space: pre-wrap;
+        margin: 0;
+    }
+
+    .log-line {
+        margin: 2px 0;
+    }
+
+    .log-line.error {
+        color: var(--error);
+    }
+
+    .log-line.success {
+        color: var(--success);
+    }
+
+    .log-line.info {
+        color: var(--warning);
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Load activity log from rip-activity.log
+    async function loadActivityLog() {
+        try {
+            const response = await fetch('/api/activity-log');
+            const data = await response.json();
+            const logContent = document.getElementById('log-content');
+
+            if (data.log && data.log.length > 0) {
+                logContent.innerHTML = data.log.map(line => {
+                    let className = 'log-line';
+                    if (line.includes('ERROR')) className += ' error';
+                    else if (line.includes('COMPLETE') || line.includes('MOVED')) className += ' success';
+                    else if (line.includes('DETECTED') || line.includes('RIPPING')) className += ' info';
+                    return `<div class="${className}">${line}</div>`;
+                }).join('');
+            } else {
+                logContent.textContent = 'No activity log entries found.';
+            }
+        } catch (err) {
+            console.error('Error loading activity log:', err);
+            document.getElementById('log-content').textContent = 'Error loading activity log.';
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadActivityLog);
+</script>
+{% endblock %}

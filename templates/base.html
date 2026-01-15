@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}RipForge{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <span class="logo-icon">⚙</span>
+            <span class="logo-text">RipForge</span>
+        </div>
+        <ul class="nav-links">
+            <li><a href="/" class="{% if request.endpoint == 'main.index' %}active{% endif %}">
+                <span class="nav-icon">📀</span> Dashboard
+            </a></li>
+            <li><a href="/history" class="{% if request.endpoint == 'main.history' %}active{% endif %}">
+                <span class="nav-icon">📜</span> History
+            </a></li>
+            <li><a href="/settings" class="{% if request.endpoint == 'main.settings' %}active{% endif %}">
+                <span class="nav-icon">⚙️</span> Settings
+            </a></li>
+        </ul>
+        <div class="sidebar-footer">
+            <div class="version">v0.1.0</div>
+        </div>
+    </nav>
+
+    <main class="content">
+        <header class="topbar">
+            <h1>{% block page_title %}Dashboard{% endblock %}</h1>
+            <div class="topbar-status">
+                <span class="status-indicator" id="drive-status">● Drive Ready</span>
+            </div>
+        </header>
+
+        <div class="main-content">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

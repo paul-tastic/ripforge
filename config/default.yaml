@@ -1,0 +1,72 @@
+# RipForge Configuration
+# This file stores your settings - edit via the web UI or directly here
+
+ripforge:
+  port: 8081
+  host: "0.0.0.0"
+  timezone: "America/Chicago"
+
+# Paths
+paths:
+  raw_rips: "/mnt/media/rips/raw"
+  completed: "/mnt/media/rips/completed"
+  movies: "/mnt/media/movies"
+  tv: "/mnt/media/tv"
+  logs: "/home/paul/ripforge/logs"
+
+# Optical drive
+drive:
+  device: "/dev/sr0"
+
+# Ripping settings
+ripping:
+  min_length: 2700        # 45 minutes - skip short tracks
+  max_length: 99999       # No max (main feature mode)
+  main_feature_only: true # Only rip longest track
+  skip_transcode: true    # Keep original MakeMKV quality
+
+# Integrations (auto-detected or manually configured)
+integrations:
+  radarr:
+    enabled: true
+    url: "http://localhost:7878"
+    api_key: ""
+
+  sonarr:
+    enabled: true
+    url: "http://localhost:8989"
+    api_key: ""
+
+  overseerr:
+    enabled: true
+    url: "http://localhost:5055"
+    api_key: ""
+
+  plex:
+    enabled: true
+    url: "http://localhost:32400"
+    token: ""
+
+  tautulli:
+    enabled: false
+    url: "http://localhost:8181"
+    api_key: ""
+
+# Notifications
+notifications:
+  email:
+    enabled: true
+    smtp_host: "mail.dotvector.com"
+    smtp_port: 587
+    from_address: "paul@dotvector.com"
+    recipients:
+      - "paul@dotvector.com"
+    on_complete: true
+    on_error: true
+
+# Identification settings
+identification:
+  use_overseerr_wanted: true   # Check Overseerr requests for matches
+  use_radarr_wanted: true      # Check Radarr wanted list
+  runtime_tolerance: 300       # 5 minutes tolerance for runtime matching
+  confidence_threshold: 75     # Auto-accept matches above this score
