@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+
+{% block title %}RipForge - Notifications{% endblock %}
+{% block page_title %}Notifications{% endblock %}
+
+{% block content %}
+<div class="notifications-page">
+    <!-- Newsletter Settings -->
+    <section class="card">
+        <h2>Newsletter Settings</h2>
+        <div class="newsletter-settings">
+            <div class="settings-row">
+                <div class="field">
+                    <label>Frequency</label>
+                    <select id="newsletter-frequency">
+                        <option value="weekly">Weekly</option>
+                        <option value="biweekly">Every 2 Weeks</option>
+                        <option value="monthly">Monthly</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Day</label>
+                    <select id="newsletter-day">
+                        <option value="sunday">Sunday</option>
+                        <option value="monday">Monday</option>
+                        <option value="tuesday">Tuesday</option>
+                        <option value="wednesday">Wednesday</option>
+                        <option value="thursday">Thursday</option>
+                        <option value="friday">Friday</option>
+                        <option value="saturday">Saturday</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Time</label>
+                    <select id="newsletter-hour">
+                        <option value="6">6:00 AM</option>
+                        <option value="7">7:00 AM</option>
+                        <option value="8">8:00 AM</option>
+                        <option value="9">9:00 AM</option>
+                        <option value="10">10:00 AM</option>
+                        <option value="12">12:00 PM</option>
+                        <option value="18">6:00 PM</option>
+                    </select>
+                </div>
+            </div>
+            <div class="field">
+                <label>Recipients (comma-separated emails)</label>
+                <input type="text" id="newsletter-recipients" placeholder="email1@example.com, email2@example.com">
+            </div>
+            <div class="settings-actions">
+                <button class="btn btn-primary" id="btn-save-newsletter">Save Settings</button>
+                <button class="btn btn-secondary" id="btn-send-test">Send Test Email</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Content Queue -->
+    <section class="card">
+        <h2>Newsletter Queue</h2>
+        <p class="card-description">Content that will be included in the next newsletter</p>
+
+        <div class="queue-container">
+            <div class="queue-section">
+                <h3>Movies</h3>
+                <div class="queue-list" id="queue-movies">
+                    <div class="queue-empty">No movies in queue</div>
+                </div>
+            </div>
+            <div class="queue-section">
+                <h3>TV Shows</h3>
+                <div class="queue-list" id="queue-shows">
+                    <div class="queue-empty">No TV shows in queue</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="queue-actions">
+            <button class="btn btn-secondary" id="btn-clear-queue">Clear Queue After Send</button>
+        </div>
+    </section>
+
+    <!-- Add to Queue (Manual) -->
+    <section class="card">
+        <h2>Add to Queue</h2>
+        <p class="card-description">Manually add content to the newsletter queue</p>
+
+        <div class="add-queue-form">
+            <div class="field">
+                <label>Title</label>
+                <input type="text" id="add-title" placeholder="Movie or show title">
+            </div>
+            <div class="field">
+                <label>Type</label>
+                <select id="add-type">
+                    <option value="movie">Movie</option>
+                    <option value="tv">TV Show</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Year</label>
+                <input type="text" id="add-year" placeholder="2024">
+            </div>
+            <button class="btn btn-primary" id="btn-add-queue">Add to Queue</button>
+        </div>
+    </section>
+
+    <!-- Notification Events -->
+    <section class="card">
+        <h2>Event Notifications</h2>
+        <p class="card-description">Get notified when things happen</p>
+
+        <div class="notification-toggles">
+            <label class="toggle-row">
+                <input type="checkbox" id="notify-rip-complete" checked>
+                <span>Rip completed</span>
+            </label>
+            <label class="toggle-row">
+                <input type="checkbox" id="notify-rip-error" checked>
+                <span>Rip error/failure</span>
+            </label>
+            <label class="toggle-row">
+                <input type="checkbox" id="notify-added-library">
+                <span>Content added to library</span>
+            </label>
+            <label class="toggle-row">
+                <input type="checkbox" id="notify-disc-inserted">
+                <span>Disc inserted</span>
+            </label>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        loadNewsletterSettings();
+        loadQueue();
+    });
+
+    function loadNewsletterSettings() {
+        fetch('/api/newsletter/settings')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('newsletter-frequency').value = data.frequency || 'weekly';
+                document.getElementById('newsletter-day').value = data.day || 'thursday';
+                document.getElementById('newsletter-hour').value = data.hour || 9;
+                if (data.recipients) {
+                    document.getElementById('newsletter-recipients').value = data.recipients.join(', ');
+                }
+            });
+    }
+
+    function loadQueue() {
+        fetch('/api/newsletter/preview')
+            .then(r => r.json())
+            .then(data => {
+                renderQueue('queue-movies', data.movies, 'movie');
+                renderQueue('queue-shows', data.shows, 'tv');
+            });
+    }
+
+    function renderQueue(containerId, items, type) {
+        const container = document.getElementById(containerId);
+        if (!items || items.length === 0) {
+            container.innerHTML = '<div class="queue-empty">No ' + (type === 'movie' ? 'movies' : 'TV shows') + ' in queue</div>';
+            return;
+        }
+
+        container.innerHTML = items.map((item, index) => `
+            <div class="queue-item">
+                <div class="queue-item-info">
+                    <span class="queue-title">${item.title}</span>
+                    <span class="queue-year">${item.year || ''}</span>
+                </div>
+                <button class="btn btn-small btn-danger" onclick="removeFromQueue(${index})">Remove</button>
+            </div>
+        `).join('');
+    }
+
+    function removeFromQueue(index) {
+        fetch('/api/newsletter/queue/' + index, { method: 'DELETE' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    loadQueue();
+                }
+            });
+    }
+
+    document.getElementById('btn-save-newsletter').addEventListener('click', function() {
+        const settings = {
+            frequency: document.getElementById('newsletter-frequency').value,
+            day: document.getElementById('newsletter-day').value,
+            hour: parseInt(document.getElementById('newsletter-hour').value),
+            recipients: document.getElementById('newsletter-recipients').value.split(',').map(s => s.trim()).filter(s => s)
+        };
+
+        fetch('/api/newsletter/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('Newsletter settings saved!');
+            }
+        });
+    });
+
+    document.getElementById('btn-send-test').addEventListener('click', function() {
+        this.disabled = true;
+        this.textContent = 'Sending...';
+
+        fetch('/api/newsletter/send-test', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Test email sent to your address only!');
+                } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .finally(() => {
+                this.disabled = false;
+                this.textContent = 'Send Test Email';
+            });
+    });
+
+    document.getElementById('btn-add-queue').addEventListener('click', function() {
+        const title = document.getElementById('add-title').value;
+        const type = document.getElementById('add-type').value;
+        const year = document.getElementById('add-year').value;
+
+        if (!title) {
+            alert('Please enter a title');
+            return;
+        }
+
+        fetch('/api/newsletter/queue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title: title,
+                type: type,
+                year: year,
+                added: new Date().toISOString()
+            })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('add-title').value = '';
+                document.getElementById('add-year').value = '';
+                loadQueue();
+            }
+        });
+    });
+</script>
+{% endblock %}

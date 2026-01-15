@@ -1,0 +1,7 @@
+# RipForge udev rules
+# Triggers automatic rip when a disc is inserted
+# Install: sudo cp 99-ripforge.rules /etc/udev/rules.d/
+# Reload: sudo udevadm control --reload-rules
+
+# Blu-ray/DVD disc inserted
+ACTION=="change", SUBSYSTEM=="block", KERNEL=="sr[0-9]*", ENV{ID_CDROM_MEDIA}=="1", RUN+="/home/paul/ripforge/scripts/disc-inserted.sh /dev/%k"

@@ -6,6 +6,7 @@ RipForge - Disc Ripping Solution
 from flask import Flask
 from app.routes import main
 from app import config
+from app import ripper
 
 def create_app():
     app = Flask(__name__,
@@ -22,6 +23,10 @@ def create_app():
 
 if __name__ == '__main__':
     cfg = config.load_config()
+
+    # Initialize the rip engine
+    ripper.init_engine(cfg)
+    print("  Rip engine initialized")
     app = create_app()
 
     host = cfg.get('ripforge', {}).get('host', '0.0.0.0')

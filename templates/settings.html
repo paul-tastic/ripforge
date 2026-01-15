@@ -227,29 +227,37 @@
             .then(data => {
                 console.log('Auto-detect result:', data);
 
-                // Fill in detected services
-                for (const [service, info] of Object.entries(data.services)) {
-                    if (info.detected) {
-                        document.getElementById(service + '-url').value = info.url;
-                        document.getElementById(service + '-enabled').checked = true;
+                const numServices = Object.keys(data.services).length;
+                const numKeys = Object.keys(data.keys).length;
+
+                if (data.applied) {
+                    // Settings were saved - reload the page to show new values
+                    alert('Auto-detection complete! Found ' + numServices + ' services and ' + numKeys + ' API keys. Settings saved - reloading page...');
+                    window.location.reload();
+                } else {
+                    // Fill in detected services (fallback if not auto-saved)
+                    for (const [service, info] of Object.entries(data.services)) {
+                        if (info.detected) {
+                            document.getElementById(service + '-url').value = info.url;
+                            document.getElementById(service + '-enabled').checked = true;
+                        }
                     }
-                }
 
-                // Fill in imported keys
-                if (data.keys.radarr_api) {
-                    document.getElementById('radarr-api').value = data.keys.radarr_api;
-                }
-                if (data.keys.sonarr_api) {
-                    document.getElementById('sonarr-api').value = data.keys.sonarr_api;
-                }
-                if (data.keys.plex_token) {
-                    document.getElementById('plex-token').value = data.keys.plex_token;
-                }
-                if (data.keys.tautulli_api) {
-                    document.getElementById('tautulli-api').value = data.keys.tautulli_api;
-                }
+                    if (data.keys.radarr_api) {
+                        document.getElementById('radarr-api').value = data.keys.radarr_api;
+                    }
+                    if (data.keys.sonarr_api) {
+                        document.getElementById('sonarr-api').value = data.keys.sonarr_api;
+                    }
+                    if (data.keys.plex_token) {
+                        document.getElementById('plex-token').value = data.keys.plex_token;
+                    }
+                    if (data.keys.tautulli_api) {
+                        document.getElementById('tautulli-api').value = data.keys.tautulli_api;
+                    }
 
-                alert('Auto-detection complete! Found ' + Object.keys(data.services).length + ' services and ' + Object.keys(data.keys).length + ' API keys.');
+                    alert('Auto-detection complete! Found ' + numServices + ' services and ' + numKeys + ' API keys. Click Save to apply.');
+                }
             })
             .catch(err => {
                 console.error('Auto-detect error:', err);

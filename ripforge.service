@@ -1,0 +1,16 @@
+[Unit]
+Description=RipForge Disc Ripping Web UI
+After=network.target
+
+[Service]
+Type=simple
+User=paul
+Group=paul
+WorkingDirectory=/home/paul/ripforge
+ExecStart=/home/paul/ripforge/venv/bin/python /home/paul/ripforge/run.py
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

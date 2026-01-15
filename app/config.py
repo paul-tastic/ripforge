@@ -165,6 +165,213 @@ def detect_optical_drives() -> list:
     return drives
 
 
+def _simplify_gpu_name(gpu: str) -> str:
+    """Clean up verbose GPU names from lspci"""
+    import re
+
+    # Remove revision info like "(rev c8)"
+    gpu = re.sub(r'\s*\(rev [a-f0-9]+\)', '', gpu)
+
+    # Handle AMD/ATI verbose names
+    # "Advanced Micro Devices, Inc. [AMD/ATI] Cezanne [Radeon Vega Series / Radeon Vega Mobile Series]"
+    # -> "AMD Radeon Vega (Cezanne)"
+    if 'AMD' in gpu or 'ATI' in gpu:
+        # Extract codename from brackets
+        codename_match = re.search(r'\]\s*(\w+)\s*\[', gpu)
+        codename = codename_match.group(1) if codename_match else ''
+
+        # Extract product name
+        product_match = re.search(r'\[([^\]]*Radeon[^\]]*)\]', gpu)
+        if product_match:
+            product = product_match.group(1)
+            # Simplify "Radeon Vega Series / Radeon Vega Mobile Series" -> "Radeon Vega"
+            product = re.sub(r'\s*/[^/]+$', '', product)  # Remove after slash
+            product = re.sub(r'\s+Series$', '', product)  # Remove "Series"
+            if codename:
+                return f"AMD {product} ({codename})"
+            return f"AMD {product}"
+
+        # Fallback for AMD without Radeon
+        if codename:
+            return f"AMD {codename}"
+
+    # Handle NVIDIA - usually cleaner but remove corp name
+    if 'NVIDIA' in gpu:
+        gpu = re.sub(r'NVIDIA Corporation\s*', 'NVIDIA ', gpu)
+        gpu = re.sub(r'\s+', ' ', gpu).strip()
+        return gpu
+
+    # Handle Intel
+    if 'Intel' in gpu:
+        gpu = re.sub(r'Intel Corporation\s*', 'Intel ', gpu)
+        gpu = re.sub(r'\s+', ' ', gpu).strip()
+        return gpu
+
+    return gpu
+
+
+def detect_hardware() -> dict:
+    """Detect system hardware for the flex card"""
+    hardware = {
+        'cpu': 'Unknown',
+        'cpu_cores': 0,
+        'ram_gb': 0,
+        'ram_used_gb': 0,
+        'storage': [],
+        'disk_total': '',
+        'disk_used': '',
+        'disk_percent': 0,
+        'os': 'Unknown',
+        'hostname': 'Unknown',
+        'ip_address': 'Unknown',
+        'uptime': 'Unknown',
+        'gpu': None,
+        'docker_version': None
+    }
+
+    try:
+        # CPU info
+        result = subprocess.run(
+            ["lscpu"], capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                if 'Model name:' in line:
+                    hardware['cpu'] = line.split(':')[1].strip()
+                elif line.startswith('CPU(s):'):
+                    hardware['cpu_cores'] = int(line.split(':')[1].strip())
+
+        # RAM info
+        result = subprocess.run(
+            ["free", "-g"], capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            if len(lines) > 1:
+                parts = lines[1].split()
+                if len(parts) >= 3:
+                    hardware['ram_gb'] = int(parts[1])
+                    hardware['ram_used_gb'] = int(parts[2])
+
+        # Get drive types (SSD vs HDD) - ROTA=0 is SSD, ROTA=1 is HDD
+        drive_types = {}
+        result = subprocess.run(
+            ["lsblk", "-d", "-o", "NAME,ROTA", "-n"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split('\n'):
+                parts = line.split()
+                if len(parts) >= 2:
+                    drive_types[parts[0]] = 'SSD' if parts[1] == '0' else 'HDD'
+
+        # Storage info - get all mounted filesystems with usage
+        result = subprocess.run(
+            ["df", "-h", "--output=source,size,used,avail,pcent,target", "-x", "tmpfs", "-x", "devtmpfs", "-x", "squashfs", "-x", "overlay"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')[1:]  # Skip header
+            for line in lines:
+                parts = line.split()
+                if len(parts) >= 6:
+                    source = parts[0]
+                    mount = parts[5]
+                    # Skip boot partitions and small system partitions
+                    if '/boot' in mount or mount == '/':
+                        continue
+                    # Only show meaningful mounts
+                    if mount.startswith('/mnt') or mount.startswith('/media') or mount.startswith('/home'):
+                        # Skip underlying mergerfs component disks (disk1, disk2, etc.)
+                        if '/disk' in mount:
+                            continue
+                        # Determine drive type from source device
+                        drive_name = source.replace('/dev/', '').rstrip('0123456789')
+                        drive_type = drive_types.get(drive_name, '')
+                        # For mergerfs, mark as "Pool"
+                        if 'mergerfs' in source or source.startswith('/mnt/'):
+                            drive_type = 'Pool'
+                        hardware['storage'].append({
+                            'mount': mount,
+                            'size': parts[1],
+                            'used': parts[2],
+                            'avail': parts[3],
+                            'percent': parts[4],
+                            'source': source,
+                            'type': drive_type
+                        })
+
+        # Disk usage for /mnt/media
+        result = subprocess.run(
+            ["df", "-h", "/mnt/media"], capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            if len(lines) > 1:
+                parts = lines[1].split()
+                if len(parts) >= 5:
+                    hardware['disk_total'] = parts[1]
+                    hardware['disk_used'] = parts[2]
+                    hardware['disk_percent'] = int(parts[4].replace('%', ''))
+
+        # OS info and hostname
+        result = subprocess.run(
+            ["hostnamectl"], capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                if 'Operating System:' in line:
+                    hardware['os'] = line.split(':')[1].strip()
+                elif 'Static hostname:' in line:
+                    hardware['hostname'] = line.split(':')[1].strip()
+
+        # IP address
+        result = subprocess.run(
+            ["hostname", "-I"], capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            ips = result.stdout.strip().split()
+            if ips:
+                hardware['ip_address'] = ips[0]
+
+        # Uptime
+        result = subprocess.run(
+            ["uptime", "-p"], capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            hardware['uptime'] = result.stdout.strip().replace('up ', '')
+
+        # GPU (try lspci for nvidia/amd)
+        result = subprocess.run(
+            ["lspci"], capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                if 'VGA' in line or '3D' in line:
+                    # Extract GPU name after the colon
+                    if ':' in line:
+                        gpu_part = line.split(':')[-1].strip()
+                        # Clean up verbose GPU names
+                        gpu_part = _simplify_gpu_name(gpu_part)
+                        hardware['gpu'] = gpu_part
+                        break
+
+        # Docker version
+        result = subprocess.run(
+            ["docker", "--version"], capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            # "Docker version 24.0.5, build ced0996"
+            version_str = result.stdout.strip()
+            if 'version' in version_str.lower():
+                hardware['docker_version'] = version_str.split(',')[0].replace('Docker version ', '')
+
+    except Exception as e:
+        print(f"Error detecting hardware: {e}")
+
+    return hardware
+
+
 def import_existing_api_keys() -> dict:
     """Try to import API keys from existing scripts"""
     keys = {}
@@ -222,7 +429,7 @@ def import_existing_api_keys() -> dict:
 
 
 def run_auto_setup() -> dict:
-    """Run full auto-detection and return discovered configuration"""
+    """Run full auto-detection and apply discovered configuration"""
     print("Running auto-detection...")
 
     # Detect Docker services
@@ -237,8 +444,43 @@ def run_auto_setup() -> dict:
     print("  Looking for existing API keys...")
     keys = import_existing_api_keys()
 
+    # Load current config and apply discovered settings
+    cfg = load_config()
+    if 'integrations' not in cfg:
+        cfg['integrations'] = {}
+
+    # Apply discovered services and keys
+    for service_name, service_data in services.items():
+        if service_name not in cfg['integrations']:
+            cfg['integrations'][service_name] = {}
+        cfg['integrations'][service_name]['enabled'] = True
+        cfg['integrations'][service_name]['url'] = service_data['url']
+
+    # Apply discovered API keys
+    key_mapping = {
+        'radarr_api': ('radarr', 'api_key'),
+        'sonarr_api': ('sonarr', 'api_key'),
+        'plex_token': ('plex', 'token'),
+        'tautulli_api': ('tautulli', 'api_key'),
+    }
+
+    for key_name, (service, field) in key_mapping.items():
+        if key_name in keys:
+            if service not in cfg['integrations']:
+                cfg['integrations'][service] = {'enabled': True}
+            cfg['integrations'][service][field] = keys[key_name]
+
+    # Apply discovered optical drive
+    if drives and 'drive' not in cfg:
+        cfg['drive'] = {'device': drives[0]['device']}
+
+    # Save the updated config
+    save_config(cfg)
+    print("  Configuration saved!")
+
     return {
         'services': services,
         'drives': drives,
-        'keys': keys
+        'keys': keys,
+        'applied': True
     }

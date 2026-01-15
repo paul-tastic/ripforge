@@ -2,25 +2,22 @@
 
 A modern, self-hosted disc ripping solution with smart identification and media server integration.
 
-![RipForge Dashboard](docs/screenshot.png)
-
 ## Features
 
-- **Smart Disc Identification** - Uses disc label parsing + runtime matching against TMDB (not unreliable CRC lookups)
+- **Smart Disc Identification** - Parses disc labels + matches runtime against Radarr/TMDB
+- **Editable Title** - Scan disc first, verify/edit the title, then rip with confidence
 - **Media Server Integration** - Connects with Radarr, Sonarr, Overseerr, and Plex
-- **Overseerr Matching** - Automatically matches ripped discs against your requested movies
-- **Clean Web UI** - Modern dashboard for monitoring rips, viewing history, and configuring settings
-- **Auto-Detection** - Scans for existing Docker containers and imports API keys
-- **Email Notifications** - Get notified when rips complete or fail
-- **Main Feature Mode** - Skip extras and bonus content, rip only the main movie
+- **Real-time Progress** - Checklist UI shows each step as it completes
+- **Hardware Dashboard** - Shows CPU, RAM, storage (with SSD/HDD/Pool detection), optical drive
+- **Auto-Detection** - Scans for Docker containers and imports API keys automatically
+- **Systemd Service** - Runs on boot, survives reboots
 
 ## Requirements
 
-- Linux (tested on Ubuntu 22.04+)
+- Linux (tested on Ubuntu 24.04)
 - Python 3.10+
 - MakeMKV (for disc ripping)
 - Optical drive (Blu-ray or DVD)
-- Docker (optional, for running alongside existing media stack)
 
 ## Quick Start
 
@@ -29,18 +26,47 @@ A modern, self-hosted disc ripping solution with smart identification and media 
 git clone https://github.com/paul-tastic/ripforge.git
 cd ripforge
 
-# Install dependencies
+# Run setup script
+./scripts/setup.sh
+
+# Or manual setup:
+# Install MakeMKV (Ubuntu/Debian)
+sudo add-apt-repository ppa:heyarje/makemkv-beta
+sudo apt update
+sudo apt install makemkv-bin makemkv-oss
+
+# Add user to cdrom group
+sudo usermod -aG cdrom $USER
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 
-# Run the application
+# Run
 python run.py
 ```
 
 Open http://localhost:8081 in your browser.
 
+## Install as Service
+
+```bash
+# Copy service file
+sudo cp ripforge.service /etc/systemd/system/
+
+# Enable and start
+sudo systemctl daemon-reload
+sudo systemctl enable ripforge
+sudo systemctl start ripforge
+
+# Check status
+sudo systemctl status ripforge
+```
+
 ## Configuration
 
-On first run, click **Auto-Detect** to scan for existing services (Radarr, Sonarr, Plex, etc.) and import API keys from existing scripts.
+On first run, click **Auto-Detect** to scan for existing services and import API keys.
 
 Configuration is stored in `config/settings.yaml`.
 
@@ -48,38 +74,32 @@ Configuration is stored in `config/settings.yaml`.
 
 | Service | Purpose |
 |---------|---------|
-| Radarr | Movie library management, wanted list matching |
+| Radarr | Movie identification via TMDB, library management |
 | Sonarr | TV show library management |
-| Overseerr | Request matching - match rips against user requests |
+| Overseerr | Request matching |
 | Plex | Media server, library scanning |
 | Tautulli | Plex monitoring (optional) |
 
-### Ripping Settings
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `min_length` | 2700 | Minimum track length in seconds (45 min) |
-| `main_feature_only` | true | Only rip the longest track |
-| `skip_transcode` | true | Keep original MakeMKV quality |
-
 ## How It Works
 
-1. **Disc Detection** - udev rules detect when a disc is inserted
-2. **Identification** - Parse disc label, get runtime via ffprobe, match against TMDB
-3. **Overseerr Check** - See if the disc matches any pending requests
-4. **Rip** - MakeMKV extracts the main feature
-5. **Post-Processing** - Add to Radarr/Sonarr, move to library, trigger Plex scan
-6. **Notification** - Email summary of the rip
+1. **Scan Disc** - Click "Scan Disc" to read disc info and identify content
+2. **Verify Title** - Edit the suggested title if needed (e.g., "Nacho Libre (2006)")
+3. **Start Rip** - MakeMKV extracts the main feature using your title
+4. **Auto-Processing** - Adds to Radarr, moves to library, triggers Plex scan
+5. **Done** - Movie appears in Plex
 
 ## API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/status` | GET | Current system status |
-| `/api/settings` | GET/POST | Configuration management |
+| `/api/status` | GET | System status and integrations |
+| `/api/disc/scan-identify` | GET | Scan disc and identify content |
+| `/api/rip/start` | POST | Start ripping (accepts custom_title) |
+| `/api/rip/status` | GET | Current rip progress |
+| `/api/rip/reset` | POST | Cancel/reset current job |
+| `/api/hardware` | GET | System hardware info |
+| `/api/settings` | GET/POST | Configuration |
 | `/api/auto-detect` | POST | Scan for services |
-| `/api/test-connection` | POST | Test service connection |
-| `/api/activity-log` | GET | Recent activity log |
 
 ## Project Structure
 
@@ -87,48 +107,43 @@ Configuration is stored in `config/settings.yaml`.
 ripforge/
 ├── app/
 │   ├── __init__.py
-│   ├── config.py      # Configuration management
+│   ├── config.py      # Configuration and hardware detection
 │   ├── routes.py      # Web routes and API
-│   ├── ripper.py      # Disc ripping engine (TODO)
-│   └── identify.py    # Smart identification (TODO)
+│   ├── ripper.py      # MakeMKV wrapper and rip engine
+│   └── identify.py    # Smart identification (label parsing + TMDB)
 ├── config/
-│   └── default.yaml   # Default configuration
-├── static/
-│   ├── css/
-│   └── js/
+│   └── settings.yaml  # User configuration
+├── static/css/
+│   └── style.css      # Dark theme UI
 ├── templates/
 │   ├── base.html
-│   ├── index.html
-│   ├── settings.html
-│   └── history.html
+│   ├── index.html     # Dashboard with rip checklist
+│   ├── settings.html  # Integration configuration
+│   └── history.html   # Rip history
+├── scripts/
+│   └── setup.sh       # Installation script
+├── ripforge.service   # Systemd service file
 ├── requirements.txt
 └── run.py
 ```
 
-## Comparison to ARM
+## Storage Support
 
-RipForge was created as a cleaner alternative to [Automatic Ripping Machine (ARM)](https://github.com/automatic-ripping-machine/automatic-ripping-machine).
+RipForge detects and displays:
+- **SSD** - Solid state drives
+- **HDD** - Hard disk drives
+- **Pool** - MergerFS/union filesystem pools
+
+## Comparison to ARM
 
 | Feature | ARM | RipForge |
 |---------|-----|----------|
 | Disc identification | CRC64 lookup (often wrong) | Label parsing + runtime matching |
-| Overseerr integration | No | Yes |
-| Radarr wanted list | No | Yes |
-| Web UI | Functional but dated | Modern, clean |
-| Configuration | Scattered config files | Single YAML file |
-| Dependencies | Heavy (many services) | Lightweight |
-
-## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request.
+| Pre-rip verification | No | Yes - scan and edit title first |
+| Web UI | Dated | Modern dark theme |
+| Configuration | Multiple files | Single YAML |
+| Service management | Complex | Simple systemd |
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Credits
-
-Built with:
-- [Flask](https://flask.palletsprojects.com/)
-- [MakeMKV](https://www.makemkv.com/)
-- [PyYAML](https://pyyaml.org/)
+MIT License

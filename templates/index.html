@@ -8,18 +8,156 @@
     <!-- Current Rip Status -->
     <section class="card rip-status">
         <h2>Current Status</h2>
-        <div class="status-display" id="current-status">
-            <div class="status-icon idle">📀</div>
-            <div class="status-text">
-                <div class="status-title">Ready</div>
-                <div class="status-subtitle">Insert a disc to begin</div>
+
+        <!-- Idle State -->
+        <div class="status-idle" id="status-idle">
+            <div class="status-display">
+                <div class="status-icon idle">📀</div>
+                <div class="status-text">
+                    <div class="status-title">Ready</div>
+                    <div class="status-subtitle">Insert a disc to begin</div>
+                </div>
+            </div>
+
+            <!-- Scan Results (hidden until scan completes) -->
+            <div class="scan-results" id="scan-results" style="display: none;">
+                <div class="scan-info">
+                    <span class="scan-disc-type" id="scan-disc-type">DVD</span>
+                    <span class="scan-disc-label" id="scan-disc-label">DISC_LABEL</span>
+                    <span class="scan-runtime" id="scan-runtime">1:30:00</span>
+                </div>
+                <div class="scan-title-edit">
+                    <label for="custom-title">Title:</label>
+                    <input type="text" id="custom-title" class="title-input" placeholder="Movie Title (Year)">
+                    <span class="confidence-badge" id="confidence-badge" style="display: none;">HIGH</span>
+                </div>
+            </div>
+
+            <div class="status-actions">
+                <button class="btn btn-primary" id="btn-start-rip" onclick="startRip()">
+                    Start Rip
+                </button>
+                <button class="btn btn-secondary" id="btn-scan-disc" onclick="scanDisc()">
+                    Scan Disc
+                </button>
+                <button class="btn btn-danger" id="btn-reset-rip" onclick="resetRip()" style="display: none;">
+                    Reset
+                </button>
             </div>
         </div>
-        <div class="progress-container" id="progress-container" style="display: none;">
-            <div class="progress-bar">
-                <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+
+        <!-- Active Rip Checklist -->
+        <div class="rip-checklist" id="rip-checklist" style="display: none;">
+            <div class="rip-title" id="rip-title">
+                <span class="disc-label">Processing disc...</span>
             </div>
-            <div class="progress-text" id="progress-text">0%</div>
+
+            <div class="checklist">
+                <div class="checklist-item" id="step-insert" data-status="pending">
+                    <span class="check-icon">○</span>
+                    <span class="check-text">Disc inserted</span>
+                    <span class="check-detail"></span>
+                </div>
+                <div class="checklist-item" id="step-detect" data-status="pending">
+                    <span class="check-icon">○</span>
+                    <span class="check-text">Detecting disc type</span>
+                    <span class="check-detail"></span>
+                </div>
+                <div class="checklist-item" id="step-scan" data-status="pending">
+                    <span class="check-icon">○</span>
+                    <span class="check-text">Scanning tracks</span>
+                    <span class="check-detail"></span>
+                </div>
+                <div class="checklist-item" id="step-rip" data-status="pending">
+                    <span class="check-icon">○</span>
+                    <span class="check-text">Ripping main feature</span>
+                    <span class="check-detail"></span>
+                </div>
+                <div class="checklist-item" id="step-identify" data-status="pending">
+                    <span class="check-icon">○</span>
+                    <span class="check-text">Identifying content</span>
+                    <span class="check-detail"></span>
+                </div>
+                <div class="checklist-item" id="step-library" data-status="pending">
+                    <span class="check-icon">○</span>
+                    <span class="check-text">Adding to library</span>
+                    <span class="check-detail"></span>
+                </div>
+                <div class="checklist-item" id="step-move" data-status="pending">
+                    <span class="check-icon">○</span>
+                    <span class="check-text">Moving to destination</span>
+                    <span class="check-detail"></span>
+                </div>
+                <div class="checklist-item" id="step-scan-plex" data-status="pending">
+                    <span class="check-icon">○</span>
+                    <span class="check-text">Triggering Plex scan</span>
+                    <span class="check-detail"></span>
+                </div>
+            </div>
+
+            <!-- Progress bar for current step -->
+            <div class="rip-progress" id="rip-progress" style="display: none;">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+                </div>
+                <div class="progress-info">
+                    <span id="progress-text">0%</span>
+                    <span id="progress-eta"></span>
+                </div>
+            </div>
+
+            <!-- Actions for rip in progress -->
+            <div class="rip-actions" id="rip-actions" style="display: none; margin-top: 1rem; text-align: center;">
+                <button class="btn btn-danger" onclick="resetRip()">Reset</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Hardware Flex Card -->
+    <section class="card hardware-flex">
+        <div class="hardware-header">
+            <div class="ripforge-brand">
+                <span class="brand-icon">🔥</span>
+                <span class="brand-name">RipForge</span>
+            </div>
+            <span class="hardware-hostname" id="hw-hostname">-</span>
+        </div>
+        <div class="hardware-list" id="hardware-list">
+            <div class="hw-row">
+                <span class="hw-label">CPU</span>
+                <span class="hw-value" id="hw-cpu">Detecting...</span>
+            </div>
+            <div class="hw-row">
+                <span class="hw-label">Memory</span>
+                <span class="hw-value" id="hw-ram">-</span>
+            </div>
+            <div class="hw-row" id="hw-gpu-row" style="display: none;">
+                <span class="hw-label">GPU</span>
+                <span class="hw-value" id="hw-gpu">-</span>
+            </div>
+            <div id="hw-storage-rows">
+                <!-- Storage rows will be inserted here dynamically -->
+            </div>
+            <div class="hw-row">
+                <span class="hw-label">Optical Drive</span>
+                <span class="hw-value" id="hw-optical">-</span>
+            </div>
+            <div class="hw-row">
+                <span class="hw-label">IP Address</span>
+                <span class="hw-value" id="hw-ip">-</span>
+            </div>
+            <div class="hw-row">
+                <span class="hw-label">Uptime</span>
+                <span class="hw-value" id="hw-uptime">-</span>
+            </div>
+            <div class="hw-row">
+                <span class="hw-label">OS</span>
+                <span class="hw-value" id="hw-os">-</span>
+            </div>
+            <div class="hw-row">
+                <span class="hw-label">Docker</span>
+                <span class="hw-value" id="hw-docker">-</span>
+            </div>
         </div>
     </section>
 
@@ -42,25 +180,6 @@
             <div class="stat">
                 <div class="stat-value" id="stat-errors">0</div>
                 <div class="stat-label">Errors</div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Drive Info -->
-    <section class="card drive-info">
-        <h2>Optical Drive</h2>
-        <div class="drive-details" id="drive-details">
-            <div class="drive-row">
-                <span class="label">Device:</span>
-                <span class="value" id="drive-device">Scanning...</span>
-            </div>
-            <div class="drive-row">
-                <span class="label">Model:</span>
-                <span class="value" id="drive-model">-</span>
-            </div>
-            <div class="drive-row">
-                <span class="label">Status:</span>
-                <span class="value" id="drive-disc-status">No disc</span>
             </div>
         </div>
     </section>
@@ -106,20 +225,156 @@
     // Load status on page load
     document.addEventListener('DOMContentLoaded', function() {
         loadStatus();
-        // Refresh every 5 seconds
+        loadHardware();
+        restoreScanResults();  // Restore scan results from session
+        // Refresh status every 5 seconds
         setInterval(loadStatus, 5000);
     });
+
+    // Restore scan results from sessionStorage (persists across tab switches)
+    function restoreScanResults() {
+        const saved = sessionStorage.getItem('scanResults');
+        if (saved) {
+            try {
+                const data = JSON.parse(saved);
+                displayScanResults(data);
+            } catch (e) {
+                console.error('Error restoring scan results:', e);
+            }
+        }
+    }
+
+    // Save scan results to sessionStorage
+    function saveScanResults(data) {
+        sessionStorage.setItem('scanResults', JSON.stringify(data));
+    }
+
+    // Clear scan results
+    function clearScanResults() {
+        sessionStorage.removeItem('scanResults');
+        document.getElementById('scan-results').style.display = 'none';
+        showingScanResults = false;
+    }
+
+    // Display scan results in the UI
+    function displayScanResults(data) {
+        showingScanResults = true;
+
+        // Update status text
+        const statusTitle = document.querySelector('.status-title');
+        const statusSubtitle = document.querySelector('.status-subtitle');
+
+        if (data.identified) {
+            statusTitle.textContent = data.identified.title;
+            statusSubtitle.textContent = `Identified with ${data.identified.confidence}% confidence`;
+        } else {
+            statusTitle.textContent = data.parsed_search || data.disc_label;
+            statusSubtitle.textContent = 'Could not auto-identify - please verify title';
+        }
+
+        // Show scan results section
+        const scanResults = document.getElementById('scan-results');
+        scanResults.style.display = 'block';
+
+        // Fill in disc info
+        document.getElementById('scan-disc-type').textContent = (data.disc_type || 'DISC').toUpperCase();
+        document.getElementById('scan-disc-label').textContent = data.disc_label;
+
+        // Runtime
+        if (data.main_feature !== null && data.tracks) {
+            const track = data.tracks.find(t => t.index === data.main_feature);
+            if (track) {
+                document.getElementById('scan-runtime').textContent = track.duration_str;
+            }
+        }
+
+        // Fill in editable title
+        const titleInput = document.getElementById('custom-title');
+        titleInput.value = data.suggested_title || data.parsed_search || data.disc_label;
+
+        // Show confidence badge if identified
+        const badge = document.getElementById('confidence-badge');
+        if (data.identified && data.identified.confidence) {
+            badge.style.display = 'inline';
+            if (data.identified.confidence >= 75) {
+                badge.textContent = 'HIGH';
+                badge.className = 'confidence-badge high';
+            } else if (data.identified.confidence >= 50) {
+                badge.textContent = 'MEDIUM';
+                badge.className = 'confidence-badge medium';
+            } else {
+                badge.textContent = 'LOW';
+                badge.className = 'confidence-badge low';
+            }
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+
+    function loadHardware() {
+        fetch('/api/hardware')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('hw-hostname').textContent = data.hostname || '-';
+                document.getElementById('hw-cpu').textContent = data.cpu + (data.cpu_cores ? ' (' + data.cpu_cores + ' cores)' : '');
+                document.getElementById('hw-ram').textContent = data.ram_used_gb + ' / ' + data.ram_gb + ' GB';
+                document.getElementById('hw-os').textContent = data.os || '-';
+                document.getElementById('hw-ip').textContent = data.ip_address || '-';
+                document.getElementById('hw-uptime').textContent = data.uptime || '-';
+                document.getElementById('hw-docker').textContent = data.docker_version || '-';
+
+                // GPU (only show if present)
+                if (data.gpu) {
+                    document.getElementById('hw-gpu').textContent = data.gpu;
+                    document.getElementById('hw-gpu-row').style.display = 'flex';
+                }
+
+                // Storage drives
+                const storageContainer = document.getElementById('hw-storage-rows');
+                storageContainer.innerHTML = '';
+                if (data.storage && data.storage.length > 0) {
+                    data.storage.forEach(drive => {
+                        const row = document.createElement('div');
+                        row.className = 'hw-row';
+                        // Format: "media (HDD)" or "storage (SSD)"
+                        let label = drive.mount.replace('/mnt/', '').replace('/media/', '');
+                        if (drive.type) {
+                            label += ` <span class="drive-type">${drive.type}</span>`;
+                        }
+                        // Fix df's 1% minimum - show 0% if used is tiny (KB range)
+                        let percent = drive.percent;
+                        if (drive.used.endsWith('K') && percent === '1%') {
+                            percent = '0%';
+                        }
+                        row.innerHTML = `
+                            <span class="hw-label">${label}</span>
+                            <span class="hw-value">${drive.used} / ${drive.size} (${percent})</span>
+                        `;
+                        storageContainer.appendChild(row);
+                    });
+                } else if (data.disk_total) {
+                    // Fallback to single media drive
+                    const row = document.createElement('div');
+                    row.className = 'hw-row';
+                    row.innerHTML = `
+                        <span class="hw-label">Media</span>
+                        <span class="hw-value">${data.disk_used} / ${data.disk_total} (${data.disk_percent}%)</span>
+                    `;
+                    storageContainer.appendChild(row);
+                }
+
+                // Optical drive
+                if (data.optical_drives && data.optical_drives.length > 0) {
+                    document.getElementById('hw-optical').textContent = data.optical_drives[0].model || data.optical_drives[0].device;
+                }
+            })
+            .catch(err => console.error('Error loading hardware:', err));
+    }
 
     function loadStatus() {
         fetch('/api/status')
             .then(r => r.json())
             .then(data => {
-                // Update drive info
-                if (data.drives && data.drives.length > 0) {
-                    document.getElementById('drive-device').textContent = data.drives[0].device;
-                    document.getElementById('drive-model').textContent = data.drives[0].model;
-                }
-
                 // Update integration status
                 for (const [service, status] of Object.entries(data.integrations)) {
                     const el = document.getElementById('int-' + service);
@@ -136,8 +391,262 @@
                         }
                     }
                 }
+
+                // Update rip status
+                if (data.ripping) {
+                    showRipProgress(data.ripping);
+                } else {
+                    showIdleState();
+                }
             })
             .catch(err => console.error('Error loading status:', err));
+    }
+
+    // Checklist UI Functions
+    // Track if we're showing scan results (don't overwrite with idle)
+    let showingScanResults = false;
+
+    function showIdleState() {
+        document.getElementById('status-idle').style.display = 'block';
+        document.getElementById('rip-checklist').style.display = 'none';
+
+        // Only reset to "Ready" if not showing scan results
+        if (!showingScanResults) {
+            document.querySelector('.status-title').textContent = 'Ready';
+            document.querySelector('.status-subtitle').textContent = 'Insert a disc to begin';
+        }
+    }
+
+    function showRipProgress(ripData) {
+        document.getElementById('status-idle').style.display = 'none';
+        document.getElementById('rip-checklist').style.display = 'block';
+
+        // Update disc label
+        document.querySelector('.disc-label').textContent = ripData.disc_label || 'Processing disc...';
+
+        // Update each step
+        const steps = ['insert', 'detect', 'scan', 'rip', 'identify', 'library', 'move', 'scan-plex'];
+        steps.forEach(step => {
+            const stepData = ripData.steps ? ripData.steps[step] : null;
+            if (stepData) {
+                updateStep('step-' + step, stepData.status, stepData.detail);
+            }
+        });
+
+        // Update progress bar if ripping
+        if (ripData.progress !== undefined && ripData.progress > 0) {
+            document.getElementById('rip-progress').style.display = 'block';
+            document.getElementById('progress-fill').style.width = ripData.progress + '%';
+            document.getElementById('progress-text').textContent = ripData.progress + '%';
+            if (ripData.eta) {
+                document.getElementById('progress-eta').textContent = ripData.eta;
+            }
+        } else {
+            document.getElementById('rip-progress').style.display = 'none';
+        }
+
+        // Show reset button on error or complete
+        const resetBtn = document.getElementById('btn-reset-rip');
+        const ripActions = document.getElementById('rip-actions');
+        if (ripData.status === 'error' || ripData.status === 'complete') {
+            resetBtn.style.display = 'inline-block';
+            ripActions.style.display = 'block';
+            document.getElementById('btn-start-rip').disabled = false;
+            document.getElementById('btn-start-rip').textContent = 'Start Rip';
+        } else {
+            resetBtn.style.display = 'none';
+            ripActions.style.display = 'none';
+        }
+    }
+
+    function updateStep(stepId, status, detail) {
+        const step = document.getElementById(stepId);
+        if (!step) return;
+
+        step.setAttribute('data-status', status);
+
+        const icon = step.querySelector('.check-icon');
+        const detailEl = step.querySelector('.check-detail');
+
+        // Update icon based on status
+        switch(status) {
+            case 'pending':
+                icon.textContent = '○';
+                break;
+            case 'active':
+                icon.textContent = '◐';
+                break;
+            case 'complete':
+                icon.textContent = '✓';
+                break;
+            case 'error':
+                icon.textContent = '✗';
+                break;
+        }
+
+        // Update detail text
+        if (detail) {
+            detailEl.textContent = detail;
+        }
+    }
+
+    // Start a real rip
+    function startRip() {
+        const btn = document.getElementById('btn-start-rip');
+        btn.disabled = true;
+        btn.textContent = 'Starting...';
+
+        // Get custom title from input if scan was done
+        const titleInput = document.getElementById('custom-title');
+        const customTitle = titleInput && titleInput.value ? titleInput.value.trim() : null;
+
+        // Clear scan results since we're starting the rip
+        clearScanResults();
+
+        fetch('/api/rip/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device: '/dev/sr0',
+                custom_title: customTitle
+            })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    // Rip started, status polling will update UI
+                } else {
+                    alert('Error: ' + (data.error || 'Could not start rip'));
+                    btn.disabled = false;
+                    btn.textContent = 'Start Rip';
+                }
+            })
+            .catch(err => {
+                alert('Error starting rip');
+                btn.disabled = false;
+                btn.textContent = 'Start Rip';
+            });
+    }
+
+    // Reset/cancel current rip
+    function resetRip() {
+        showingScanResults = false;  // Clear scan results flag
+        fetch('/api/rip/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    // Reset UI
+                    document.getElementById('btn-start-rip').disabled = false;
+                    document.getElementById('btn-start-rip').textContent = 'Start Rip';
+                    document.getElementById('btn-reset-rip').style.display = 'none';
+                    document.getElementById('rip-actions').style.display = 'none';
+                    document.getElementById('rip-checklist').style.display = 'none';
+                    document.getElementById('rip-progress').style.display = 'none';
+                    document.getElementById('status-idle').style.display = 'block';
+                    // Reset all steps
+                    ['insert', 'detect', 'scan', 'rip', 'identify', 'library', 'move', 'scan-plex'].forEach(step => {
+                        updateStep(step, 'pending', '');
+                    });
+                }
+            });
+    }
+
+    // Scan disc info and identify
+    function scanDisc() {
+        const btn = document.getElementById('btn-scan-disc');
+        btn.disabled = true;
+        btn.textContent = 'Scanning...';
+
+        // Update status area to show scanning
+        const statusTitle = document.querySelector('.status-title');
+        const statusSubtitle = document.querySelector('.status-subtitle');
+        statusTitle.textContent = 'Scanning...';
+        statusSubtitle.textContent = 'Reading disc and identifying content';
+
+        // Hide previous scan results while scanning
+        document.getElementById('scan-results').style.display = 'none';
+
+        fetch('/api/disc/scan-identify')
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    // No disc or error
+                    statusTitle.textContent = 'No Disc';
+                    statusSubtitle.textContent = data.error || 'Insert a disc and try again';
+                    clearScanResults();
+                } else if (data.disc_label) {
+                    // Found a disc - save and display results
+                    saveScanResults(data);
+                    displayScanResults(data);
+                } else {
+                    statusTitle.textContent = 'No Disc';
+                    statusSubtitle.textContent = 'Insert a disc and try again';
+                    clearScanResults();
+                }
+            })
+            .catch(err => {
+                statusTitle.textContent = 'Scan Error';
+                statusSubtitle.textContent = err.message || 'Could not read disc';
+                clearScanResults();
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = 'Scan Disc';
+            });
+    }
+
+    // Demo function to test the UI (can be called from console)
+    function demoRip() {
+        const steps = ['insert', 'detect', 'scan', 'rip', 'identify', 'library', 'move', 'scan-plex'];
+        let currentStep = 0;
+
+        document.getElementById('status-idle').style.display = 'none';
+        document.getElementById('rip-checklist').style.display = 'block';
+        document.querySelector('.disc-label').textContent = 'GUARDIANS_VOL_3';
+
+        function advanceStep() {
+            if (currentStep > 0) {
+                updateStep('step-' + steps[currentStep - 1], 'complete', '');
+            }
+            if (currentStep < steps.length) {
+                updateStep('step-' + steps[currentStep], 'active', 'Processing...');
+
+                // Show progress bar during rip step
+                if (steps[currentStep] === 'rip') {
+                    document.getElementById('rip-progress').style.display = 'block';
+                    let progress = 0;
+                    const progressInterval = setInterval(() => {
+                        progress += 10;
+                        document.getElementById('progress-fill').style.width = progress + '%';
+                        document.getElementById('progress-text').textContent = progress + '%';
+                        document.getElementById('progress-eta').textContent = (100 - progress) / 10 + ' min remaining';
+                        if (progress >= 100) {
+                            clearInterval(progressInterval);
+                            document.getElementById('rip-progress').style.display = 'none';
+                            currentStep++;
+                            setTimeout(advanceStep, 500);
+                        }
+                    }, 300);
+                    return;
+                }
+
+                currentStep++;
+                setTimeout(advanceStep, 1000);
+            } else {
+                // All done
+                setTimeout(() => {
+                    alert('Rip complete! Movie added to library.');
+                    showIdleState();
+                    // Reset all steps
+                    steps.forEach(s => updateStep('step-' + s, 'pending', ''));
+                }, 500);
+            }
+        }
+
+        advanceStep();
     }
 </script>
 {% endblock %}
