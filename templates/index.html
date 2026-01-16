@@ -610,12 +610,24 @@
         if (!AUTO_SCAN_ON_INSERT) return;
 
         discPollInterval = setInterval(() => {
-            // Don't poll if scan or rip is in progress
+            // Don't poll if scan is in progress
             if (scanInProgress) return;
 
-            fetch('/api/disc/check')
+            // First check if a rip is already running
+            fetch('/api/rip/status')
                 .then(r => r.json())
+                .then(ripStatus => {
+                    // If rip is active, mark disc as processed and don't scan
+                    if (ripStatus && ripStatus.status &&
+                        !['idle', 'complete', 'error'].includes(ripStatus.status)) {
+                        discAlreadyProcessed = true;
+                        return null; // Skip disc check
+                    }
+                    return fetch('/api/disc/check').then(r => r.json());
+                })
                 .then(data => {
+                    if (!data) return; // Skipped because rip is running
+
                     const discPresent = data.present;
 
                     // Disc was ejected - reset the processed flag
