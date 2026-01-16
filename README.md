@@ -6,11 +6,16 @@ A modern, self-hosted disc ripping solution with smart identification and media 
 
 - **Smart Disc Identification** - Parses disc labels + matches runtime against Radarr/TMDB
 - **Editable Title** - Scan disc, verify/edit title, then rip with confidence
-- **Auto-Rip Countdown** - 10-second countdown after scan, auto-starts rip (cancellable)
+- **Auto-Scan on Insert** - Detects disc insertion and automatically scans
+- **Auto-Rip Countdown** - 20-second countdown after scan, auto-starts rip (cancellable)
+- **Uncertain ID Handling** - Email notification when confidence is low, requires manual review
 - **Media Server Integration** - Radarr, Sonarr, Overseerr, Plex
 - **Real-time Progress** - Checklist UI shows each step with spinner animations
 - **Hardware Dashboard** - CPU, RAM, storage (SSD/HDD/Pool detection), optical drive
-- **Email Notifications** - Rip complete, errors, and weekly recap emails
+- **Email Notifications** - Rip complete, errors, and weekly recap with movie posters
+- **SendGrid Support** - Optional SendGrid integration for better Gmail deliverability
+- **Activity Logging** - Detailed activity log with identification method tracking
+- **Rip Statistics** - Average rip times by disc type, weekly/daily counts
 - **IMDB Search** - Quick link to search IMDB when identification is uncertain
 - **Auto-Detection** - Scans for Docker containers and imports API keys
 - **Systemd Service** - Runs on boot, survives reboots
@@ -62,13 +67,15 @@ sudo systemctl enable --now ripforge
 
 ## Workflow
 
-1. **Insert disc** - Drive detects disc
-2. **Click "Scan Disc"** - Spinner shows while MakeMKV reads disc
-3. **Review identification** - Title shown with confidence badge (HIGH/MEDIUM/LOW)
+1. **Insert disc** - Auto-detected and scan begins automatically
+2. **Identification** - Smart ID parses label + matches runtime against TMDB
+3. **Review** - Title shown with confidence badge (HIGH/MEDIUM/LOW)
+   - **HIGH confidence**: 20-second countdown starts automatically
+   - **LOW confidence**: Email notification sent, waits for manual review
 4. **Edit if needed** - Fix title or use IMDB button to search
-5. **Auto-rip countdown** - 10 seconds to cancel or edit (or click Start Rip)
-6. **Rip progress** - Checklist shows: detect → scan → rip → identify → library → move → Plex scan
-7. **Notification** - Email sent when complete
+5. **Rip** - Click "Start Rip" or let countdown complete
+6. **Progress** - Checklist shows: detect → scan → rip → identify → library → move → Plex scan
+7. **Notification** - Email sent when complete (with movie poster)
 
 ## Configuration
 
@@ -78,11 +85,14 @@ Settings stored in `config/settings.yaml`. Edit via web UI or directly.
 
 ```yaml
 ripping:
-  min_length: 2700        # 45 min - skip short tracks
-  main_feature_only: true # Only rip longest track
-  skip_transcode: true    # Keep original quality
-  auto_rip: true          # Auto-start after scan
-  auto_rip_delay: 10      # Countdown seconds
+  min_length: 2700              # 45 min - skip short tracks
+  main_feature_only: true       # Only rip longest track
+  skip_transcode: true          # Keep original quality
+  auto_scan_on_insert: true     # Auto-scan when disc inserted
+  auto_rip: true                # Auto-start after countdown
+  auto_rip_delay: 20            # Countdown seconds
+  confidence_threshold: 75      # Below this = needs manual review
+  notify_uncertain: true        # Email when ID confidence is low
 ```
 
 ### Email Notifications
@@ -90,6 +100,8 @@ ripping:
 ```yaml
 notifications:
   email:
+    provider: sendgrid    # or "msmtp" for system mail
+    sendgrid_api_key: "SG.xxxxx"  # Get free key at sendgrid.com
     recipients:
       - "you@example.com"
     on_complete: true     # Email when rip finishes
@@ -97,7 +109,11 @@ notifications:
     weekly_recap: true    # Weekly summary email
 ```
 
-Uses system msmtp for sending. Test from Settings page.
+**Email Providers:**
+- **SendGrid (recommended)** - Better Gmail/spam deliverability, 100 free emails/day
+- **msmtp** - System mail, requires server configuration
+
+Configure from the Notifications page. Weekly recap includes movie posters from TMDB.
 
 ### Integrations
 
@@ -120,6 +136,7 @@ Uses system msmtp for sending. Test from Settings page.
 | `/api/hardware` | GET | System hardware info |
 | `/api/email/test` | POST | Send test email |
 | `/api/email/weekly-recap` | POST | Send weekly recap now |
+| `/api/rip-stats` | GET | Rip statistics (avg time by disc type, counts) |
 | `/api/settings` | GET/POST | Configuration |
 | `/api/auto-detect` | POST | Scan for services |
 
@@ -132,9 +149,13 @@ ripforge/
 │   ├── routes.py      # Web routes and API
 │   ├── ripper.py      # MakeMKV wrapper, rip pipeline
 │   ├── identify.py    # Smart identification
-│   └── email.py       # Email notifications
+│   ├── email.py       # Email notifications (SendGrid + msmtp)
+│   └── activity.py    # Activity logging and rip history
 ├── config/
-│   └── settings.yaml
+│   └── config.yaml
+├── logs/
+│   ├── activity.log     # Activity log
+│   └── rip_history.json # Rip history for weekly digest
 ├── static/css/
 │   └── style.css
 ├── templates/
@@ -172,9 +193,11 @@ Examples:
 |---------|-----|----------|
 | Identification | CRC64 lookup (unreliable) | Label parsing + runtime matching |
 | Pre-rip verification | No | Yes - scan, edit, confirm |
-| Auto-rip | Immediate | Countdown with cancel option |
+| Auto-scan on insert | No | Yes - configurable |
+| Auto-rip | Immediate | 20s countdown (configurable) |
+| Low confidence handling | None | Email alert + manual review |
 | Web UI | Dated | Modern dark theme |
-| Email | Basic | HTML emails with weekly recap |
+| Email | Basic | HTML with posters, SendGrid, weekly recap |
 
 ## License
 

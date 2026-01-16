@@ -5,6 +5,40 @@
 
 {% block content %}
 <div class="notifications-page">
+    <!-- Email Provider Settings -->
+    <section class="card">
+        <h2>Email Provider</h2>
+        <p class="card-description">Configure how RipForge sends emails</p>
+
+        <div class="newsletter-settings">
+            <div class="settings-row">
+                <div class="field">
+                    <label>Provider</label>
+                    <select id="email-provider" onchange="toggleSendGridKey()">
+                        <option value="msmtp">System Mail (msmtp)</option>
+                        <option value="sendgrid">SendGrid (Recommended for Gmail)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="sendgrid-config" style="display: none; margin-top: 16px;">
+                <div class="field">
+                    <label>SendGrid API Key</label>
+                    <input type="password" id="sendgrid-api-key" placeholder="SG.xxxxxxxxxx...">
+                    <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+                        Get your free API key at <a href="https://app.sendgrid.com/settings/api_keys" target="_blank" style="color: var(--accent);">sendgrid.com</a> (100 emails/day free)
+                    </small>
+                </div>
+            </div>
+
+            <div class="settings-actions">
+                <button class="btn btn-primary" onclick="saveEmailProvider()">Save Provider</button>
+                <button class="btn btn-secondary" onclick="testEmailProvider()">Test Email</button>
+                <span class="email-test-status" id="email-provider-status"></span>
+            </div>
+        </div>
+    </section>
+
     <!-- Newsletter Settings -->
     <section class="card">
         <h2>Newsletter Settings</h2>
@@ -134,9 +168,93 @@
 {% block scripts %}
 <script>
     document.addEventListener('DOMContentLoaded', function() {
+        loadEmailProvider();
         loadNewsletterSettings();
         loadQueue();
     });
+
+    // Email Provider Functions
+    function toggleSendGridKey() {
+        const provider = document.getElementById('email-provider').value;
+        document.getElementById('sendgrid-config').style.display =
+            provider === 'sendgrid' ? 'block' : 'none';
+    }
+
+    function loadEmailProvider() {
+        fetch('/api/settings')
+            .then(r => r.json())
+            .then(data => {
+                const emailCfg = data.notifications?.email || {};
+                document.getElementById('email-provider').value = emailCfg.provider || 'msmtp';
+                document.getElementById('sendgrid-api-key').value = emailCfg.sendgrid_api_key || '';
+                toggleSendGridKey();
+            });
+    }
+
+    function saveEmailProvider() {
+        const provider = document.getElementById('email-provider').value;
+        const apiKey = document.getElementById('sendgrid-api-key').value;
+
+        fetch('/api/settings')
+            .then(r => r.json())
+            .then(currentSettings => {
+                // Merge with existing settings
+                if (!currentSettings.notifications) currentSettings.notifications = {};
+                if (!currentSettings.notifications.email) currentSettings.notifications.email = {};
+
+                currentSettings.notifications.email.provider = provider;
+                if (provider === 'sendgrid') {
+                    currentSettings.notifications.email.sendgrid_api_key = apiKey;
+                }
+
+                return fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentSettings)
+                });
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showProviderStatus('Saved!', 'success');
+                } else {
+                    showProviderStatus('Save failed', 'error');
+                }
+            })
+            .catch(err => {
+                showProviderStatus('Error: ' + err, 'error');
+            });
+    }
+
+    function testEmailProvider() {
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = 'Sending...';
+        showProviderStatus('', '');
+
+        fetch('/api/email/test', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showProviderStatus('Test sent!', 'success');
+                } else {
+                    showProviderStatus('Failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            })
+            .catch(err => {
+                showProviderStatus('Error: ' + err, 'error');
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = 'Test Email';
+            });
+    }
+
+    function showProviderStatus(message, type) {
+        const el = document.getElementById('email-provider-status');
+        el.textContent = message;
+        el.className = 'email-test-status ' + type;
+    }
 
     function loadNewsletterSettings() {
         fetch('/api/newsletter/settings')

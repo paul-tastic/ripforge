@@ -4,11 +4,14 @@ Logs user-facing events to activity log file
 """
 
 import os
+import json
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 LOG_DIR = Path(__file__).parent.parent / "logs"
 ACTIVITY_LOG = LOG_DIR / "activity.log"
+HISTORY_FILE = LOG_DIR / "rip_history.json"
 
 # Ensure log directory exists
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -86,6 +89,14 @@ def rip_identified(original: str, identified: str, confidence: int):
     log_success(f"Identified: {original} -> {identified} ({confidence}% confidence)")
 
 
+def id_method_result(method: str, result: str, confidence: int, details: str = None):
+    """Log an identification method's guess"""
+    msg = f"ID Method: {method} -> \"{result}\" ({confidence}%)"
+    if details:
+        msg += f" [{details}]"
+    log_info(msg)
+
+
 def rip_completed(title: str, duration: str = None):
     msg = f"Rip completed: {title}"
     if duration:
@@ -139,3 +150,61 @@ def service_started():
 
 def service_stopped():
     log_info("RipForge service stopped")
+
+
+# Rip History Tracking
+def save_rip_to_history(
+    title: str,
+    year: int = 0,
+    disc_type: str = "unknown",
+    runtime_str: str = "",
+    size_gb: float = 0,
+    duration_str: str = "",
+    poster_url: str = "",
+    tmdb_id: int = 0,
+    status: str = "complete"
+):
+    """Save completed rip to history for weekly digest"""
+    history = load_rip_history()
+
+    entry = {
+        "title": title,
+        "year": year,
+        "disc_type": disc_type,
+        "runtime": runtime_str,
+        "size_gb": round(size_gb, 1),
+        "rip_duration": duration_str,
+        "poster_url": poster_url,
+        "tmdb_id": tmdb_id,
+        "status": status,
+        "completed_at": datetime.now().isoformat()
+    }
+
+    history.append(entry)
+
+    try:
+        with open(HISTORY_FILE, 'w') as f:
+            json.dump(history, f, indent=2)
+    except Exception as e:
+        print(f"Error saving rip history: {e}")
+
+
+def load_rip_history() -> list:
+    """Load rip history from file"""
+    if HISTORY_FILE.exists():
+        try:
+            with open(HISTORY_FILE) as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading rip history: {e}")
+    return []
+
+
+def get_recent_rips(days: int = 7) -> list:
+    """Get rips from the last N days"""
+    from datetime import timedelta
+
+    history = load_rip_history()
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+
+    return [rip for rip in history if rip.get('completed_at', '') >= cutoff]

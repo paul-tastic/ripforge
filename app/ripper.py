@@ -57,6 +57,12 @@ class RipJob:
     output_path: str = ""
     identified_title: str = ""
     error_message: str = ""
+    # Identification metadata for history/email
+    year: int = 0
+    tmdb_id: int = 0
+    poster_url: str = ""
+    runtime_str: str = ""
+    size_gb: float = 0
     steps: Dict[str, RipStep] = field(default_factory=lambda: {
         "insert": RipStep(),
         "detect": RipStep(),
@@ -207,14 +213,28 @@ class MakeMKV:
         # Note: --minlength is NOT a valid CLI switch, only a GUI setting
         # Track filtering must be done before calling rip_track()
 
+        # Debug: log exact command being run
+        from . import activity
+        cmd_str = "makemkvcon " + " ".join(f'"{a}"' if " " in a else a for a in args)
+        activity.log_info(f"DEBUG: Running: {cmd_str}")
+
         process = self._run_cmd(args)
         last_error = ""
+        actual_output_path = None  # Track where MakeMKV actually saves
 
+        line_count = 0
+        prgv_count = 0
         for line in process.stdout:
             line = line.strip()
+            line_count += 1
+
+            # Log first few lines for debugging
+            if line_count <= 5:
+                activity.log_info(f"DEBUG MakeMKV[{line_count}]: {line[:100]}")
 
             # Parse progress: PRGV:current,total,max
             if line.startswith("PRGV:"):
+                prgv_count += 1
                 match = re.search(r'PRGV:(\d+),(\d+),(\d+)', line)
                 if match and progress_callback:
                     current = int(match.group(1))
@@ -223,8 +243,11 @@ class MakeMKV:
                     if max_val > 0:
                         percent = int((current / max_val) * 100)
                         progress_callback(percent)
+                        # Log occasional progress for debugging
+                        if prgv_count == 1 or prgv_count % 100 == 0:
+                            activity.log_info(f"DEBUG: Progress {percent}% (PRGV #{prgv_count})")
 
-            # Parse messages for errors/status
+            # Parse messages for errors/status and track actual output path
             if line.startswith("MSG:"):
                 # Extract message text: MSG:code,flags,count,"message",...
                 match = re.search(r'MSG:\d+,\d+,\d+,"([^"]*)"', line)
@@ -235,11 +258,18 @@ class MakeMKV:
                     # Track error messages
                     if "error" in msg.lower() or "fail" in msg.lower():
                         last_error = msg
+                    # Track actual output path from "Saving X title(s) into directory file:///path"
+                    if "saving" in msg.lower() and "directory" in msg.lower():
+                        path_match = re.search(r'file://(/[^\s]+)', msg)
+                        if path_match:
+                            actual_output_path = path_match.group(1)
+                            activity.log_info(f"DEBUG: MakeMKV saving to: {actual_output_path}")
 
         return_code = process.wait()
+        activity.log_info(f"DEBUG: MakeMKV finished. Lines: {line_count}, PRGV: {prgv_count}, Return: {return_code}")
 
         if return_code == 0:
-            return (True, "")
+            return (True, "", actual_output_path)
         else:
             # Map common MakeMKV error codes
             error_map = {
@@ -252,7 +282,7 @@ class MakeMKV:
             error_desc = error_map.get(return_code, f"Unknown error (code {return_code})")
             if last_error:
                 error_desc = f"{error_desc}: {last_error}"
-            return (False, error_desc)
+            return (False, error_desc, actual_output_path)
 
 
 class RipEngine:
@@ -272,6 +302,58 @@ class RipEngine:
         self.raw_path = config.get("paths", {}).get("raw_rips", "/mnt/media/rips/raw")
         self.movies_path = config.get("paths", {}).get("movies", "/mnt/media/movies")
         self.tv_path = config.get("paths", {}).get("tv", "/mnt/media/tv")
+
+    def _find_rip_output(self, disc_label: str) -> Optional[str]:
+        """Search for rip output in likely locations.
+
+        MakeMKV sometimes ignores the output path we specify, so we search
+        multiple locations to find where the files actually ended up.
+
+        Returns the path containing MKV files, or None if not found.
+        """
+        import glob
+
+        # Normalize disc label for matching (handle spaces, underscores, case)
+        label_variants = [
+            disc_label,
+            disc_label.replace("_", " "),
+            disc_label.replace(" ", "_"),
+            disc_label.title(),
+            disc_label.upper(),
+        ]
+
+        # Search locations in order of likelihood
+        search_bases = [
+            self.raw_path,
+            self.movies_path,
+            self.tv_path,
+        ]
+
+        for base in search_bases:
+            for variant in label_variants:
+                search_path = os.path.join(base, variant)
+                if os.path.isdir(search_path):
+                    mkv_files = glob.glob(os.path.join(search_path, "*.mkv"))
+                    if mkv_files:
+                        activity.log_info(f"Found rip output at: {search_path}")
+                        return search_path
+
+        # Last resort: search for recently created folders with MKV files
+        for base in search_bases:
+            if os.path.isdir(base):
+                for entry in os.listdir(base):
+                    entry_path = os.path.join(base, entry)
+                    if os.path.isdir(entry_path):
+                        mkv_files = glob.glob(os.path.join(entry_path, "*.mkv"))
+                        if mkv_files:
+                            # Check if any MKV was created in last 5 minutes
+                            for mkv in mkv_files:
+                                mtime = os.path.getmtime(mkv)
+                                if time.time() - mtime < 300:  # 5 minutes
+                                    activity.log_info(f"Found recent rip at: {entry_path}")
+                                    return entry_path
+
+        return None
 
     def get_status(self) -> Optional[dict]:
         """Get current rip status for the UI"""
@@ -396,7 +478,7 @@ class RipEngine:
                 # Ignore raw MakeMKV messages - we show clean progress instead
                 pass
 
-            success, error_msg = self.makemkv.rip_track(
+            success, error_msg, actual_path = self.makemkv.rip_track(
                 job.device,
                 main_feature,
                 output_dir,
@@ -411,20 +493,43 @@ class RipEngine:
                 activity.rip_failed(job.identified_title or job.disc_label, error_msg or "MakeMKV rip failed")
                 return
 
-            job.output_path = output_dir
             self._update_step("rip", "complete", "Rip finished")
             self._set_progress(100)
 
-            # Log completed rip with file size
-            try:
-                import glob
+            # Find actual output location (MakeMKV may have ignored our path)
+            import glob
+
+            # First try MakeMKV's reported path, then our expected path, then search
+            found_path = None
+            if actual_path and os.path.isdir(actual_path):
+                mkv_files = glob.glob(os.path.join(actual_path, "*.mkv"))
+                if mkv_files:
+                    found_path = actual_path
+
+            if not found_path and os.path.isdir(output_dir):
                 mkv_files = glob.glob(os.path.join(output_dir, "*.mkv"))
                 if mkv_files:
-                    total_size = sum(os.path.getsize(f) for f in mkv_files)
-                    size_gb = total_size / (1024**3)
-                    activity.log_success(f"Rip output: {output_dir}/ ({size_gb:.1f} GB)")
-            except Exception:
-                pass
+                    found_path = output_dir
+
+            if not found_path:
+                activity.log_warning(f"Searching for rip output...")
+                found_path = self._find_rip_output(job.disc_label)
+
+            if found_path:
+                job.output_path = found_path
+                mkv_files = glob.glob(os.path.join(found_path, "*.mkv"))
+                total_size = sum(os.path.getsize(f) for f in mkv_files)
+                size_gb = total_size / (1024**3)
+                activity.log_success(f"Rip output: {found_path}/ ({size_gb:.1f} GB)")
+
+                # Note if output went to unexpected location
+                if found_path != output_dir:
+                    activity.log_warning(f"Output went to {found_path} instead of {output_dir}")
+            else:
+                activity.log_error(f"Could not find rip output for {job.disc_label}")
+                job.status = RipStatus.ERROR
+                job.error_message = "Could not find rip output files"
+                return
 
             # Step 5: Identify content
             self._update_step("identify", "active", "Identifying...")
@@ -434,12 +539,7 @@ class RipEngine:
             if job.identified_title:
                 # User already confirmed title during scan - use it directly
                 self._update_step("identify", "complete", f"{job.identified_title} [USER]")
-
-                # Rename folder to match custom title
-                new_path = os.path.join(self.raw_path, job.identified_title)
-                if job.output_path != new_path and not os.path.exists(new_path):
-                    os.rename(job.output_path, new_path)
-                    job.output_path = new_path
+                # Skip rename - we'll use the title when moving to movies folder
             else:
                 # No custom title - use smart identification
                 from .identify import SmartIdentifier
@@ -448,15 +548,13 @@ class RipEngine:
 
                 if id_result and id_result.confidence >= 50:
                     job.identified_title = f"{id_result.title} ({id_result.year})"
+                    job.year = id_result.year
+                    job.tmdb_id = id_result.tmdb_id
+                    job.poster_url = id_result.poster_url
+                    job.runtime_str = f"{id_result.runtime_minutes}m" if id_result.runtime_minutes else ""
                     confidence_str = "HIGH" if id_result.is_confident else "MEDIUM"
                     self._update_step("identify", "complete", f"{job.identified_title} [{confidence_str}]")
-
-                    # Rename folder if confident
-                    if id_result.is_confident:
-                        new_path = os.path.join(self.raw_path, id_result.folder_name)
-                        if job.output_path != new_path and not os.path.exists(new_path):
-                            os.rename(job.output_path, new_path)
-                            job.output_path = new_path
+                    # Skip rename - we'll use the title when moving to movies folder
                 else:
                     # Fall back to disc label
                     job.identified_title = job.disc_label.replace("_", " ").title()
@@ -468,8 +566,8 @@ class RipEngine:
             # TODO: Radarr/Sonarr API integration
             self._update_step("library", "complete", "Found in Radarr")
 
-            # Step 7: Move to destination
-            self._update_step("move", "active", "Moving files...")
+            # Step 7: Move/rename to final destination
+            self._update_step("move", "active", "Organizing files...")
             job.status = RipStatus.MOVING
 
             try:
@@ -479,43 +577,73 @@ class RipEngine:
                 # Determine destination folder name
                 dest_folder_name = job.identified_title or job.disc_label.replace("_", " ").title()
                 dest_path = os.path.join(self.movies_path, dest_folder_name)
-
-                # Create destination if it doesn't exist
-                Path(dest_path).mkdir(parents=True, exist_ok=True)
+                source_path = job.output_path
 
                 # Find all mkv files in source
-                source_path = job.output_path
                 mkv_files = glob.glob(os.path.join(source_path, "*.mkv"))
 
-                if mkv_files:
-                    for mkv_file in mkv_files:
-                        # Rename to title.mkv format
-                        new_filename = f"{dest_folder_name}.mkv"
-                        dest_file = os.path.join(dest_path, new_filename)
+                if not mkv_files:
+                    self._update_step("move", "error", "No MKV files found")
+                    return
 
-                        # If multiple files, append number
+                # Check if source is already in movies folder
+                source_in_movies = source_path.startswith(self.movies_path)
+
+                if source_in_movies and source_path == dest_path:
+                    # Already in correct location, just rename files
+                    for mkv_file in mkv_files:
+                        new_filename = f"{dest_folder_name}.mkv"
                         if len(mkv_files) > 1:
                             idx = mkv_files.index(mkv_file) + 1
                             new_filename = f"{dest_folder_name} - Part {idx}.mkv"
-                            dest_file = os.path.join(dest_path, new_filename)
+                        dest_file = os.path.join(dest_path, new_filename)
+                        if mkv_file != dest_file:
+                            os.rename(mkv_file, dest_file)
+                    activity.log_success(f"Renamed files in {dest_path}")
+                    self._update_step("move", "complete", f"Renamed in place")
 
-                        # Move the file
+                elif source_in_movies:
+                    # In movies but wrong folder - rename folder and files
+                    Path(dest_path).mkdir(parents=True, exist_ok=True)
+                    for mkv_file in mkv_files:
+                        new_filename = f"{dest_folder_name}.mkv"
+                        if len(mkv_files) > 1:
+                            idx = mkv_files.index(mkv_file) + 1
+                            new_filename = f"{dest_folder_name} - Part {idx}.mkv"
+                        dest_file = os.path.join(dest_path, new_filename)
                         shutil.move(mkv_file, dest_file)
 
-                    # Remove empty source directory
+                    # Remove old folder if empty
                     try:
                         os.rmdir(source_path)
                     except OSError:
-                        pass  # Directory not empty or other issue
+                        pass
 
-                    # Update job output path
-                    job.output_path = dest_path
-
-                    # Log the move
                     activity.file_moved(dest_folder_name, dest_path)
-                    self._update_step("move", "complete", f"Moved to {dest_path}")
+                    self._update_step("move", "complete", f"Moved to {dest_folder_name}")
+
                 else:
-                    self._update_step("move", "complete", "No files to move")
+                    # Source is in rips/raw - move to movies
+                    Path(dest_path).mkdir(parents=True, exist_ok=True)
+                    for mkv_file in mkv_files:
+                        new_filename = f"{dest_folder_name}.mkv"
+                        if len(mkv_files) > 1:
+                            idx = mkv_files.index(mkv_file) + 1
+                            new_filename = f"{dest_folder_name} - Part {idx}.mkv"
+                        dest_file = os.path.join(dest_path, new_filename)
+                        shutil.move(mkv_file, dest_file)
+
+                    # Remove old folder if empty
+                    try:
+                        os.rmdir(source_path)
+                    except OSError:
+                        pass
+
+                    activity.file_moved(dest_folder_name, dest_path)
+                    self._update_step("move", "complete", f"Moved to movies/")
+
+                # Update job output path
+                job.output_path = dest_path
 
             except Exception as e:
                 activity.log_error(f"Move failed: {str(e)}")
@@ -541,6 +669,19 @@ class RipEngine:
                 duration_str = None
 
             activity.rip_completed(job.identified_title or job.disc_label, duration_str)
+
+            # Save to rip history for weekly digest emails
+            activity.save_rip_to_history(
+                title=job.identified_title or job.disc_label,
+                year=job.year,
+                disc_type=job.disc_type,
+                runtime_str=job.runtime_str,
+                size_gb=job.size_gb,
+                duration_str=duration_str or "",
+                poster_url=job.poster_url,
+                tmdb_id=job.tmdb_id,
+                status="complete"
+            )
 
             # Add to history
             self.job_history.append(job)

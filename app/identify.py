@@ -23,6 +23,7 @@ class IdentificationResult:
     media_type: str = "movie"  # movie or tv
     radarr_id: Optional[int] = None
     sonarr_id: Optional[int] = None
+    poster_url: str = ""
 
     @property
     def is_confident(self) -> bool:
@@ -36,6 +37,13 @@ class IdentificationResult:
         name = re.sub(r'[:]', '-', name)
         name = re.sub(r'[?<>"|*]', '', name)
         return name
+
+    @property
+    def poster_thumbnail(self) -> str:
+        """Get smaller poster for emails (w200)"""
+        if self.poster_url:
+            return self.poster_url.replace('/w500/', '/w200/')
+        return ""
 
 
 class SmartIdentifier:
@@ -233,13 +241,28 @@ class SmartIdentifier:
                     best_match = movie
 
             if best_match and best_score >= 50:
+                # Get poster URL from images array or remotePoster
+                poster_url = ""
+                images = best_match.get('images', [])
+                for img in images:
+                    if img.get('coverType') == 'poster':
+                        poster_url = img.get('remoteUrl', '')
+                        break
+                if not poster_url:
+                    poster_url = best_match.get('remotePoster', '')
+                # Fallback to TMDB direct URL
+                if not poster_url and best_match.get('tmdbId'):
+                    tmdb_id = best_match.get('tmdbId')
+                    poster_url = f"https://image.tmdb.org/t/p/w500/{tmdb_id}"
+
                 return IdentificationResult(
                     title=best_match.get('title', ''),
                     year=best_match.get('year', 0),
                     tmdb_id=best_match.get('tmdbId', 0),
                     runtime_minutes=best_match.get('runtime', 0),
                     confidence=int(best_score),
-                    media_type='movie'
+                    media_type='movie',
+                    poster_url=poster_url
                 )
 
         except Exception as e:

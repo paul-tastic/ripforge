@@ -33,6 +33,14 @@
                     <a href="#" id="imdb-search-btn" class="btn btn-small" target="_blank" title="Search IMDB">IMDB</a>
                 </div>
 
+                <!-- Identification Methods Debug -->
+                <div class="id-methods" id="id-methods" style="display: none;">
+                    <div class="id-methods-header">
+                        <span class="id-methods-toggle" onclick="toggleIdMethods()">Identification Details</span>
+                    </div>
+                    <div class="id-methods-list" id="id-methods-list"></div>
+                </div>
+
                 <!-- Auto-rip countdown -->
                 <div class="auto-rip-countdown" id="auto-rip-countdown" style="display: none;">
                     <div class="countdown-ring">
@@ -66,6 +74,7 @@
         <div class="rip-checklist" id="rip-checklist" style="display: none;">
             <div class="rip-title" id="rip-title">
                 <span class="disc-label">Processing disc...</span>
+                <span class="current-step" id="current-step"></span>
             </div>
 
             <div class="checklist">
@@ -197,6 +206,14 @@
                 <div class="stat-value" id="stat-errors">0</div>
                 <div class="stat-label">Errors</div>
             </div>
+            <div class="stat">
+                <div class="stat-value" id="stat-avg-bluray">--</div>
+                <div class="stat-label">Avg Blu-ray</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="stat-avg-dvd">--</div>
+                <div class="stat-label">Avg DVD</div>
+            </div>
         </div>
         <div class="integration-strip" id="integration-list">
             <div class="integration-dot" title="Radarr">
@@ -246,11 +263,15 @@
         loadStatus();
         loadHardware();
         loadActivityLog();
+        loadRipStats();
         restoreScanResults();  // Restore scan results from session
-        // Refresh status every 5 seconds
-        setInterval(loadStatus, 5000);
-        // Refresh activity log every 10 seconds
-        setInterval(loadActivityLog, 10000);
+        startDiscPolling();    // Start polling for disc insertion
+        // Refresh status every 2 seconds (faster for progress bar updates)
+        setInterval(loadStatus, 2000);
+        // Refresh activity log every 5 seconds
+        setInterval(loadActivityLog, 5000);
+        // Refresh stats every 30 seconds
+        setInterval(loadRipStats, 30000);
 
         // Setup log filter buttons
         document.querySelectorAll('.log-filter').forEach(btn => {
@@ -317,6 +338,35 @@
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    // Load rip statistics
+    function loadRipStats() {
+        fetch('/api/rip-stats')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('stat-today').textContent = data.today || 0;
+                document.getElementById('stat-week').textContent = data.week || 0;
+                document.getElementById('stat-total').textContent = data.total || 0;
+                document.getElementById('stat-errors').textContent = data.errors || 0;
+
+                // Format average times as "XXm"
+                const avgBluray = document.getElementById('stat-avg-bluray');
+                const avgDvd = document.getElementById('stat-avg-dvd');
+
+                if (data.avg_bluray_mins !== null) {
+                    avgBluray.textContent = data.avg_bluray_mins + 'm';
+                } else {
+                    avgBluray.textContent = '--';
+                }
+
+                if (data.avg_dvd_mins !== null) {
+                    avgDvd.textContent = data.avg_dvd_mins + 'm';
+                } else {
+                    avgDvd.textContent = '--';
+                }
+            })
+            .catch(err => console.error('Error loading rip stats:', err));
     }
 
     // Restore scan results from sessionStorage (persists across tab switches)
@@ -400,6 +450,30 @@
             badge.style.display = 'none';
         }
 
+        // Show identification methods debug info
+        const methodsContainer = document.getElementById('id-methods');
+        const methodsList = document.getElementById('id-methods-list');
+        if (data.identification_methods && data.identification_methods.length > 0) {
+            methodsContainer.style.display = 'block';
+            let html = '';
+            data.identification_methods.forEach(method => {
+                const confClass = method.confidence >= 75 ? 'high' : (method.confidence >= 50 ? 'medium' : 'low');
+                html += `
+                    <div class="id-method">
+                        <div class="id-method-header">
+                            <span class="id-method-name">${method.method}</span>
+                            <span class="id-method-conf ${confClass}">${method.confidence}%</span>
+                        </div>
+                        <div class="id-method-result">${method.result}</div>
+                        <div class="id-method-details">${method.details}</div>
+                    </div>
+                `;
+            });
+            methodsList.innerHTML = html;
+        } else {
+            methodsContainer.style.display = 'none';
+        }
+
         // Set IMDB search link
         const imdbBtn = document.getElementById('imdb-search-btn');
         const searchTerm = data.parsed_search || data.disc_label.replace(/_/g, ' ');
@@ -413,8 +487,15 @@
             cancelCountdown();
         });
 
-        // Start auto-rip countdown
-        startCountdown();
+        // Only start auto-rip countdown if confident identification
+        // If needs_review is true, wait for user to confirm
+        if (data.needs_review) {
+            // Show review needed banner
+            statusSubtitle.textContent = '⚠️ Low confidence - please verify title before ripping';
+        } else {
+            // Start auto-rip countdown
+            startCountdown();
+        }
     }
 
     function loadHardware() {
@@ -515,9 +596,43 @@
     let scanInProgress = false;
     // Auto-rip countdown
     let countdownInterval = null;
-    let countdownSeconds = 10;
+    let countdownSeconds = 20;
     const AUTO_RIP_ENABLED = {{ config.get('ripping', {}).get('auto_rip', true) | tojson }};
-    const AUTO_RIP_DELAY = {{ config.get('ripping', {}).get('auto_rip_delay', 10) }};
+    const AUTO_RIP_DELAY = {{ config.get('ripping', {}).get('auto_rip_delay', 20) }};
+    const AUTO_SCAN_ON_INSERT = {{ config.get('ripping', {}).get('auto_scan_on_insert', true) | tojson }};
+
+    // Disc insert polling
+    let lastDiscState = false;
+    let discPollInterval = null;
+
+    function startDiscPolling() {
+        if (!AUTO_SCAN_ON_INSERT) return;
+
+        discPollInterval = setInterval(() => {
+            // Don't poll if scan or rip is in progress
+            if (scanInProgress || showingScanResults) return;
+
+            fetch('/api/disc/check')
+                .then(r => r.json())
+                .then(data => {
+                    const discPresent = data.present;
+                    // Detect disc insertion (was not present, now present)
+                    if (discPresent && !lastDiscState) {
+                        console.log('Disc inserted, auto-scanning...');
+                        scanDisc();
+                    }
+                    lastDiscState = discPresent;
+                })
+                .catch(() => {});
+        }, 2000); // Poll every 2 seconds
+    }
+
+    function stopDiscPolling() {
+        if (discPollInterval) {
+            clearInterval(discPollInterval);
+            discPollInterval = null;
+        }
+    }
 
     function startCountdown() {
         if (!AUTO_RIP_ENABLED) return;
@@ -582,22 +697,55 @@
         // Update disc label
         document.querySelector('.disc-label').textContent = ripData.disc_label || 'Processing disc...';
 
-        // Update each step
+        // Update each step and find current active step
         const steps = ['insert', 'detect', 'scan', 'rip', 'identify', 'library', 'move', 'scan-plex'];
+        const stepNames = {
+            'insert': 'Inserting',
+            'detect': 'Detecting',
+            'scan': 'Scanning',
+            'rip': 'Ripping',
+            'identify': 'Identifying',
+            'library': 'Library',
+            'move': 'Moving',
+            'scan-plex': 'Plex Scan'
+        };
+        let currentStepName = '';
         steps.forEach(step => {
             const stepData = ripData.steps ? ripData.steps[step] : null;
             if (stepData) {
                 updateStep('step-' + step, stepData.status, stepData.detail);
+                if (stepData.status === 'active') {
+                    currentStepName = stepNames[step] || step;
+                }
             }
         });
 
-        // Update progress bar if ripping
-        if (ripData.progress !== undefined && ripData.progress > 0) {
+        // Show current step or completion status
+        const currentStepEl = document.getElementById('current-step');
+        if (ripData.status === 'complete') {
+            currentStepEl.textContent = 'Complete';
+            currentStepEl.className = 'current-step complete';
+        } else if (ripData.status === 'error') {
+            currentStepEl.textContent = 'Error';
+            currentStepEl.className = 'current-step error';
+        } else if (currentStepName) {
+            currentStepEl.textContent = currentStepName;
+            currentStepEl.className = 'current-step active';
+        } else {
+            currentStepEl.textContent = '';
+        }
+
+        // Update progress bar if ripping (show when rip step is active or progress > 0)
+        const ripStepActive = ripData.steps && ripData.steps.rip && ripData.steps.rip.status === 'active';
+        if (ripStepActive || (ripData.progress !== undefined && ripData.progress > 0)) {
             document.getElementById('rip-progress').style.display = 'block';
-            document.getElementById('progress-fill').style.width = ripData.progress + '%';
-            document.getElementById('progress-text').textContent = ripData.progress + '%';
+            const pct = ripData.progress || 0;
+            document.getElementById('progress-fill').style.width = pct + '%';
+            document.getElementById('progress-text').textContent = pct + '%';
             if (ripData.eta) {
                 document.getElementById('progress-eta').textContent = ripData.eta;
+            } else if (pct === 0) {
+                document.getElementById('progress-eta').textContent = 'Starting...';
             }
         } else {
             document.getElementById('rip-progress').style.display = 'none';
@@ -642,10 +790,8 @@
                 break;
         }
 
-        // Update detail text
-        if (detail) {
-            detailEl.textContent = detail;
-        }
+        // Update detail text (always set, even if empty, to clear old values)
+        detailEl.textContent = detail || '';
     }
 
     // Start a real rip

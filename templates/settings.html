@@ -164,6 +164,45 @@
         </div>
     </section>
 
+    <!-- Auto-Rip Settings -->
+    <section class="card">
+        <h2>Auto-Rip</h2>
+        <p class="card-description">Configure automatic scanning and ripping behavior</p>
+        <div class="settings-grid">
+            <div class="field">
+                <label class="toggle-label">
+                    <input type="checkbox" id="auto-scan-on-insert" {% if config.ripping.auto_scan_on_insert != false %}checked{% endif %}>
+                    <span>Auto-Scan on Disc Insert</span>
+                </label>
+                <small>Automatically scan when a disc is inserted</small>
+            </div>
+            <div class="field">
+                <label class="toggle-label">
+                    <input type="checkbox" id="auto-rip" {% if config.ripping.auto_rip != false %}checked{% endif %}>
+                    <span>Auto-Rip After Scan</span>
+                </label>
+                <small>Start ripping automatically after countdown</small>
+            </div>
+            <div class="field">
+                <label>Auto-Rip Countdown (seconds)</label>
+                <input type="number" id="auto-rip-delay" value="{{ config.ripping.auto_rip_delay or 20 }}" min="5" max="120">
+                <small>Time to review before auto-rip starts</small>
+            </div>
+            <div class="field">
+                <label>Confidence Threshold (%)</label>
+                <input type="number" id="confidence-threshold" value="{{ config.ripping.confidence_threshold or 75 }}" min="0" max="100">
+                <small>Below this, disc needs manual review before ripping</small>
+            </div>
+            <div class="field">
+                <label class="toggle-label">
+                    <input type="checkbox" id="notify-uncertain" {% if config.ripping.notify_uncertain != false %}checked{% endif %}>
+                    <span>Email on Uncertain ID</span>
+                </label>
+                <small>Send email when disc identification needs review</small>
+            </div>
+        </div>
+    </section>
+
     <!-- Paths -->
     <section class="card">
         <h2>Paths</h2>
@@ -536,7 +575,12 @@
             ripping: {
                 min_length: parseInt(document.getElementById('min-length').value),
                 main_feature_only: document.getElementById('main-feature-only').checked,
-                skip_transcode: document.getElementById('skip-transcode').checked
+                skip_transcode: document.getElementById('skip-transcode').checked,
+                auto_scan_on_insert: document.getElementById('auto-scan-on-insert').checked,
+                auto_rip: document.getElementById('auto-rip').checked,
+                auto_rip_delay: parseInt(document.getElementById('auto-rip-delay').value),
+                confidence_threshold: parseInt(document.getElementById('confidence-threshold').value),
+                notify_uncertain: document.getElementById('notify-uncertain').checked
             },
             paths: {
                 raw_rips: document.getElementById('path-raw').value,

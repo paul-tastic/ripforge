@@ -1182,6 +1182,88 @@ body {
     background: #e6b800;
 }
 
+/* Identification Methods Debug */
+.id-methods {
+    margin-top: 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+    padding: 10px;
+}
+
+.id-methods-header {
+    margin-bottom: 8px;
+}
+
+.id-methods-toggle {
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.id-methods-toggle:hover {
+    color: var(--text);
+}
+
+.id-method {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+}
+
+.id-method:last-child {
+    margin-bottom: 0;
+}
+
+.id-method-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.id-method-name {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.id-method-conf {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.id-method-conf.high {
+    background: rgba(74, 222, 128, 0.2);
+    color: var(--success);
+}
+
+.id-method-conf.medium {
+    background: rgba(229, 160, 13, 0.2);
+    color: var(--warning);
+}
+
+.id-method-conf.low {
+    background: rgba(248, 113, 113, 0.2);
+    color: var(--error);
+}
+
+.id-method-result {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 2px;
+}
+
+.id-method-details {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+}
+
 /* Auto-rip countdown */
 .auto-rip-countdown {
     display: flex;
@@ -1348,4 +1430,42 @@ body {
     margin-top: 20px;
     padding-top: 16px;
     border-top: 1px solid var(--border);
+}
+
+/* Current Step Badge */
+.current-step {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 4px;
+    margin-left: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+}
+
+.current-step:empty {
+    display: none;
+}
+
+.current-step.active {
+    background: rgba(229, 160, 13, 0.2);
+    color: var(--accent);
+    animation: pulse-step 2s ease-in-out infinite;
+}
+
+.current-step.complete {
+    background: rgba(74, 222, 128, 0.2);
+    color: var(--success);
+}
+
+.current-step.error {
+    background: rgba(248, 113, 113, 0.2);
+    color: var(--error);
+}
+
+@keyframes pulse-step {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
 }

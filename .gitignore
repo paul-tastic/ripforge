@@ -29,3 +29,4 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
+config/config.yaml

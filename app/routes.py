@@ -180,18 +180,6 @@ def api_disc_scan_identify():
     # Search Radarr with runtime matching
     result = identifier.search_radarr(search_term, runtime_seconds)
 
-    # Build response
-    response = {
-        'disc_label': info['disc_label'],
-        'disc_type': info.get('disc_type', 'unknown'),
-        'tracks': info.get('tracks', []),
-        'main_feature': main_feature,
-        'runtime_seconds': runtime_seconds,
-        'parsed_search': search_term,
-        'identified': None,
-        'suggested_title': search_term  # Fallback to parsed label
-    }
-
     # Get runtime string for logging
     runtime_str = None
     if runtime_seconds:
@@ -199,8 +187,62 @@ def api_disc_scan_identify():
         minutes, _ = divmod(remainder, 60)
         runtime_str = f"{int(hours)}h {int(minutes)}m" if hours else f"{int(minutes)}m"
 
+    # Build identification methods debug info
+    identification_methods = []
+
+    # Method 1: Parsed disc label
+    identification_methods.append({
+        'method': 'Disc Label Parsing',
+        'result': search_term,
+        'confidence': 50 if search_term != info['disc_label'] else 30,
+        'details': f"Raw: {info['disc_label']} → Parsed: {search_term}"
+    })
+
+    # Method 2: Radarr/TMDB search with runtime matching
+    if result:
+        runtime_diff = None
+        if runtime_seconds and result.runtime_minutes:
+            diff_mins = abs(runtime_seconds/60 - result.runtime_minutes)
+            runtime_diff = f"{diff_mins:.0f}min diff"
+
+        identification_methods.append({
+            'method': 'Radarr + Runtime Match',
+            'result': result.folder_name,
+            'confidence': result.confidence,
+            'details': f"TMDB: {result.title} ({result.year}) - {result.runtime_minutes}min" +
+                      (f" ({runtime_diff})" if runtime_diff else "")
+        })
+
+    # Log each identification method to activity log
+    for method in identification_methods:
+        activity.id_method_result(
+            method['method'],
+            method['result'],
+            method['confidence'],
+            method.get('details')
+        )
+
+    # Build response
+    response = {
+        'disc_label': info['disc_label'],
+        'disc_type': info.get('disc_type', 'unknown'),
+        'tracks': info.get('tracks', []),
+        'main_feature': main_feature,
+        'runtime_seconds': runtime_seconds,
+        'runtime_str': runtime_str,
+        'parsed_search': search_term,
+        'identified': None,
+        'suggested_title': search_term,  # Fallback to parsed label
+        'identification_methods': identification_methods
+    }
+
     # Log scan completion
     activity.scan_completed(info['disc_label'], info.get('disc_type', 'disc').upper(), runtime_str)
+
+    # Get auto-rip settings
+    rip_settings = cfg.get('ripping', {})
+    confidence_threshold = rip_settings.get('confidence_threshold', 75)
+    notify_uncertain = rip_settings.get('notify_uncertain', True)
 
     if result:
         response['identified'] = {
@@ -209,11 +251,36 @@ def api_disc_scan_identify():
             'tmdb_id': result.tmdb_id,
             'runtime_minutes': result.runtime_minutes,
             'confidence': result.confidence,
-            'folder_name': result.folder_name
+            'folder_name': result.folder_name,
+            'poster_url': result.poster_url
         }
-        response['suggested_title'] = result.folder_name
+        # Only use identified title if confidence is high enough
+        if result.confidence >= confidence_threshold:
+            response['suggested_title'] = result.folder_name
+            response['needs_review'] = False
+        else:
+            response['needs_review'] = True
         # Log identification
         activity.rip_identified(info['disc_label'], result.folder_name, result.confidence)
+    else:
+        response['needs_review'] = True
+
+    # Send email notification for uncertain identification
+    if response.get('needs_review') and notify_uncertain:
+        email_cfg = cfg.get('notifications', {}).get('email', {})
+        recipients = email_cfg.get('recipients', [])
+        if recipients:
+            from . import email as email_utils
+            best_guess = result.folder_name if result else search_term
+            confidence = result.confidence if result else 0
+            email_utils.send_uncertain_identification(
+                disc_label=info['disc_label'],
+                best_guess=best_guess,
+                confidence=confidence,
+                runtime_str=runtime_str,
+                recipients=recipients
+            )
+            activity.log_info(f"Uncertain ID email sent for: {info['disc_label']}")
 
     return jsonify(response)
 
@@ -298,6 +365,94 @@ def api_hardware():
     drives = config.detect_optical_drives()
     hardware['optical_drives'] = drives
     return jsonify(hardware)
+
+
+@main.route('/api/rip-stats')
+def api_rip_stats():
+    """Get rip statistics from activity log"""
+    from pathlib import Path
+    from datetime import datetime, timedelta
+    import re
+
+    logs_dir = Path(__file__).parent.parent / "logs"
+    activity_log = logs_dir / "activity.log"
+
+    stats = {
+        'today': 0,
+        'week': 0,
+        'total': 0,
+        'errors': 0,
+        'avg_bluray_mins': None,
+        'avg_dvd_mins': None
+    }
+
+    bluray_times = []
+    dvd_times = []
+    now = datetime.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_start - timedelta(days=today_start.weekday())
+
+    # Pattern to match completed rips with duration
+    # Example: "2026-01-15 22:46:58 | SUCCESS | Rip completed: Expendables 3 (0:34:23)"
+    completed_pattern = re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| SUCCESS \| Rip completed: .* \((\d+):(\d{2}):(\d{2})\)')
+    error_pattern = re.compile(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \| ERROR \| Rip failed:')
+    # Pattern to get disc type from scan line
+    scan_pattern = re.compile(r'Scan completed: .* \((BLURAY|DVD)\)')
+
+    try:
+        if activity_log.exists():
+            with open(activity_log) as f:
+                lines = f.readlines()
+
+            # Track disc types from scan lines
+            current_disc_type = None
+
+            for line in lines:
+                line = line.strip()
+
+                # Check for scan completed to get disc type
+                scan_match = scan_pattern.search(line)
+                if scan_match:
+                    current_disc_type = scan_match.group(1)
+
+                # Check for completed rips
+                match = completed_pattern.match(line)
+                if match:
+                    stats['total'] += 1
+
+                    # Parse timestamp
+                    timestamp = datetime.strptime(match.group(1), '%Y-%m-%d %H:%M:%S')
+                    if timestamp >= today_start:
+                        stats['today'] += 1
+                    if timestamp >= week_start:
+                        stats['week'] += 1
+
+                    # Parse duration (H:MM:SS)
+                    hours = int(match.group(2))
+                    mins = int(match.group(3))
+                    secs = int(match.group(4))
+                    total_mins = hours * 60 + mins + secs / 60
+
+                    # Add to appropriate list based on disc type
+                    if current_disc_type == 'BLURAY':
+                        bluray_times.append(total_mins)
+                    elif current_disc_type == 'DVD':
+                        dvd_times.append(total_mins)
+
+                # Check for errors
+                if error_pattern.match(line):
+                    stats['errors'] += 1
+
+    except Exception:
+        pass
+
+    # Calculate averages
+    if bluray_times:
+        stats['avg_bluray_mins'] = round(sum(bluray_times) / len(bluray_times))
+    if dvd_times:
+        stats['avg_dvd_mins'] = round(sum(dvd_times) / len(dvd_times))
+
+    return jsonify(stats)
 
 
 @main.route('/api/newsletter/queue')
