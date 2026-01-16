@@ -6,6 +6,7 @@ Identifies ripped content using disc label parsing + runtime matching with Radar
 import re
 import os
 import subprocess
+import time
 import requests
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
@@ -287,14 +288,39 @@ class SmartIdentifier:
         if verbose:
             activity.log_info(f"RADARR: Searching for '{title}' (runtime: {runtime_str})")
 
-        try:
-            response = requests.get(
-                f"{self.radarr_url}/api/v3/movie/lookup",
-                params={'term': title},
-                headers={'X-Api-Key': self.radarr_api},
-                timeout=10
-            )
+        # Retry logic: try up to 3 times on timeout/connection errors
+        max_retries = 3
+        response = None
+        last_error = None
 
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(
+                    f"{self.radarr_url}/api/v3/movie/lookup",
+                    params={'term': title},
+                    headers={'X-Api-Key': self.radarr_api},
+                    timeout=10
+                )
+                break  # Success, exit retry loop
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    if verbose:
+                        activity.log_warning(f"RADARR: Attempt {attempt + 1}/{max_retries} failed ({type(e).__name__}), retrying...")
+                    time.sleep(1)  # Brief pause before retry
+                continue
+            except Exception as e:
+                # Non-retryable error
+                if verbose:
+                    activity.log_error(f"RADARR: Search error: {e}")
+                return None
+
+        if response is None:
+            if verbose:
+                activity.log_error(f"RADARR: All {max_retries} attempts failed: {last_error}")
+            return None
+
+        try:
             if response.status_code != 200:
                 if verbose:
                     activity.log_warning(f"RADARR: API returned status {response.status_code}")
