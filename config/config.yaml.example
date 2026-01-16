@@ -1,49 +1,22 @@
 # RipForge Configuration Example
 # Copy this to config.yaml and fill in your values
+# Only include settings you want to override from default.yaml
 
 notifications:
   email:
-    provider: sendgrid    # or "msmtp" for system mail
-    sendgrid_api_key: ""  # Get free key at sendgrid.com (starts with SG.)
+    provider: sendgrid           # Options: msmtp, sendgrid
+    sendgrid_api_key: ""         # Get free key at sendgrid.com (starts with SG.)
+    from_address: "you@example.com"
     recipients:
       - "you@example.com"
     on_complete: true
     on_error: true
     weekly_recap: true
 
-ripping:
-  min_length: 2700              # 45 min minimum track length
-  main_feature_only: true       # Only rip longest track
-  skip_transcode: true          # Keep original MakeMKV quality
-  auto_scan_on_insert: true     # Auto-scan when disc inserted
-  auto_rip: true                # Auto-start after countdown
-  auto_rip_delay: 20            # Countdown seconds
-  confidence_threshold: 75      # Below this = needs manual review
-  notify_uncertain: true        # Email when ID confidence is low
-
-paths:
-  raw_rips: "/mnt/media/rips/raw"
-  movies: "/mnt/media/movies"
-  tv: "/mnt/media/tv"
-
 integrations:
   radarr:
-    enabled: true
-    url: "http://localhost:7878"
-    api_key: ""
+    api_key: "your-radarr-api-key"
   sonarr:
-    enabled: true
-    url: "http://localhost:8989"
-    api_key: ""
+    api_key: "your-sonarr-api-key"
   plex:
-    enabled: true
-    url: "http://localhost:32400"
-    token: ""
-  overseerr:
-    enabled: false
-    url: "http://localhost:5055"
-    api_key: ""
-  tautulli:
-    enabled: false
-    url: "http://localhost:8181"
-    api_key: ""
+    token: "your-plex-token"

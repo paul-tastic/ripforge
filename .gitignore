@@ -18,6 +18,8 @@ ENV/
 
 # Project specific
 config/settings.yaml
+config/config.yaml
+config/current_job.json
 logs/
 *.log
 
@@ -29,4 +31,3 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
-config/config.yaml
