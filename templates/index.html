@@ -824,27 +824,46 @@
         btn.disabled = true;
         btn.textContent = 'Starting...';
 
-        // Get custom title from input if scan was done
-        const titleInput = document.getElementById('custom-title');
-        const customTitle = titleInput && titleInput.value ? titleInput.value.trim() : null;
-
-        // Clear scan results since we're starting the rip
-        clearScanResults();
-
-        fetch('/api/rip/start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                device: '/dev/sr0',
-                custom_title: customTitle
-            })
-        })
+        // First check if a rip is already running - silently abort if so
+        fetch('/api/rip/status')
             .then(r => r.json())
+            .then(status => {
+                if (status && status.status &&
+                    !['idle', 'complete', 'error'].includes(status.status)) {
+                    // Already ripping - just update UI to show progress, no error
+                    console.log('Rip already in progress, showing status');
+                    btn.disabled = false;
+                    btn.textContent = 'Start Rip';
+                    discAlreadyProcessed = true;
+                    return null;
+                }
+
+                // Get custom title from input if scan was done
+                const titleInput = document.getElementById('custom-title');
+                const customTitle = titleInput && titleInput.value ? titleInput.value.trim() : null;
+
+                // Clear scan results since we're starting the rip
+                clearScanResults();
+
+                return fetch('/api/rip/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        device: '/dev/sr0',
+                        custom_title: customTitle
+                    })
+                }).then(r => r.json());
+            })
             .then(data => {
+                if (!data) return; // Already ripping, handled above
                 if (data.success) {
                     // Rip started, status polling will update UI
+                    discAlreadyProcessed = true;
                 } else {
-                    alert('Error: ' + (data.error || 'Could not start rip'));
+                    // Only show error if it's not "already ripping"
+                    if (!data.error || !data.error.includes('Already')) {
+                        alert('Error: ' + (data.error || 'Could not start rip'));
+                    }
                     btn.disabled = false;
                     btn.textContent = 'Start Rip';
                 }
