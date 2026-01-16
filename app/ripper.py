@@ -95,6 +95,7 @@ class RipJob:
             "error_message": self.error_message,
             "expected_size_bytes": self.expected_size_bytes,
             "current_size_bytes": self.current_size_bytes,
+            "rip_output_dir": self.rip_output_dir,
             "steps": {k: {"status": v.status, "detail": v.detail} for k, v in self.steps.items()}
         }
 
@@ -468,6 +469,38 @@ class RipEngine:
         thread.daemon = True
         thread.start()
 
+    def _run_post_rip_identification(self, job: RipJob):
+        """Run smart identification after rip using actual file runtime from ffprobe"""
+        from .identify import SmartIdentifier
+        identifier = SmartIdentifier(self.config)
+
+        # Get actual runtime from the ripped file using ffprobe
+        actual_runtime = identifier.get_video_runtime(job.output_path)
+        if actual_runtime:
+            activity.log_info(f"Actual runtime from file: {actual_runtime // 60}m {actual_runtime % 60}s")
+
+        # Parse disc label for search
+        search_term = identifier.parse_disc_label(job.disc_label)
+        activity.log_info(f"Searching for: {search_term}")
+
+        # Search Radarr with actual runtime
+        id_result = identifier.search_radarr(search_term, actual_runtime)
+
+        if id_result and id_result.confidence >= 50:
+            job.identified_title = f"{id_result.title} ({id_result.year})"
+            job.year = id_result.year
+            job.tmdb_id = id_result.tmdb_id
+            job.poster_url = id_result.poster_url
+            job.runtime_str = f"{id_result.runtime_minutes}m" if id_result.runtime_minutes else ""
+            confidence_str = "HIGH" if id_result.is_confident else "MEDIUM"
+            self._update_step("identify", "complete", f"{job.identified_title} [{confidence_str}]")
+            activity.rip_identified(job.disc_label, job.identified_title, id_result.confidence)
+        else:
+            # Fall back to disc label
+            job.identified_title = job.disc_label.replace("_", " ").title()
+            self._update_step("identify", "complete", f"{job.identified_title} [MANUAL]")
+            activity.log_warning(f"Could not identify, using disc label: {job.identified_title}")
+
     def _run_post_processing(self):
         """Run the post-rip steps (identify, library, move, plex scan)"""
         job = self.current_job
@@ -491,7 +524,8 @@ class RipEngine:
 
             dest_folder_name = job.identified_title or job.disc_label.replace("_", " ").title()
             dest_path = os.path.join(self.movies_path, dest_folder_name)
-            source_path = job.output_path
+            # Use output_path if set, otherwise fall back to rip_output_dir
+            source_path = job.output_path or job.rip_output_dir
 
             mkv_files = glob.glob(os.path.join(source_path, "*.mkv"))
             if mkv_files:
@@ -598,8 +632,8 @@ class RipEngine:
                 # Update current file size if ripping
                 if self.current_job.status == RipStatus.RIPPING and self.current_job.rip_output_dir:
                     self.current_job.current_size_bytes = self._get_output_size(self.current_job.rip_output_dir)
-                    # Calculate progress from file size if MakeMKV isn't reporting PRGV
-                    if self.current_job.progress == 0 and self.current_job.expected_size_bytes > 0:
+                    # Always calculate progress from file size (MakeMKV doesn't report PRGV for DVDs)
+                    if self.current_job.expected_size_bytes > 0:
                         size_progress = int((self.current_job.current_size_bytes / self.current_job.expected_size_bytes) * 100)
                         self.current_job.progress = min(size_progress, 99)  # Cap at 99% until actually done
 
@@ -824,24 +858,8 @@ class RipEngine:
                 self._update_step("identify", "complete", f"{job.identified_title} [USER]")
                 # Skip rename - we'll use the title when moving to movies folder
             else:
-                # No custom title - use smart identification
-                from .identify import SmartIdentifier
-                identifier = SmartIdentifier(self.config)
-                id_result = identifier.identify(job.output_path)
-
-                if id_result and id_result.confidence >= 50:
-                    job.identified_title = f"{id_result.title} ({id_result.year})"
-                    job.year = id_result.year
-                    job.tmdb_id = id_result.tmdb_id
-                    job.poster_url = id_result.poster_url
-                    job.runtime_str = f"{id_result.runtime_minutes}m" if id_result.runtime_minutes else ""
-                    confidence_str = "HIGH" if id_result.is_confident else "MEDIUM"
-                    self._update_step("identify", "complete", f"{job.identified_title} [{confidence_str}]")
-                    # Skip rename - we'll use the title when moving to movies folder
-                else:
-                    # Fall back to disc label
-                    job.identified_title = job.disc_label.replace("_", " ").title()
-                    self._update_step("identify", "complete", f"{job.identified_title} [MANUAL]")
+                # Smart identification using actual file runtime (better accuracy)
+                self._run_post_rip_identification(job)
 
             # Step 6: Add to library (Radarr/Sonarr)
             self._update_step("library", "active", "Checking Radarr...")

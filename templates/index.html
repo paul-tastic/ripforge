@@ -661,11 +661,13 @@
     const AUTO_RIP_ENABLED = {{ config.get('ripping', {}).get('auto_rip', true) | tojson }};
     const AUTO_RIP_DELAY = {{ config.get('ripping', {}).get('auto_rip_delay', 20) }};
     const AUTO_SCAN_ON_INSERT = {{ config.get('ripping', {}).get('auto_scan_on_insert', true) | tojson }};
+    const HANDS_FREE = {{ config.get('ripping', {}).get('hands_free', false) | tojson }};
 
     // Disc insert polling
     let lastDiscState = false;
     let discPollInterval = null;
     let discAlreadyProcessed = false;  // Track if current disc was already scanned/ripped
+    let processedDiscLabel = sessionStorage.getItem('processedDiscLabel') || null;  // Persist across refresh
 
     function startDiscPolling() {
         if (!AUTO_SCAN_ON_INSERT) return;
@@ -709,6 +711,8 @@
                     if (!discPresent && lastDiscState) {
                         console.log('Disc ejected, resetting for new disc');
                         discAlreadyProcessed = false;
+                        processedDiscLabel = null;
+                        sessionStorage.removeItem('processedDiscLabel');
                         showingScanResults = false;
                         clearScanResults();
                         // Also reset the backend job so UI goes back to ready state
@@ -726,9 +730,20 @@
 
                     // Detect disc insertion (was not present, now present, not already processed)
                     if (discPresent && !lastDiscState && !discAlreadyProcessed) {
-                        console.log('Disc inserted, auto-scanning...');
-                        discAlreadyProcessed = true;
-                        scanDisc();
+                        // Check if this disc was already processed (survives page refresh)
+                        if (data.label && data.label === processedDiscLabel) {
+                            console.log('Disc already processed (from sessionStorage), skipping scan');
+                            discAlreadyProcessed = true;
+                        } else if (HANDS_FREE) {
+                            // Hands-free mode: skip scan, start rip immediately
+                            console.log('Disc inserted, hands-free mode - starting rip immediately...');
+                            discAlreadyProcessed = true;
+                            startHandsFreeRip(data.label);
+                        } else {
+                            console.log('Disc inserted, auto-scanning...');
+                            discAlreadyProcessed = true;
+                            scanDisc();
+                        }
                     }
 
                     lastDiscState = discPresent;
@@ -835,6 +850,11 @@
         if (ripData.status === 'complete') {
             currentStepEl.textContent = 'Complete';
             currentStepEl.className = 'current-step complete';
+            // Save disc label to prevent re-scan on page refresh
+            if (ripData.disc_label) {
+                processedDiscLabel = ripData.disc_label;
+                sessionStorage.setItem('processedDiscLabel', ripData.disc_label);
+            }
         } else if (ripData.status === 'error') {
             currentStepEl.textContent = 'Error';
             currentStepEl.className = 'current-step error';
@@ -1069,6 +1089,41 @@
                 statusIcon.classList.remove('scanning');
                 statusIcon.innerHTML = '📀';
             });
+    }
+
+    // Hands-free mode: start rip immediately without scan/preview
+    function startHandsFreeRip(discLabel) {
+        // Update UI to show we're starting
+        const statusTitle = document.querySelector('.status-title');
+        const statusSubtitle = document.querySelector('.status-subtitle');
+        statusTitle.textContent = 'Starting Rip...';
+        statusSubtitle.textContent = discLabel || 'Disc detected, ripping in hands-free mode';
+
+        // Start rip directly - identification will happen after rip completes
+        fetch('/api/rip/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device: '/dev/sr0',
+                custom_title: null,  // Let post-rip identification determine title
+                hands_free: true
+            })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                console.log('Hands-free rip started');
+            } else {
+                console.error('Error starting hands-free rip:', data.error);
+                statusTitle.textContent = 'Error';
+                statusSubtitle.textContent = data.error || 'Could not start rip';
+            }
+        })
+        .catch(err => {
+            console.error('Error starting hands-free rip:', err);
+            statusTitle.textContent = 'Error';
+            statusSubtitle.textContent = 'Could not start rip';
+        });
     }
 
     // Demo function to test the UI (can be called from console)

@@ -57,6 +57,46 @@ class SmartIdentifier:
         'BLU-?RAY_?', 'DVD_?', 'BD_?', 'UHD_?', '4K_?'
     ]
 
+    # Studio/format suffixes to strip (at end of label)
+    STRIP_SUFFIXES = [
+        # Studio codes
+        'SCE', 'SPE', 'WB', 'FOX', 'UNI', 'PAR', 'DIS', 'LGF',
+        # Region/market codes
+        'DOM', 'DOMESTIC', 'INTL', 'INT', 'WW',
+        # Format codes
+        'WS', 'WIDESCREEN', 'FS', 'FULLSCREEN', 'NTSC', 'PAL',
+        # Edition codes
+        'SE', 'CE', 'DE', 'UE', 'DC', 'TC', 'EXT', 'EXTENDED', 'UNRATED', 'RATED', 'REMASTERED',
+        # Audio codes
+        'THX', 'DTS', 'DOLBY', 'ATMOS',
+    ]
+
+    # Common abbreviations to expand
+    ABBREVIATIONS = {
+        'SAT': 'SATURDAY',
+        'SUN': 'SUNDAY',
+        'MON': 'MONDAY',
+        'TUE': 'TUESDAY',
+        'TUES': 'TUESDAY',
+        'WED': 'WEDNESDAY',
+        'THU': 'THURSDAY',
+        'THUR': 'THURSDAY',
+        'THURS': 'THURSDAY',
+        'FRI': 'FRIDAY',
+        'NITE': 'NIGHT',
+        'NIT': 'NIGHT',
+        'ST': 'STREET',
+        'MT': 'MOUNT',
+        'VS': 'VERSUS',
+        'MR': 'MISTER',
+        'MRS': 'MISSES',
+        'DR': 'DOCTOR',
+        'JR': 'JUNIOR',
+        'SR': 'SENIOR',
+        'XMAS': 'CHRISTMAS',
+        'BDAY': 'BIRTHDAY',
+    }
+
     # Franchise-specific patterns
     FRANCHISE_PATTERNS = [
         # Guardians of the Galaxy
@@ -136,10 +176,26 @@ class SmartIdentifier:
         parsed = re.sub(r'_?(DISC_?\d*|D\d+)$', '', parsed, flags=re.IGNORECASE)
 
         # Remove region codes and common suffixes
-        parsed = re.sub(r'_?(PS|US|UK|EU|AU|CA|JP|KR|FR|DE|ES|IT|NL|BR|MX|R1|R2|R3|R4|REGION_?\d)$', '', parsed, flags=re.IGNORECASE)
+        parsed = re.sub(r'_?(PS|US|UK|EU|AU|CA|JP|KR|FR|DE|ES|IT|NL|BR|MX|AC|R1|R2|R3|R4|REGION_?\d)$', '', parsed, flags=re.IGNORECASE)
+
+        # Remove studio/format suffixes (can appear multiple times)
+        for _ in range(3):  # Multiple passes to catch stacked suffixes
+            for suffix in self.STRIP_SUFFIXES:
+                parsed = re.sub(rf'[_\s]+{suffix}$', '', parsed, flags=re.IGNORECASE)
 
         # Replace underscores with spaces
         parsed = parsed.replace('_', ' ')
+
+        # Expand abbreviations (word boundaries)
+        words = parsed.split()
+        expanded_words = []
+        for word in words:
+            upper_word = word.upper()
+            if upper_word in self.ABBREVIATIONS:
+                expanded_words.append(self.ABBREVIATIONS[upper_word])
+            else:
+                expanded_words.append(word)
+        parsed = ' '.join(expanded_words)
 
         # Apply franchise-specific patterns
         for pattern, replacement in self.FRANCHISE_PATTERNS:

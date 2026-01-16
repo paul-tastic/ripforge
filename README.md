@@ -5,6 +5,7 @@ A modern, self-hosted disc ripping solution with smart identification and media 
 ## Features
 
 - **Smart Disc Identification** - Parses disc labels + matches runtime against Radarr/TMDB
+- **Hands-Free Mode** - Insert disc, walk away - rips immediately, identifies after using actual file runtime
 - **Editable Title** - Scan disc, verify/edit title, then rip with confidence
 - **Auto-Scan on Insert** - Detects disc insertion and automatically scans
 - **Auto-Rip Countdown** - 20-second countdown after scan, auto-starts rip (cancellable)
@@ -71,6 +72,7 @@ sudo systemctl enable --now ripforge
 
 ## Workflow
 
+### Standard Mode (hands_free: false)
 1. **Insert disc** - Auto-detected and scan begins automatically
 2. **Identification** - Smart ID parses label + matches runtime against TMDB
 3. **Review** - Title shown with confidence badge (HIGH/MEDIUM/LOW) and expected file size
@@ -81,6 +83,16 @@ sudo systemctl enable --now ripforge
 6. **Progress** - Live file size (e.g., "2.1 / 5.0 GB"), checklist shows each step
 7. **Resilient** - Service restart mid-rip? No problem - recovers and continues
 8. **Eject** - UI auto-resets to ready state, waiting for next disc
+
+### Hands-Free Mode (hands_free: true)
+1. **Insert disc** - Auto-detected, rip starts immediately (no scan, no preview, no countdown)
+2. **Rip** - Progress shown with file size, checklist updates in real-time
+3. **Identification** - After rip completes, uses ffprobe to get actual file runtime
+4. **Smart Match** - Searches Radarr/TMDB with actual runtime for better accuracy
+5. **Move** - Files moved to final location with identified title
+6. **Eject** - UI auto-resets, ready for next disc
+
+Hands-free mode is ideal for batch ripping - just swap discs without touching the keyboard.
 
 ## Configuration
 
@@ -96,6 +108,7 @@ ripping:
   auto_scan_on_insert: true     # Auto-scan when disc inserted
   auto_rip: true                # Auto-start after countdown
   auto_rip_delay: 20            # Countdown seconds
+  hands_free: false             # Skip scan/preview, rip immediately, identify after
   confidence_threshold: 75      # Below this = needs manual review
   notify_uncertain: true        # Email when ID confidence is low
 ```
@@ -199,6 +212,7 @@ Examples:
 |---------|-----|----------|
 | Identification | CRC64 lookup (unreliable) | Label parsing + runtime matching |
 | Pre-rip verification | No | Yes - scan, edit, confirm |
+| Hands-free mode | No | Yes - rip first, identify after with actual runtime |
 | Auto-scan on insert | No | Yes - configurable |
 | Auto-rip | Immediate | 20s countdown (configurable) |
 | Low confidence handling | None | Email alert + manual review |
