@@ -157,7 +157,7 @@ def send_uncertain_identification(
     confidence: int,
     runtime_str: str,
     recipients: list,
-    review_url: str = "http://localhost:8081"
+    review_url: str = "http://192.168.0.104:8081"
 ) -> bool:
     """Send notification that a disc couldn't be confidently identified"""
     subject = f"RipForge: Help identify disc - {disc_label}"
