@@ -25,6 +25,7 @@
                     <span class="scan-disc-type" id="scan-disc-type">DVD</span>
                     <span class="scan-disc-label" id="scan-disc-label">DISC_LABEL</span>
                     <span class="scan-runtime" id="scan-runtime">1:30:00</span>
+                    <span class="scan-size" id="scan-size"></span>
                 </div>
                 <div class="scan-title-edit">
                     <label for="custom-title">Title:</label>
@@ -127,6 +128,7 @@
                 </div>
                 <div class="progress-info">
                     <span id="progress-text">0%</span>
+                    <span id="progress-size"></span>
                     <span id="progress-eta"></span>
                 </div>
             </div>
@@ -260,11 +262,32 @@
 <script>
     // Load status on page load
     document.addEventListener('DOMContentLoaded', function() {
+        // First check rip status - if rip is active, that takes priority over scan results
+        fetch('/api/rip/status')
+            .then(r => r.json())
+            .then(ripStatus => {
+                if (ripStatus && ripStatus.status &&
+                    !['idle', 'complete', 'error'].includes(ripStatus.status)) {
+                    // Active rip in progress - show rip UI, don't restore scan results
+                    showRipProgress(ripStatus);
+                    discAlreadyProcessed = true;
+                } else if (ripStatus && ripStatus.status === 'complete') {
+                    // Completed rip - show it
+                    showRipProgress(ripStatus);
+                } else {
+                    // No active rip - restore scan results if any
+                    restoreScanResults();
+                }
+            })
+            .catch(() => {
+                // On error, try to restore scan results
+                restoreScanResults();
+            });
+
         loadStatus();
         loadHardware();
         loadActivityLog();
         loadRipStats();
-        restoreScanResults();  // Restore scan results from session
         startDiscPolling();    // Start polling for disc insertion
         // Refresh status every 2 seconds (faster for progress bar updates)
         setInterval(loadStatus, 2000);
@@ -387,11 +410,25 @@
         sessionStorage.setItem('scanResults', JSON.stringify(data));
     }
 
+    // Get saved scan results
+    function getScanResults() {
+        const saved = sessionStorage.getItem('scanResults');
+        if (saved) {
+            try {
+                return JSON.parse(saved);
+            } catch (e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     // Clear scan results
     function clearScanResults() {
         sessionStorage.removeItem('scanResults');
         document.getElementById('scan-results').style.display = 'none';
         document.getElementById('auto-rip-countdown').style.display = 'none';
+        document.getElementById('btn-start-rip').textContent = 'Start Rip';
         showingScanResults = false;
         cancelCountdown();
     }
@@ -426,6 +463,13 @@
             if (track) {
                 document.getElementById('scan-runtime').textContent = track.duration_str;
             }
+        }
+
+        // Expected size
+        if (data.expected_size_str) {
+            document.getElementById('scan-size').textContent = data.expected_size_str;
+        } else {
+            document.getElementById('scan-size').textContent = '';
         }
 
         // Fill in editable title
@@ -479,13 +523,18 @@
         const searchTerm = data.parsed_search || data.disc_label.replace(/_/g, ' ');
         imdbBtn.href = `https://www.imdb.com/find/?q=${encodeURIComponent(searchTerm)}&s=tt&ttype=ft`;
 
-        // Update IMDB link when title input changes
+        // Update IMDB link and rip button when title input changes
         titleInput.addEventListener('input', function() {
             const term = this.value.trim() || searchTerm;
             imdbBtn.href = `https://www.imdb.com/find/?q=${encodeURIComponent(term)}&s=tt&ttype=ft`;
+            // Update rip button to show what will be ripped
+            updateRipButtonText(this.value.trim());
             // Cancel countdown if user is editing
             cancelCountdown();
         });
+
+        // Set initial button text
+        updateRipButtonText(titleInput.value.trim());
 
         // Only start auto-rip countdown if confident identification
         // If needs_review is true, wait for user to confirm
@@ -589,6 +638,18 @@
             .catch(err => console.error('Error loading status:', err));
     }
 
+    // Update rip button to show the title that will be used
+    function updateRipButtonText(title) {
+        const btn = document.getElementById('btn-start-rip');
+        if (title) {
+            // Truncate long titles
+            const displayTitle = title.length > 30 ? title.substring(0, 27) + '...' : title;
+            btn.textContent = `Rip "${displayTitle}"`;
+        } else {
+            btn.textContent = 'Start Rip';
+        }
+    }
+
     // Checklist UI Functions
     // Track if we're showing scan results (don't overwrite with idle)
     let showingScanResults = false;
@@ -644,12 +705,23 @@
 
                     const discPresent = data.present;
 
-                    // Disc was ejected - reset the processed flag
+                    // Disc was ejected - reset everything for the next disc
                     if (!discPresent && lastDiscState) {
-                        console.log('Disc ejected, ready for new disc');
+                        console.log('Disc ejected, resetting for new disc');
                         discAlreadyProcessed = false;
                         showingScanResults = false;
                         clearScanResults();
+                        // Also reset the backend job so UI goes back to ready state
+                        fetch('/api/rip/reset', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' }
+                        }).then(() => {
+                            // Reset UI to idle state
+                            document.getElementById('rip-checklist').style.display = 'none';
+                            document.getElementById('status-idle').style.display = 'block';
+                            document.querySelector('.status-title').textContent = 'Ready';
+                            document.querySelector('.status-subtitle').textContent = 'Insert a disc to begin';
+                        }).catch(() => {});
                     }
 
                     // Detect disc insertion (was not present, now present, not already processed)
@@ -732,8 +804,8 @@
         document.getElementById('status-idle').style.display = 'none';
         document.getElementById('rip-checklist').style.display = 'block';
 
-        // Update disc label
-        document.querySelector('.disc-label').textContent = ripData.disc_label || 'Processing disc...';
+        // Update title - prefer identified title over disc label
+        document.querySelector('.disc-label').textContent = ripData.identified_title || ripData.disc_label || 'Processing disc...';
 
         // Update each step and find current active step
         const steps = ['insert', 'detect', 'scan', 'rip', 'identify', 'library', 'move', 'scan-plex'];
@@ -780,6 +852,21 @@
             const pct = ripData.progress || 0;
             document.getElementById('progress-fill').style.width = pct + '%';
             document.getElementById('progress-text').textContent = pct + '%';
+
+            // Show file size progress
+            const sizeEl = document.getElementById('progress-size');
+            if (ripData.current_size_bytes > 0 || ripData.expected_size_bytes > 0) {
+                const currentGB = (ripData.current_size_bytes || 0) / (1024*1024*1024);
+                const expectedGB = (ripData.expected_size_bytes || 0) / (1024*1024*1024);
+                if (expectedGB > 0) {
+                    sizeEl.textContent = `${currentGB.toFixed(1)} / ${Math.ceil(expectedGB * 10) / 10} GB`;
+                } else {
+                    sizeEl.textContent = `${currentGB.toFixed(1)} GB`;
+                }
+            } else {
+                sizeEl.textContent = '';
+            }
+
             if (ripData.eta) {
                 document.getElementById('progress-eta').textContent = ripData.eta;
             } else if (pct === 0) {
@@ -856,16 +943,31 @@
                 const titleInput = document.getElementById('custom-title');
                 const customTitle = titleInput && titleInput.value ? titleInput.value.trim() : null;
 
+                // Get scan results to check if user corrected the title
+                const scanData = getScanResults();
+
                 // Clear scan results since we're starting the rip
                 clearScanResults();
+
+                // Build request with scan info for uncertain email logic
+                const requestBody = {
+                    device: '/dev/sr0',
+                    custom_title: customTitle
+                };
+
+                // Include scan info so backend knows if title was corrected
+                if (scanData) {
+                    requestBody.original_suggested = scanData.suggested_title;
+                    requestBody.was_uncertain = scanData.needs_review || false;
+                    requestBody.disc_label = scanData.disc_label || '';
+                    requestBody.runtime_str = scanData.runtime_str || '';
+                    requestBody.confidence = scanData.identified ? scanData.identified.confidence : 0;
+                }
 
                 return fetch('/api/rip/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        device: '/dev/sr0',
-                        custom_title: customTitle
-                    })
+                    body: JSON.stringify(requestBody)
                 }).then(r => r.json());
             })
             .then(data => {

@@ -85,11 +85,35 @@ def api_rip_start():
     data = request.json or {}
     device = data.get('device', '/dev/sr0')
     custom_title = data.get('custom_title')  # User-specified title from scan
+    # Info from scan to determine if we should send uncertain email
+    original_suggested = data.get('original_suggested')  # What auto-ID suggested
+    was_uncertain = data.get('was_uncertain', False)  # True if needs_review was set
+    disc_label = data.get('disc_label', '')
+    runtime_str = data.get('runtime_str', '')
 
     success = engine.start_rip(device, custom_title=custom_title)
     if success:
         title = custom_title or "Unknown disc"
         activity.rip_started(title, "main feature only")
+
+        # Send uncertain email ONLY if user didn't correct the title
+        if was_uncertain and custom_title == original_suggested:
+            cfg = config.load_config()
+            notify_uncertain = cfg.get('ripping', {}).get('notify_uncertain', True)
+            if notify_uncertain:
+                email_cfg = cfg.get('notifications', {}).get('email', {})
+                recipients = email_cfg.get('recipients', [])
+                if recipients:
+                    confidence = data.get('confidence', 0)
+                    email_utils.send_uncertain_identification(
+                        disc_label=disc_label,
+                        best_guess=original_suggested,
+                        confidence=confidence,
+                        runtime_str=runtime_str,
+                        recipients=recipients
+                    )
+                    activity.log_info(f"Uncertain ID email sent for: {disc_label}")
+
         return jsonify({'success': True, 'message': 'Rip started'})
     else:
         activity.log_warning("Rip start failed - already ripping or no disc")
@@ -222,6 +246,17 @@ def api_disc_scan_identify():
             method.get('details')
         )
 
+    # Get expected size for main feature (round up slightly to avoid underestimate)
+    import math
+    track_sizes = info.get('track_sizes', {})
+    expected_size_bytes = track_sizes.get(main_feature, 0) if main_feature is not None else 0
+    expected_size_str = None
+    if expected_size_bytes > 0:
+        # Round up to nearest 0.1 GB
+        size_gb = expected_size_bytes / (1024**3)
+        size_gb_rounded = math.ceil(size_gb * 10) / 10
+        expected_size_str = f"{size_gb_rounded:.1f} GB"
+
     # Build response
     response = {
         'disc_label': info['disc_label'],
@@ -230,6 +265,8 @@ def api_disc_scan_identify():
         'main_feature': main_feature,
         'runtime_seconds': runtime_seconds,
         'runtime_str': runtime_str,
+        'expected_size_bytes': expected_size_bytes,
+        'expected_size_str': expected_size_str,
         'parsed_search': search_term,
         'identified': None,
         'suggested_title': search_term,  # Fallback to parsed label
@@ -265,22 +302,8 @@ def api_disc_scan_identify():
     else:
         response['needs_review'] = True
 
-    # Send email notification for uncertain identification
-    if response.get('needs_review') and notify_uncertain:
-        email_cfg = cfg.get('notifications', {}).get('email', {})
-        recipients = email_cfg.get('recipients', [])
-        if recipients:
-            from . import email as email_utils
-            best_guess = result.folder_name if result else search_term
-            confidence = result.confidence if result else 0
-            email_utils.send_uncertain_identification(
-                disc_label=info['disc_label'],
-                best_guess=best_guess,
-                confidence=confidence,
-                runtime_str=runtime_str,
-                recipients=recipients
-            )
-            activity.log_info(f"Uncertain ID email sent for: {info['disc_label']}")
+    # Don't send uncertain email here - user may correct the title before ripping
+    # Email will be sent from /api/rip/start if title wasn't corrected
 
     return jsonify(response)
 

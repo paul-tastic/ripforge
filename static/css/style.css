@@ -1077,6 +1077,11 @@ body {
     color: var(--text-muted);
 }
 
+#progress-size {
+    color: var(--text);
+    font-weight: 500;
+}
+
 /* Scan Results Section */
 .scan-results {
     margin: 20px 0;
@@ -1114,6 +1119,12 @@ body {
     margin-left: auto;
     color: var(--text-muted);
     font-size: 13px;
+}
+
+.scan-size {
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
 }
 
 .scan-title-edit {

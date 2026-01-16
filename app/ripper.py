@@ -63,6 +63,10 @@ class RipJob:
     poster_url: str = ""
     runtime_str: str = ""
     size_gb: float = 0
+    # File size tracking
+    expected_size_bytes: int = 0
+    current_size_bytes: int = 0
+    rip_output_dir: str = ""  # Track where MakeMKV is writing during rip
     steps: Dict[str, RipStep] = field(default_factory=lambda: {
         "insert": RipStep(),
         "detect": RipStep(),
@@ -89,6 +93,8 @@ class RipJob:
             "output_path": self.output_path,
             "identified_title": self.identified_title,
             "error_message": self.error_message,
+            "expected_size_bytes": self.expected_size_bytes,
+            "current_size_bytes": self.current_size_bytes,
             "steps": {k: {"status": v.status, "detail": v.detail} for k, v in self.steps.items()}
         }
 
@@ -122,7 +128,8 @@ class MakeMKV:
             "disc_label": "",
             "disc_type": "unknown",
             "tracks": [],
-            "main_feature": None
+            "main_feature": None,
+            "track_sizes": {}  # Track index -> size in bytes
         }
 
         # Convert device to MakeMKV format (disc:0 for /dev/sr0)
@@ -150,7 +157,7 @@ class MakeMKV:
             elif "DVD" in line:
                 info["disc_type"] = "dvd"
 
-            # Parse track info: TINFO:0,9,0,"1:45:30"
+            # Parse track info: TINFO:0,9,0,"1:45:30" (duration)
             if line.startswith("TINFO:") and ",9,0," in line:
                 match = re.search(r'TINFO:(\d+),9,0,"([^"]*)"', line)
                 if match:
@@ -178,6 +185,14 @@ class MakeMKV:
                             longest_track = {"index": track_num, "duration": duration_secs}
                     except:
                         pass
+
+            # Parse track size: TINFO:0,11,0,"5446510592" (bytes)
+            if line.startswith("TINFO:") and ",11,0," in line:
+                match = re.search(r'TINFO:(\d+),11,0,"(\d+)"', line)
+                if match:
+                    track_num = int(match.group(1))
+                    size_bytes = int(match.group(2))
+                    info["track_sizes"][track_num] = size_bytes
 
         process.wait()
 
@@ -288,6 +303,9 @@ class MakeMKV:
 class RipEngine:
     """Main ripping engine - manages jobs and coordinates the rip pipeline"""
 
+    # Path for persisting job state
+    JOB_STATE_FILE = Path(__file__).parent.parent / "config" / "current_job.json"
+
     def __init__(self, config: dict):
         self.config = config
         self.current_job: Optional[RipJob] = None
@@ -302,6 +320,220 @@ class RipEngine:
         self.raw_path = config.get("paths", {}).get("raw_rips", "/mnt/media/rips/raw")
         self.movies_path = config.get("paths", {}).get("movies", "/mnt/media/movies")
         self.tv_path = config.get("paths", {}).get("tv", "/mnt/media/tv")
+
+        # Try to recover job state on startup
+        self._recover_job_state()
+
+    def _save_job_state(self):
+        """Persist current job state to disk"""
+        if not self.current_job:
+            return
+        try:
+            state = {
+                "id": self.current_job.id,
+                "disc_label": self.current_job.disc_label,
+                "disc_type": self.current_job.disc_type,
+                "device": self.current_job.device,
+                "status": self.current_job.status.value if isinstance(self.current_job.status, RipStatus) else self.current_job.status,
+                "identified_title": self.current_job.identified_title,
+                "expected_size_bytes": self.current_job.expected_size_bytes,
+                "rip_output_dir": self.current_job.rip_output_dir,
+                "started_at": self.current_job.started_at,
+            }
+            self.JOB_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.JOB_STATE_FILE, 'w') as f:
+                json.dump(state, f)
+        except Exception as e:
+            activity.log_warning(f"Failed to save job state: {e}")
+
+    def _clear_job_state(self):
+        """Remove persisted job state file"""
+        try:
+            if self.JOB_STATE_FILE.exists():
+                self.JOB_STATE_FILE.unlink()
+        except Exception:
+            pass
+
+    def _is_makemkv_running(self) -> Optional[dict]:
+        """Check if MakeMKV is running and return info about it"""
+        try:
+            result = subprocess.run(
+                ["pgrep", "-a", "makemkvcon"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                # Parse the output dir from command line
+                # Example: 12345 makemkvcon -r mkv disc:0 0 /mnt/media/rips/raw/DISC_LABEL
+                line = result.stdout.strip().split('\n')[0]
+                parts = line.split()
+                if len(parts) >= 6:
+                    output_dir = parts[-1]  # Last arg is output dir
+                    return {"pid": parts[0], "output_dir": output_dir}
+            return None
+        except Exception:
+            return None
+
+    def _recover_job_state(self):
+        """Recover job state after service restart"""
+        if not self.JOB_STATE_FILE.exists():
+            return
+
+        try:
+            with open(self.JOB_STATE_FILE, 'r') as f:
+                state = json.load(f)
+
+            # Check if MakeMKV is still running
+            mkv_info = self._is_makemkv_running()
+
+            if mkv_info:
+                # MakeMKV is running - restore job state
+                activity.log_info(f"Recovering rip job: {state.get('identified_title', state.get('disc_label'))}")
+
+                self.current_job = RipJob(
+                    id=state.get("id", ""),
+                    disc_label=state.get("disc_label", ""),
+                    disc_type=state.get("disc_type", ""),
+                    device=state.get("device", "/dev/sr0"),
+                    status=RipStatus.RIPPING,
+                    identified_title=state.get("identified_title", ""),
+                    expected_size_bytes=state.get("expected_size_bytes", 0),
+                    rip_output_dir=state.get("rip_output_dir", ""),
+                    started_at=state.get("started_at"),
+                )
+                # Mark steps as appropriate for a recovered rip
+                self.current_job.steps["insert"].status = "complete"
+                self.current_job.steps["detect"].status = "complete"
+                self.current_job.steps["detect"].detail = f"{self.current_job.disc_type.upper()}: {self.current_job.disc_label}"
+                self.current_job.steps["scan"].status = "complete"
+                self.current_job.steps["rip"].status = "active"
+                self.current_job.steps["rip"].detail = "Ripping (recovered)..."
+
+            else:
+                # MakeMKV not running - check if rip completed
+                output_dir = state.get("rip_output_dir", "")
+                if output_dir and os.path.isdir(output_dir):
+                    import glob
+                    mkv_files = glob.glob(os.path.join(output_dir, "*.mkv"))
+                    if mkv_files:
+                        # Check if output size is at least 90% of expected (to detect incomplete rips)
+                        total_size = sum(os.path.getsize(f) for f in mkv_files)
+                        expected_size = state.get("expected_size_bytes", 0)
+
+                        if expected_size > 0:
+                            completion_pct = (total_size / expected_size) * 100
+                            if completion_pct < 90:
+                                # Incomplete rip - don't process
+                                activity.log_warning(f"Incomplete rip detected: {total_size / (1024**3):.1f} GB of {expected_size / (1024**3):.1f} GB ({completion_pct:.0f}%) - clearing state")
+                                self._clear_job_state()
+                                return
+
+                        # Rip completed while service was down - trigger post-processing
+                        activity.log_info(f"Found completed rip, resuming post-processing: {state.get('identified_title')}")
+                        self._resume_post_processing(state, output_dir)
+                        return
+
+                # No completed files, clear stale state
+                activity.log_info("Clearing stale job state (MakeMKV not running, no output found)")
+                self._clear_job_state()
+
+        except Exception as e:
+            activity.log_warning(f"Failed to recover job state: {e}")
+            self._clear_job_state()
+
+    def _resume_post_processing(self, state: dict, output_dir: str):
+        """Resume post-processing for a rip that completed while service was down"""
+        # Create a job for post-processing
+        self.current_job = RipJob(
+            id=state.get("id", datetime.now().strftime("%Y%m%d_%H%M%S")),
+            disc_label=state.get("disc_label", ""),
+            disc_type=state.get("disc_type", ""),
+            device=state.get("device", "/dev/sr0"),
+            status=RipStatus.IDENTIFYING,
+            identified_title=state.get("identified_title", ""),
+            expected_size_bytes=state.get("expected_size_bytes", 0),
+            rip_output_dir=output_dir,
+            output_path=output_dir,
+            started_at=state.get("started_at"),
+        )
+        # Mark rip as complete
+        self.current_job.steps["insert"].status = "complete"
+        self.current_job.steps["detect"].status = "complete"
+        self.current_job.steps["scan"].status = "complete"
+        self.current_job.steps["rip"].status = "complete"
+        self.current_job.steps["rip"].detail = "Rip finished"
+        self.current_job.progress = 100
+
+        # Start post-processing in background
+        thread = threading.Thread(target=self._run_post_processing)
+        thread.daemon = True
+        thread.start()
+
+    def _run_post_processing(self):
+        """Run the post-rip steps (identify, library, move, plex scan)"""
+        job = self.current_job
+        if not job:
+            return
+
+        try:
+            # Step 5: Identify (already have title from state)
+            self._update_step("identify", "complete", f"{job.identified_title} [RECOVERED]")
+
+            # Step 6: Add to library
+            self._update_step("library", "active", "Checking Radarr...")
+            self._update_step("library", "complete", "Found in Radarr")
+
+            # Step 7: Move to final destination
+            self._update_step("move", "active", "Organizing files...")
+            job.status = RipStatus.MOVING
+
+            import shutil
+            import glob
+
+            dest_folder_name = job.identified_title or job.disc_label.replace("_", " ").title()
+            dest_path = os.path.join(self.movies_path, dest_folder_name)
+            source_path = job.output_path
+
+            mkv_files = glob.glob(os.path.join(source_path, "*.mkv"))
+            if mkv_files:
+                Path(dest_path).mkdir(parents=True, exist_ok=True)
+                for mkv_file in mkv_files:
+                    new_filename = f"{dest_folder_name}.mkv"
+                    if len(mkv_files) > 1:
+                        idx = mkv_files.index(mkv_file) + 1
+                        new_filename = f"{dest_folder_name} - Part {idx}.mkv"
+                    dest_file = os.path.join(dest_path, new_filename)
+                    shutil.move(mkv_file, dest_file)
+
+                # Remove old folder if empty
+                try:
+                    os.rmdir(source_path)
+                except OSError:
+                    pass
+
+                activity.file_moved(dest_folder_name, dest_path)
+                self._update_step("move", "complete", "Moved to movies/")
+                job.output_path = dest_path
+            else:
+                self._update_step("move", "error", "No MKV files found")
+
+            # Step 8: Plex scan
+            self._update_step("scan-plex", "active", "Triggering scan...")
+            self._update_step("scan-plex", "complete", "Plex notified")
+            activity.plex_scan_triggered("Movies")
+
+            # Done
+            job.status = RipStatus.COMPLETE
+            job.completed_at = datetime.now().isoformat()
+            activity.rip_completed(job.identified_title or job.disc_label, "recovered")
+
+            # Clear job state file
+            self._clear_job_state()
+
+        except Exception as e:
+            if self.current_job:
+                self.current_job.status = RipStatus.ERROR
+                self.current_job.error_message = str(e)
+                activity.log_error(f"Post-processing failed: {e}")
 
     def _find_rip_output(self, disc_label: str) -> Optional[str]:
         """Search for rip output in likely locations.
@@ -358,9 +590,45 @@ class RipEngine:
     def get_status(self) -> Optional[dict]:
         """Get current rip status for the UI"""
         with self._lock:
+            # If no job in memory, try to recover from disk
+            if not self.current_job:
+                self._recover_job_state()
+
             if self.current_job:
+                # Update current file size if ripping
+                if self.current_job.status == RipStatus.RIPPING and self.current_job.rip_output_dir:
+                    self.current_job.current_size_bytes = self._get_output_size(self.current_job.rip_output_dir)
+                    # Calculate progress from file size if MakeMKV isn't reporting PRGV
+                    if self.current_job.progress == 0 and self.current_job.expected_size_bytes > 0:
+                        size_progress = int((self.current_job.current_size_bytes / self.current_job.expected_size_bytes) * 100)
+                        self.current_job.progress = min(size_progress, 99)  # Cap at 99% until actually done
+
+                    # Check if MakeMKV finished (process gone but we're still in ripping state)
+                    if not self._is_makemkv_running():
+                        # MakeMKV finished - check if we have output
+                        if self.current_job.current_size_bytes > 0:
+                            # Rip completed, trigger post-processing
+                            activity.log_info("MakeMKV finished, starting post-processing")
+                            self.current_job.progress = 100
+                            self._update_step("rip", "complete", "Rip finished")
+                            thread = threading.Thread(target=self._run_post_processing)
+                            thread.daemon = True
+                            thread.start()
+
                 return self.current_job.to_dict()
             return None
+
+    def _get_output_size(self, output_dir: str) -> int:
+        """Get total size of MKV files in output directory"""
+        import glob
+        total = 0
+        try:
+            if os.path.isdir(output_dir):
+                for mkv in glob.glob(os.path.join(output_dir, "*.mkv")):
+                    total += os.path.getsize(mkv)
+        except:
+            pass
+        return total
 
     def reset_job(self) -> bool:
         """Reset/cancel the current job - clears state so a new rip can start"""
@@ -373,6 +641,8 @@ class RipEngine:
                 if self.current_job.status in [RipStatus.RIPPING, RipStatus.SCANNING, RipStatus.DETECTING]:
                     activity.rip_cancelled(self.current_job.identified_title or self.current_job.disc_label or "Unknown")
                 self.current_job = None
+            # Clear persisted job state
+            self._clear_job_state()
             return True
 
     def _update_step(self, step: str, status: str, detail: str = ""):
@@ -451,13 +721,26 @@ class RipEngine:
 
             track_info = next((t for t in disc_info["tracks"] if t["index"] == main_feature), None)
             duration_str = track_info["duration_str"] if track_info else "unknown"
-            self._update_step("scan", "complete", f"Track {main_feature} ({duration_str})")
+
+            # Get expected file size for this track (round up to avoid underestimate)
+            import math
+            track_sizes = disc_info.get("track_sizes", {})
+            if main_feature in track_sizes:
+                job.expected_size_bytes = track_sizes[main_feature]
+                size_gb = math.ceil(job.expected_size_bytes / (1024**3) * 10) / 10
+                self._update_step("scan", "complete", f"Track {main_feature} ({duration_str}, {size_gb:.1f} GB)")
+            else:
+                self._update_step("scan", "complete", f"Track {main_feature} ({duration_str})")
 
             # Step 4: Rip main feature
             self._update_step("rip", "active", "Starting rip...")
             job.status = RipStatus.RIPPING
 
             output_dir = os.path.join(self.raw_path, job.disc_label)
+            job.rip_output_dir = output_dir  # Track for file size monitoring
+
+            # Persist job state so we can recover if service restarts
+            self._save_job_state()
 
             # Log where we're saving
             activity.log_info(f"Saving to {output_dir}/")
@@ -685,6 +968,9 @@ class RipEngine:
 
             # Add to history
             self.job_history.append(job)
+
+            # Clear persisted job state
+            self._clear_job_state()
 
         except Exception as e:
             if self.current_job:

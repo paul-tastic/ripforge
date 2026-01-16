@@ -8,7 +8,10 @@ A modern, self-hosted disc ripping solution with smart identification and media 
 - **Editable Title** - Scan disc, verify/edit title, then rip with confidence
 - **Auto-Scan on Insert** - Detects disc insertion and automatically scans
 - **Auto-Rip Countdown** - 20-second countdown after scan, auto-starts rip (cancellable)
-- **Uncertain ID Handling** - Email notification when confidence is low, requires manual review
+- **Uncertain ID Handling** - Email notification only if you don't correct the title
+- **Resilient Ripping** - Job state persists to disk, survives service restarts mid-rip
+- **Live Progress** - File size display during rip (e.g., "2.1 / 5.0 GB"), progress bar
+- **Smart Recovery** - Detects incomplete rips (<90% complete) and won't auto-process them
 - **Media Server Integration** - Radarr, Sonarr, Overseerr, Plex
 - **Real-time Progress** - Checklist UI shows each step with spinner animations
 - **Hardware Dashboard** - CPU, RAM, storage (SSD/HDD/Pool detection), optical drive
@@ -19,6 +22,7 @@ A modern, self-hosted disc ripping solution with smart identification and media 
 - **IMDB Search** - Quick link to search IMDB when identification is uncertain
 - **Auto-Detection** - Scans for Docker containers and imports API keys
 - **Systemd Service** - Runs on boot, survives reboots
+- **Auto-Reset on Eject** - UI resets to ready state when disc is ejected
 
 ## Dashboard
 <img width="1663" height="1114" alt="image" src="https://github.com/user-attachments/assets/8258c12f-05ef-48e4-8f82-b0f576f859e8" />
@@ -69,13 +73,14 @@ sudo systemctl enable --now ripforge
 
 1. **Insert disc** - Auto-detected and scan begins automatically
 2. **Identification** - Smart ID parses label + matches runtime against TMDB
-3. **Review** - Title shown with confidence badge (HIGH/MEDIUM/LOW)
+3. **Review** - Title shown with confidence badge (HIGH/MEDIUM/LOW) and expected file size
    - **HIGH confidence**: 20-second countdown starts automatically
-   - **LOW confidence**: Email notification sent, waits for manual review
+   - **LOW confidence**: Waits for manual review (email only sent if you don't correct it)
 4. **Edit if needed** - Fix title or use IMDB button to search
-5. **Rip** - Click "Start Rip" or let countdown complete
-6. **Progress** - Checklist shows: detect → scan → rip → identify → library → move → Plex scan
-7. **Notification** - Email sent when complete (with movie poster)
+5. **Rip** - Button shows exactly what will be ripped: `Rip "Movie Title (Year)"`
+6. **Progress** - Live file size (e.g., "2.1 / 5.0 GB"), checklist shows each step
+7. **Resilient** - Service restart mid-rip? No problem - recovers and continues
+8. **Eject** - UI auto-resets to ready state, waiting for next disc
 
 ## Configuration
 
@@ -152,7 +157,8 @@ ripforge/
 │   ├── email.py       # Email notifications (SendGrid + msmtp)
 │   └── activity.py    # Activity logging and rip history
 ├── config/
-│   └── config.yaml
+│   ├── settings.yaml    # Configuration
+│   └── current_job.json # Persisted job state (auto-managed)
 ├── logs/
 │   ├── activity.log     # Activity log
 │   └── rip_history.json # Rip history for weekly digest
