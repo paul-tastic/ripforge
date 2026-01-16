@@ -671,16 +671,16 @@ class RipEngine:
             activity.rip_completed(job.identified_title or job.disc_label, duration_str)
 
             # Save to rip history for weekly digest emails
-            activity.save_rip_to_history(
+            # Use enrich_and_save_rip to auto-fetch missing metadata from Radarr/TMDB
+            activity.enrich_and_save_rip(
                 title=job.identified_title or job.disc_label,
-                year=job.year,
                 disc_type=job.disc_type,
-                runtime_str=job.runtime_str,
-                size_gb=job.size_gb,
                 duration_str=duration_str or "",
-                poster_url=job.poster_url,
+                size_gb=job.size_gb,
+                year=job.year,
                 tmdb_id=job.tmdb_id,
-                status="complete"
+                poster_url=job.poster_url,
+                runtime_str=job.runtime_str
             )
 
             # Add to history

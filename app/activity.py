@@ -4,10 +4,12 @@ Logs user-facing events to activity log file
 """
 
 import os
+import re
 import json
+import requests
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 
 LOG_DIR = Path(__file__).parent.parent / "logs"
 ACTIVITY_LOG = LOG_DIR / "activity.log"
@@ -208,3 +210,119 @@ def get_recent_rips(days: int = 7) -> list:
     cutoff = (datetime.now() - timedelta(days=days)).isoformat()
 
     return [rip for rip in history if rip.get('completed_at', '') >= cutoff]
+
+
+def fetch_metadata_from_radarr(title: str, year: int = None) -> Dict:
+    """
+    Fetch metadata (poster, tmdb_id, runtime) from Radarr for a given title.
+    Returns dict with year, tmdb_id, poster_url, runtime_str or empty values if not found.
+    """
+    from . import config
+
+    result = {
+        "year": year or 0,
+        "tmdb_id": 0,
+        "poster_url": "",
+        "runtime_str": ""
+    }
+
+    try:
+        cfg = config.load_config()
+        radarr_url = cfg.get('radarr', {}).get('url', 'http://localhost:7878')
+        radarr_key = cfg.get('radarr', {}).get('api_key', '92112d5454e04d18943743270139c330')
+
+        # Parse year from title if present (e.g., "Footloose (1984)")
+        year_match = re.search(r'\((\d{4})\)$', title)
+        if year_match:
+            result["year"] = int(year_match.group(1))
+            search_title = title[:year_match.start()].strip()
+        else:
+            search_title = title
+
+        # Search Radarr lookup API
+        search_url = f"{radarr_url}/api/v3/movie/lookup"
+        search_params = {"term": f"{search_title} {result['year']}" if result["year"] else search_title}
+
+        resp = requests.get(
+            search_url,
+            params=search_params,
+            headers={"X-Api-Key": radarr_key},
+            timeout=10
+        )
+
+        if resp.status_code == 200:
+            movies = resp.json()
+            if movies:
+                # Find best match - prefer exact year match
+                best_match = movies[0]
+                if result["year"]:
+                    for movie in movies:
+                        if movie.get("year") == result["year"]:
+                            best_match = movie
+                            break
+
+                result["year"] = best_match.get("year", result["year"])
+                result["tmdb_id"] = best_match.get("tmdbId", 0)
+
+                # Get runtime
+                runtime_min = best_match.get("runtime", 0)
+                if runtime_min:
+                    hours = runtime_min // 60
+                    mins = runtime_min % 60
+                    result["runtime_str"] = f"{hours}h {mins}m" if hours else f"{mins}m"
+
+                # Get poster URL
+                images = best_match.get("images", [])
+                for img in images:
+                    if img.get("coverType") == "poster":
+                        remote_url = img.get("remoteUrl", "")
+                        # Convert to w500 size for consistency
+                        result["poster_url"] = remote_url.replace("/original/", "/w500/")
+                        break
+
+                log_info(f"Enriched metadata for '{title}': TMDB={result['tmdb_id']}, Year={result['year']}")
+
+    except Exception as e:
+        log_warning(f"Failed to fetch metadata for '{title}': {e}")
+
+    return result
+
+
+def enrich_and_save_rip(
+    title: str,
+    disc_type: str = "unknown",
+    duration_str: str = "",
+    size_gb: float = 0,
+    year: int = 0,
+    tmdb_id: int = 0,
+    poster_url: str = "",
+    runtime_str: str = ""
+):
+    """
+    Save rip to history, enriching missing metadata from Radarr if needed.
+    This should be called instead of save_rip_to_history for automatic enrichment.
+    """
+    # If missing metadata, try to fetch from Radarr
+    if not tmdb_id or not poster_url:
+        metadata = fetch_metadata_from_radarr(title, year)
+        if not year:
+            year = metadata["year"]
+        if not tmdb_id:
+            tmdb_id = metadata["tmdb_id"]
+        if not poster_url:
+            poster_url = metadata["poster_url"]
+        if not runtime_str:
+            runtime_str = metadata["runtime_str"]
+
+    # Save to history with enriched data
+    save_rip_to_history(
+        title=title,
+        year=year,
+        disc_type=disc_type.upper(),
+        runtime_str=runtime_str,
+        size_gb=size_gb,
+        duration_str=duration_str,
+        poster_url=poster_url,
+        tmdb_id=tmdb_id,
+        status="complete"
+    )
