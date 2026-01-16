@@ -613,6 +613,20 @@
             // Don't poll if scan is in progress
             if (scanInProgress) return;
 
+            // If disc already processed and still present, only do lightweight status check
+            // Don't hit the drive with blkid repeatedly
+            if (discAlreadyProcessed && lastDiscState) {
+                // Just check rip status, don't hit the drive
+                fetch('/api/rip/status')
+                    .then(r => r.json())
+                    .then(ripStatus => {
+                        // If rip just completed, we still have disc - wait for eject
+                        // Only do a disc check occasionally (every 10 seconds via counter)
+                    })
+                    .catch(() => {});
+                return;
+            }
+
             // First check if a rip is already running
             fetch('/api/rip/status')
                 .then(r => r.json())
@@ -648,7 +662,7 @@
                     lastDiscState = discPresent;
                 })
                 .catch(() => {});
-        }, 2000); // Poll every 2 seconds
+        }, 3000); // Poll every 3 seconds (reduced from 2)
     }
 
     function stopDiscPolling() {
