@@ -474,16 +474,20 @@ class RipEngine:
         from .identify import SmartIdentifier
         identifier = SmartIdentifier(self.config)
 
+        activity.log_info(f"=== IDENTIFICATION START: {job.disc_label} ===")
+
         # Get actual runtime from the ripped file using ffprobe
+        activity.log_info(f"IDENTIFY: Getting video runtime via ffprobe...")
         actual_runtime = identifier.get_video_runtime(job.output_path)
         if actual_runtime:
-            activity.log_info(f"Actual runtime from file: {actual_runtime // 60}m {actual_runtime % 60}s")
+            activity.log_info(f"IDENTIFY: File runtime: {actual_runtime // 60}m {actual_runtime % 60}s")
+        else:
+            activity.log_warning(f"IDENTIFY: Could not get runtime from file")
 
-        # Parse disc label for search
+        # Parse disc label for search (parse_disc_label now logs its own details)
         search_term = identifier.parse_disc_label(job.disc_label)
-        activity.log_info(f"Searching for: {search_term}")
 
-        # Search Radarr with actual runtime
+        # Search Radarr with actual runtime (search_radarr now logs its own details)
         id_result = identifier.search_radarr(search_term, actual_runtime)
 
         if id_result and id_result.confidence >= 50:
@@ -494,12 +498,15 @@ class RipEngine:
             job.runtime_str = f"{id_result.runtime_minutes}m" if id_result.runtime_minutes else ""
             confidence_str = "HIGH" if id_result.is_confident else "MEDIUM"
             self._update_step("identify", "complete", f"{job.identified_title} [{confidence_str}]")
+            activity.log_success(f"=== IDENTIFICATION COMPLETE: {job.identified_title} ({id_result.confidence}% confidence) ===")
             activity.rip_identified(job.disc_label, job.identified_title, id_result.confidence)
         else:
             # Fall back to disc label
-            job.identified_title = job.disc_label.replace("_", " ").title()
+            fallback_title = job.disc_label.replace("_", " ").title()
+            job.identified_title = fallback_title
             self._update_step("identify", "complete", f"{job.identified_title} [MANUAL]")
-            activity.log_warning(f"Could not identify, using disc label: {job.identified_title}")
+            activity.log_warning(f"IDENTIFY: Radarr match failed, falling back to disc label")
+            activity.log_warning(f"=== IDENTIFICATION FALLBACK: '{job.disc_label}' -> '{fallback_title}' ===")
 
     def _run_post_processing(self):
         """Run the post-rip steps (identify, library, move, plex scan)"""
@@ -871,6 +878,8 @@ class RipEngine:
             self._update_step("move", "active", "Organizing files...")
             job.status = RipStatus.MOVING
 
+            activity.log_info(f"=== MOVE/RENAME START ===")
+
             try:
                 import shutil
                 import glob
@@ -880,18 +889,30 @@ class RipEngine:
                 dest_path = os.path.join(self.movies_path, dest_folder_name)
                 source_path = job.output_path
 
+                activity.log_info(f"MOVE: Source: {source_path}")
+                activity.log_info(f"MOVE: Destination folder name: '{dest_folder_name}'")
+                activity.log_info(f"MOVE: Destination path: {dest_path}")
+
                 # Find all mkv files in source
                 mkv_files = glob.glob(os.path.join(source_path, "*.mkv"))
+                activity.log_info(f"MOVE: Found {len(mkv_files)} MKV file(s) in source")
 
                 if not mkv_files:
+                    activity.log_error(f"MOVE: No MKV files found in {source_path}")
                     self._update_step("move", "error", "No MKV files found")
                     return
 
+                for mkv in mkv_files:
+                    size_gb = os.path.getsize(mkv) / (1024**3)
+                    activity.log_info(f"MOVE:   - {os.path.basename(mkv)} ({size_gb:.2f} GB)")
+
                 # Check if source is already in movies folder
                 source_in_movies = source_path.startswith(self.movies_path)
+                activity.log_info(f"MOVE: Source already in movies folder: {source_in_movies}")
 
                 if source_in_movies and source_path == dest_path:
                     # Already in correct location, just rename files
+                    activity.log_info(f"MOVE: Already in correct location, renaming files in place")
                     for mkv_file in mkv_files:
                         new_filename = f"{dest_folder_name}.mkv"
                         if len(mkv_files) > 1:
@@ -899,12 +920,14 @@ class RipEngine:
                             new_filename = f"{dest_folder_name} - Part {idx}.mkv"
                         dest_file = os.path.join(dest_path, new_filename)
                         if mkv_file != dest_file:
+                            activity.log_info(f"MOVE: Renaming: {os.path.basename(mkv_file)} -> {new_filename}")
                             os.rename(mkv_file, dest_file)
-                    activity.log_success(f"Renamed files in {dest_path}")
+                    activity.log_success(f"=== MOVE COMPLETE: Renamed in place ===")
                     self._update_step("move", "complete", f"Renamed in place")
 
                 elif source_in_movies:
                     # In movies but wrong folder - rename folder and files
+                    activity.log_info(f"MOVE: In movies but different folder, moving to correct location")
                     Path(dest_path).mkdir(parents=True, exist_ok=True)
                     for mkv_file in mkv_files:
                         new_filename = f"{dest_folder_name}.mkv"
@@ -912,19 +935,23 @@ class RipEngine:
                             idx = mkv_files.index(mkv_file) + 1
                             new_filename = f"{dest_folder_name} - Part {idx}.mkv"
                         dest_file = os.path.join(dest_path, new_filename)
+                        activity.log_info(f"MOVE: Moving: {os.path.basename(mkv_file)} -> {dest_path}/{new_filename}")
                         shutil.move(mkv_file, dest_file)
 
                     # Remove old folder if empty
                     try:
                         os.rmdir(source_path)
+                        activity.log_info(f"MOVE: Removed empty source folder: {source_path}")
                     except OSError:
-                        pass
+                        activity.log_info(f"MOVE: Source folder not empty, keeping: {source_path}")
 
                     activity.file_moved(dest_folder_name, dest_path)
+                    activity.log_success(f"=== MOVE COMPLETE: {dest_folder_name} ===")
                     self._update_step("move", "complete", f"Moved to {dest_folder_name}")
 
                 else:
                     # Source is in rips/raw - move to movies
+                    activity.log_info(f"MOVE: Moving from rips/raw to movies folder")
                     Path(dest_path).mkdir(parents=True, exist_ok=True)
                     for mkv_file in mkv_files:
                         new_filename = f"{dest_folder_name}.mkv"
@@ -932,22 +959,25 @@ class RipEngine:
                             idx = mkv_files.index(mkv_file) + 1
                             new_filename = f"{dest_folder_name} - Part {idx}.mkv"
                         dest_file = os.path.join(dest_path, new_filename)
+                        activity.log_info(f"MOVE: Moving: {os.path.basename(mkv_file)} -> {dest_path}/{new_filename}")
                         shutil.move(mkv_file, dest_file)
 
                     # Remove old folder if empty
                     try:
                         os.rmdir(source_path)
+                        activity.log_info(f"MOVE: Removed empty source folder: {source_path}")
                     except OSError:
-                        pass
+                        activity.log_info(f"MOVE: Source folder not empty, keeping: {source_path}")
 
                     activity.file_moved(dest_folder_name, dest_path)
+                    activity.log_success(f"=== MOVE COMPLETE: {dest_folder_name} -> movies/ ===")
                     self._update_step("move", "complete", f"Moved to movies/")
 
                 # Update job output path
                 job.output_path = dest_path
 
             except Exception as e:
-                activity.log_error(f"Move failed: {str(e)}")
+                activity.log_error(f"=== MOVE FAILED: {str(e)} ===")
                 self._update_step("move", "error", f"Move failed: {str(e)}")
 
             # Step 8: Trigger Plex scan

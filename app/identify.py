@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass
 
+from . import activity
+
 
 @dataclass
 class IdentificationResult:
@@ -164,24 +166,38 @@ class SmartIdentifier:
         self.sonarr_url = sonarr_cfg.get('url', 'http://localhost:8989')
         self.sonarr_api = sonarr_cfg.get('api_key', '')
 
-    def parse_disc_label(self, label: str) -> str:
+    def parse_disc_label(self, label: str, verbose: bool = True) -> str:
         """Parse disc label into searchable title"""
+        original = label
         parsed = label.upper()
+        transformations = []
 
         # Remove studio prefixes
         for prefix in self.STUDIO_PREFIXES:
-            parsed = re.sub(f'^{prefix}', '', parsed, flags=re.IGNORECASE)
+            new_parsed = re.sub(f'^{prefix}', '', parsed, flags=re.IGNORECASE)
+            if new_parsed != parsed:
+                transformations.append(f"Stripped prefix: {prefix.replace('_?', '')}")
+                parsed = new_parsed
 
         # Remove disc number suffixes
-        parsed = re.sub(r'_?(DISC_?\d*|D\d+)$', '', parsed, flags=re.IGNORECASE)
+        new_parsed = re.sub(r'_?(DISC_?\d*|D\d+)$', '', parsed, flags=re.IGNORECASE)
+        if new_parsed != parsed:
+            transformations.append("Stripped disc number suffix")
+            parsed = new_parsed
 
         # Remove region codes and common suffixes
-        parsed = re.sub(r'_?(PS|US|UK|EU|AU|CA|JP|KR|FR|DE|ES|IT|NL|BR|MX|AC|R1|R2|R3|R4|REGION_?\d)$', '', parsed, flags=re.IGNORECASE)
+        new_parsed = re.sub(r'_?(PS|US|UK|EU|AU|CA|JP|KR|FR|DE|ES|IT|NL|BR|MX|AC|R1|R2|R3|R4|REGION_?\d)$', '', parsed, flags=re.IGNORECASE)
+        if new_parsed != parsed:
+            transformations.append("Stripped region code")
+            parsed = new_parsed
 
         # Remove studio/format suffixes (can appear multiple times)
         for _ in range(3):  # Multiple passes to catch stacked suffixes
             for suffix in self.STRIP_SUFFIXES:
-                parsed = re.sub(rf'[_\s]+{suffix}$', '', parsed, flags=re.IGNORECASE)
+                new_parsed = re.sub(rf'[_\s]+{suffix}$', '', parsed, flags=re.IGNORECASE)
+                if new_parsed != parsed:
+                    transformations.append(f"Stripped suffix: {suffix}")
+                    parsed = new_parsed
 
         # Replace underscores with spaces
         parsed = parsed.replace('_', ' ')
@@ -193,19 +209,23 @@ class SmartIdentifier:
             upper_word = word.upper()
             if upper_word in self.ABBREVIATIONS:
                 expanded_words.append(self.ABBREVIATIONS[upper_word])
+                transformations.append(f"Expanded: {word} -> {self.ABBREVIATIONS[upper_word]}")
             else:
                 expanded_words.append(word)
         parsed = ' '.join(expanded_words)
 
         # Apply franchise-specific patterns
+        franchise_matched = None
         for pattern, replacement in self.FRANCHISE_PATTERNS:
             match = re.match(pattern, parsed, re.IGNORECASE)
             if match:
+                old_parsed = parsed
                 # Handle backreferences in replacement
                 if '\\' in replacement:
                     parsed = re.sub(pattern, replacement, parsed, flags=re.IGNORECASE)
                 else:
                     parsed = replacement
+                franchise_matched = f"{old_parsed} -> {parsed}"
                 break
 
         # Clean up spaces
@@ -217,6 +237,16 @@ class SmartIdentifier:
 
         # Clean up "Vol" without number
         parsed = re.sub(r'\s+Vol\s*$', '', parsed)
+
+        # Log the parsing details
+        if verbose:
+            activity.log_info(f"PARSE: '{original}' -> '{parsed}'")
+            if transformations:
+                activity.log_info(f"PARSE: Transformations: {', '.join(transformations)}")
+            else:
+                activity.log_info(f"PARSE: No patterns matched (used as-is)")
+            if franchise_matched:
+                activity.log_info(f"PARSE: Franchise pattern: {franchise_matched}")
 
         return parsed
 
@@ -246,10 +276,16 @@ class SmartIdentifier:
 
         return None
 
-    def search_radarr(self, title: str, runtime_seconds: Optional[int] = None) -> Optional[IdentificationResult]:
+    def search_radarr(self, title: str, runtime_seconds: Optional[int] = None, verbose: bool = True) -> Optional[IdentificationResult]:
         """Search Radarr for movie match"""
         if not self.radarr_api:
+            if verbose:
+                activity.log_warning("RADARR: No API key configured")
             return None
+
+        runtime_str = f"{runtime_seconds // 60}m {runtime_seconds % 60}s" if runtime_seconds else "unknown"
+        if verbose:
+            activity.log_info(f"RADARR: Searching for '{title}' (runtime: {runtime_str})")
 
         try:
             response = requests.get(
@@ -260,41 +296,79 @@ class SmartIdentifier:
             )
 
             if response.status_code != 200:
+                if verbose:
+                    activity.log_warning(f"RADARR: API returned status {response.status_code}")
                 return None
 
             results = response.json()
             if not results:
+                if verbose:
+                    activity.log_info(f"RADARR: No results found for '{title}'")
                 return None
+
+            if verbose:
+                activity.log_info(f"RADARR: Found {len(results)} result(s)")
 
             best_match = None
             best_score = 0
+            candidates = []  # Track top candidates for logging
 
             for movie in results[:10]:
                 score = 0
+                score_breakdown = []
                 movie_runtime = movie.get('runtime', 0) * 60  # Radarr returns minutes
+                movie_title = movie.get('title', 'Unknown')
+                movie_year = movie.get('year', 0)
 
                 # Runtime match scoring
                 if runtime_seconds and movie_runtime > 0:
                     diff = abs(runtime_seconds - movie_runtime)
                     if diff <= self.runtime_tolerance:
-                        score += 100 - (diff / self.runtime_tolerance * 50)
+                        runtime_score = 100 - (diff / self.runtime_tolerance * 50)
+                        score += runtime_score
+                        score_breakdown.append(f"runtime +{runtime_score:.0f} (diff {diff // 60}m)")
                     elif diff <= self.runtime_tolerance * 2:
                         score += 25
+                        score_breakdown.append(f"runtime +25 (diff {diff // 60}m, partial)")
+                    else:
+                        score_breakdown.append(f"runtime +0 (diff {diff // 60}m, too far)")
+                else:
+                    score_breakdown.append("runtime N/A")
 
                 # Popularity bonus
                 popularity = movie.get('popularity', 0)
-                score += min(popularity / 10, 20)
+                pop_score = min(popularity / 10, 20)
+                score += pop_score
+                if pop_score > 0:
+                    score_breakdown.append(f"popularity +{pop_score:.0f}")
 
                 # Year recency bonus
-                year = movie.get('year', 2000)
-                if year >= 2020:
+                if movie_year >= 2020:
                     score += 10
-                elif year >= 2015:
+                    score_breakdown.append("recent +10")
+                elif movie_year >= 2015:
                     score += 5
+                    score_breakdown.append("recent +5")
+
+                candidates.append({
+                    'title': movie_title,
+                    'year': movie_year,
+                    'runtime': movie_runtime // 60,
+                    'score': score,
+                    'breakdown': score_breakdown
+                })
 
                 if score > best_score:
                     best_score = score
                     best_match = movie
+
+            # Log top 3 candidates
+            if verbose and candidates:
+                candidates.sort(key=lambda x: x['score'], reverse=True)
+                activity.log_info(f"RADARR: Top candidates:")
+                for i, c in enumerate(candidates[:3]):
+                    breakdown = ', '.join(c['breakdown'])
+                    activity.log_info(f"RADARR:   {i+1}. {c['title']} ({c['year']}) [{c['runtime']}m] = {c['score']:.0f} pts ({breakdown})")
 
             if best_match and best_score >= 50:
                 # Get poster URL from images array or remotePoster
@@ -311,7 +385,7 @@ class SmartIdentifier:
                     tmdb_id = best_match.get('tmdbId')
                     poster_url = f"https://image.tmdb.org/t/p/w500/{tmdb_id}"
 
-                return IdentificationResult(
+                result = IdentificationResult(
                     title=best_match.get('title', ''),
                     year=best_match.get('year', 0),
                     tmdb_id=best_match.get('tmdbId', 0),
@@ -320,9 +394,20 @@ class SmartIdentifier:
                     media_type='movie',
                     poster_url=poster_url
                 )
+                if verbose:
+                    activity.log_success(f"RADARR: Selected '{result.title}' ({result.year}) with {int(best_score)} pts")
+                return result
+            else:
+                if verbose:
+                    if best_match:
+                        activity.log_warning(f"RADARR: Best match score {best_score:.0f} < 50, rejected")
+                    else:
+                        activity.log_warning(f"RADARR: No suitable match found")
+                return None
 
         except Exception as e:
-            print(f"Error searching Radarr: {e}")
+            if verbose:
+                activity.log_error(f"RADARR: Search error: {e}")
 
         return None
 
