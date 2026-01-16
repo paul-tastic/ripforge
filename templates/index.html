@@ -604,23 +604,35 @@
     // Disc insert polling
     let lastDiscState = false;
     let discPollInterval = null;
+    let discAlreadyProcessed = false;  // Track if current disc was already scanned/ripped
 
     function startDiscPolling() {
         if (!AUTO_SCAN_ON_INSERT) return;
 
         discPollInterval = setInterval(() => {
             // Don't poll if scan or rip is in progress
-            if (scanInProgress || showingScanResults) return;
+            if (scanInProgress) return;
 
             fetch('/api/disc/check')
                 .then(r => r.json())
                 .then(data => {
                     const discPresent = data.present;
-                    // Detect disc insertion (was not present, now present)
-                    if (discPresent && !lastDiscState) {
+
+                    // Disc was ejected - reset the processed flag
+                    if (!discPresent && lastDiscState) {
+                        console.log('Disc ejected, ready for new disc');
+                        discAlreadyProcessed = false;
+                        showingScanResults = false;
+                        clearScanResults();
+                    }
+
+                    // Detect disc insertion (was not present, now present, not already processed)
+                    if (discPresent && !lastDiscState && !discAlreadyProcessed) {
                         console.log('Disc inserted, auto-scanning...');
+                        discAlreadyProcessed = true;
                         scanDisc();
                     }
+
                     lastDiscState = discPresent;
                 })
                 .catch(() => {});
