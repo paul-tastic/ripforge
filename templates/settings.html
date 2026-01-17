@@ -393,8 +393,8 @@
 
                 if (data.applied) {
                     // Settings were saved - reload the page to show new values
-                    alert('Auto-detection complete! Found ' + numServices + ' services and ' + numKeys + ' API keys. Settings saved - reloading page...');
-                    window.location.reload();
+                    showToast('Auto-detection complete! Found ' + numServices + ' services and ' + numKeys + ' API keys. Reloading...', 'success');
+                    setTimeout(() => window.location.reload(), 1500);
                 } else {
                     // Fill in detected services (fallback if not auto-saved)
                     for (const [service, info] of Object.entries(data.services)) {
@@ -417,12 +417,12 @@
                         document.getElementById('tautulli-api').value = data.keys.tautulli_api;
                     }
 
-                    alert('Auto-detection complete! Found ' + numServices + ' services and ' + numKeys + ' API keys. Click Save to apply.');
+                    showToast('Auto-detection complete! Found ' + numServices + ' services and ' + numKeys + ' API keys. Click Save to apply.', 'success');
                 }
             })
             .catch(err => {
                 console.error('Auto-detect error:', err);
-                alert('Error during auto-detection');
+                showToast('Error during auto-detection', 'error');
             })
             .finally(() => {
                 this.disabled = false;
@@ -613,11 +613,11 @@
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                alert('Settings saved!');
+                showToast('Settings saved!', 'success');
             }
         })
         .catch(err => {
-            alert('Error saving settings');
+            showToast('Error saving settings', 'error');
         });
     });
 </script>

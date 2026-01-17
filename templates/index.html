@@ -220,6 +220,22 @@
         </div>
     </section>
 
+    <!-- Confirm Modal -->
+    <div class="modal-overlay" id="confirm-modal" style="display: none;">
+        <div class="modal confirm-modal">
+            <div class="modal-header">
+                <h3 id="confirm-title">Confirm</h3>
+            </div>
+            <div class="modal-body">
+                <p id="confirm-message">Are you sure?</p>
+                <div class="confirm-actions">
+                    <button class="btn btn-secondary" id="confirm-cancel">Cancel</button>
+                    <button class="btn btn-danger" id="confirm-ok">Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Review Modal -->
     <div class="modal-overlay" id="review-modal" style="display: none;">
         <div class="modal review-modal">
@@ -1165,7 +1181,7 @@
 
                     // Validate that at least one episode is selected
                     if (requestBody.selected_tracks.length === 0) {
-                        alert('Please select at least one episode to rip');
+                        showToast('Please select at least one episode to rip', 'error');
                         btn.disabled = false;
                         btn.textContent = 'Select Episodes';
                         return null;
@@ -1188,14 +1204,14 @@
                 } else {
                     // Only show error if it's not "already ripping"
                     if (!data.error || !data.error.includes('Already')) {
-                        alert('Error: ' + (data.error || 'Could not start rip'));
+                        showToast(data.error || 'Could not start rip', 'error');
                     }
                     btn.disabled = false;
                     btn.textContent = 'Start Rip';
                 }
             })
             .catch(err => {
-                alert('Error starting rip');
+                showToast('Error starting rip', 'error');
                 btn.disabled = false;
                 btn.textContent = 'Start Rip';
             });
@@ -1496,12 +1512,12 @@
                 } else {
                     document.getElementById('review-results').style.display = 'none';
                     document.getElementById('btn-apply-review').disabled = true;
-                    alert('No results found. Try a different search term.');
+                    showToast('No results found. Try a different search term.', 'info');
                 }
             })
             .catch(err => {
                 console.error('Search error:', err);
-                alert('Search failed. Please try again.');
+                showToast('Search failed. Please try again.', 'error');
             })
             .finally(() => {
                 btn.disabled = false;
@@ -1537,14 +1553,14 @@
                     loadActivityLog();  // Refresh activity log
                     showToast(`Moved to library: ${folderName}`, 'success');
                 } else {
-                    alert('Error: ' + (data.error || 'Could not apply identification'));
+                    showToast(data.error || 'Could not apply identification', 'error');
                     btn.disabled = false;
                     btn.textContent = 'Apply Identification';
                 }
             })
             .catch(err => {
                 console.error('Apply error:', err);
-                alert('Error applying identification. Please try again.');
+                showToast('Error applying identification. Please try again.', 'error');
                 btn.disabled = false;
                 btn.textContent = 'Apply Identification';
             });
@@ -1553,45 +1569,81 @@
     function deleteReviewItem() {
         if (!currentReviewItem) return;
 
-        if (!confirm('Are you sure you want to delete this rip? This cannot be undone.')) {
-            return;
-        }
-
-        fetch('/api/review/delete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                folder_name: currentReviewItem.folder_name
-            })
-        })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    closeReviewModal();
-                    loadReviewQueue();  // Refresh the queue
-                    loadActivityLog();  // Refresh activity log
-                    showToast('Deleted from review queue', 'info');
-                } else {
-                    alert('Error: ' + (data.error || 'Could not delete item'));
-                }
-            })
-            .catch(err => {
-                console.error('Delete error:', err);
-                alert('Error deleting item. Please try again.');
-            });
+        showConfirm(
+            'Are you sure you want to delete this rip? This cannot be undone.',
+            function() {
+                fetch('/api/review/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        folder_name: currentReviewItem.folder_name
+                    })
+                })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            closeReviewModal();
+                            loadReviewQueue();
+                            loadActivityLog();
+                            showToast('Deleted from review queue', 'info');
+                        } else {
+                            showToast(data.error || 'Could not delete item', 'error');
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Delete error:', err);
+                        showToast('Error deleting item. Please try again.', 'error');
+                    });
+            },
+            'Delete Rip',
+            'Delete'
+        );
     }
 
-    // Close modal on escape key
+    // Custom confirm modal
+    let confirmCallback = null;
+
+    function showConfirm(message, onConfirm, title = 'Confirm', okText = 'Delete') {
+        document.getElementById('confirm-title').textContent = title;
+        document.getElementById('confirm-message').textContent = message;
+        document.getElementById('confirm-ok').textContent = okText;
+        confirmCallback = onConfirm;
+        document.getElementById('confirm-modal').style.display = 'flex';
+    }
+
+    function closeConfirm() {
+        document.getElementById('confirm-modal').style.display = 'none';
+        confirmCallback = null;
+    }
+
+    document.getElementById('confirm-cancel').addEventListener('click', closeConfirm);
+    document.getElementById('confirm-ok').addEventListener('click', function() {
+        if (confirmCallback) confirmCallback();
+        closeConfirm();
+    });
+
+    // Close modals on escape key
     document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' && document.getElementById('review-modal').style.display === 'flex') {
+        if (e.key === 'Escape') {
+            if (document.getElementById('review-modal').style.display === 'flex') {
+                closeReviewModal();
+            }
+            if (document.getElementById('confirm-modal').style.display === 'flex') {
+                closeConfirm();
+            }
+        }
+    });
+
+    // Close modals on overlay click
+    document.getElementById('review-modal').addEventListener('click', function(e) {
+        if (e.target === this) {
             closeReviewModal();
         }
     });
 
-    // Close modal on overlay click
-    document.getElementById('review-modal').addEventListener('click', function(e) {
+    document.getElementById('confirm-modal').addEventListener('click', function(e) {
         if (e.target === this) {
-            closeReviewModal();
+            closeConfirm();
         }
     });
 
@@ -1635,7 +1687,7 @@
             } else {
                 // All done
                 setTimeout(() => {
-                    alert('Rip complete! Movie added to library.');
+                    showToast('Rip complete! Movie added to library.', 'success');
                     showIdleState();
                     // Reset all steps
                     steps.forEach(s => updateStep('step-' + s, 'pending', ''));

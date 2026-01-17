@@ -2078,3 +2078,35 @@ select option {
     border-color: var(--accent);
     background: rgba(229, 160, 13, 0.1);
 }
+
+/* Confirm Modal */
+.confirm-modal {
+    max-width: 400px;
+    text-align: center;
+}
+
+.confirm-modal .modal-header {
+    justify-content: center;
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.confirm-modal .modal-body {
+    padding-top: 8px;
+}
+
+.confirm-modal #confirm-message {
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+    font-size: 0.95rem;
+}
+
+.confirm-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.confirm-actions .btn {
+    min-width: 100px;
+}

@@ -328,11 +328,11 @@
         const input = document.getElementById('new-recipient');
         const email = input.value.trim();
         if (!email || !email.includes('@')) {
-            alert('Please enter a valid email address');
+            showToast('Please enter a valid email address', 'error');
             return;
         }
         if (recipientsList.some(r => r.email === email)) {
-            alert('This email is already in the list');
+            showToast('This email is already in the list', 'info');
             return;
         }
         recipientsList.push({ email: email, enabled: true });
@@ -406,7 +406,7 @@
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                alert('Newsletter settings saved!');
+                showToast('Newsletter settings saved!', 'success');
             }
         });
     });
@@ -419,9 +419,9 @@
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    alert('Test email sent to your address only!');
+                    showToast('Test email sent to your address only!', 'success');
                 } else {
-                    alert('Error: ' + (data.error || 'Unknown error'));
+                    showToast(data.error || 'Unknown error', 'error');
                 }
             })
             .finally(() => {

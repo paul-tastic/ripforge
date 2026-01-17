@@ -7,6 +7,7 @@
 - **Smart Disc Identification** - Parses disc labels + matches runtime against Radarr/TMDB
 - **TV Show Auto-Detection** - Detects episode-length tracks and rips all episodes automatically
 - **Hands-Free Mode** - Insert disc, walk away - auto-detects movies vs TV, rips everything
+- **Review Queue** - Failed identifications go to a review folder for manual matching with IMDB/TMDB verification links
 - **Editable Title** - Scan disc, verify/edit title, then rip with confidence
 - **Auto-Scan on Insert** - Detects disc insertion and automatically scans
 - **Auto-Rip Countdown** - 20-second countdown after scan, auto-starts rip (cancellable)
@@ -20,9 +21,10 @@
 - **Email Notifications** - Rip complete, errors, and weekly recap with movie posters and disc type badges
 - **SendGrid Support** - Optional SendGrid integration for better Gmail deliverability
 - **Activity Logging** - Detailed activity log with identification method tracking
-- **Rip Statistics** - Average rip times by disc type, weekly/daily counts
-- **IMDB Search** - Quick link to search IMDB when identification is uncertain
+- **Rip Statistics** - Average rip times by disc type, weekly/daily counts in sidebar
+- **IMDB/TMDB Links** - Quick verification links when identification is uncertain
 - **Auto-Detection** - Scans for Docker containers and imports API keys
+- **Toast Notifications** - Non-intrusive notifications for all actions
 - **Systemd Service** - Runs on boot, survives reboots
 - **Auto-Reset on Eject** - UI resets to ready state when disc is ejected
 
@@ -96,6 +98,18 @@ sudo systemctl enable --now ripforge
 
 Hands-free mode is ideal for batch ripping - just swap discs without touching the keyboard. Works with both movies and TV shows.
 
+### Review Queue
+
+When automatic identification fails (confidence below threshold), rips are moved to a review folder instead of being stuck:
+
+1. **Review Queue** - Failed IDs appear in the "Needs Review" section on the dashboard
+2. **Search** - Enter the correct title to search Radarr/TMDB
+3. **Verify** - Click IMDB/TMDB links to confirm the match before applying
+4. **Apply** - One click moves the file to your library with proper naming
+5. **Delete** - Remove unwanted rips directly from the queue
+
+The review queue ensures nothing gets lost while giving you full control over uncertain identifications.
+
 ## Configuration
 
 Settings stored in `config/settings.yaml`. Edit via web UI or directly.
@@ -160,6 +174,10 @@ Configure from the Notifications page. Weekly recap includes movie posters from 
 | `/api/rip/start` | POST | Start rip (with optional custom_title) |
 | `/api/rip/status` | GET | Current rip progress |
 | `/api/rip/reset` | POST | Cancel current job |
+| `/api/review/queue` | GET | List items in review queue |
+| `/api/review/search` | POST | Search for title match |
+| `/api/review/apply` | POST | Apply identification and move to library |
+| `/api/review/delete` | POST | Delete item from review queue |
 | `/api/hardware` | GET | System hardware info |
 | `/api/email/test` | POST | Send test email |
 | `/api/email/weekly-recap` | POST | Send weekly recap now |
