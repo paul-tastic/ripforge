@@ -11,12 +11,12 @@ from typing import Optional
 from . import config
 
 
-def send_via_sendgrid(to: list, subject: str, body: str, api_key: str) -> bool:
+def send_via_sendgrid(to: list, subject: str, body: str, api_key: str, from_name: str = "RipForge") -> bool:
     """Send email via SendGrid API"""
     try:
         data = {
             "personalizations": [{"to": [{"email": r} for r in to]}],
-            "from": {"email": "paul@dotvector.com", "name": "RipForge"},
+            "from": {"email": "paul@dotvector.com", "name": from_name},
             "subject": subject,
             "content": [{"type": "text/html", "value": body}]
         }
@@ -42,13 +42,13 @@ def send_via_sendgrid(to: list, subject: str, body: str, api_key: str) -> bool:
         return False
 
 
-def send_via_msmtp(to: list, subject: str, body: str, html: bool = False) -> bool:
+def send_via_msmtp(to: list, subject: str, body: str, html: bool = False, from_name: str = "RipForge") -> bool:
     """Send email using system msmtp"""
     try:
         content_type = "text/html" if html else "text/plain"
         recipients = ", ".join(to) if isinstance(to, list) else to
 
-        email = f"""From: RipForge <paul@dotvector.com>
+        email = f"""From: {from_name} <paul@dotvector.com>
 To: {recipients}
 Subject: {subject}
 Content-Type: {content_type}; charset=utf-8
@@ -75,22 +75,26 @@ MIME-Version: 1.0
         return False
 
 
-def send_email(to: list, subject: str, body: str, html: bool = False) -> bool:
+def send_email(to: list, subject: str, body: str, html: bool = False, from_name: str = None) -> bool:
     """Send email - routes to SendGrid or msmtp based on config"""
     cfg = config.load_config()
     email_cfg = cfg.get('notifications', {}).get('email', {})
 
     provider = email_cfg.get('provider', 'msmtp')
 
+    # Use provided from_name or fall back to config or default
+    if not from_name:
+        from_name = email_cfg.get('from_name', 'RipForge')
+
     if provider == 'sendgrid':
         api_key = email_cfg.get('sendgrid_api_key')
         if api_key:
-            return send_via_sendgrid(to, subject, body, api_key)
+            return send_via_sendgrid(to, subject, body, api_key, from_name)
         else:
             print("SendGrid selected but no API key configured, falling back to msmtp")
 
     # Fallback to msmtp
-    return send_via_msmtp(to, subject, body, html)
+    return send_via_msmtp(to, subject, body, html, from_name)
 
 
 def send_rip_complete(title: str, runtime: str, path: str, recipients: list) -> bool:
@@ -234,39 +238,61 @@ def send_test_email(recipients: list) -> bool:
 
 
 def send_weekly_recap(recipients: list) -> bool:
-    """Send weekly recap of ripping activity with movie posters"""
+    """Send weekly recap of ripping activity with movie posters, ratings, and blurbs"""
     from . import activity
+
+    # Get config for email settings
+    cfg = config.load_config()
+    email_cfg = cfg.get('notifications', {}).get('email', {})
+    from_name = email_cfg.get('from_name', 'Plex Media Server')
+    weekly_subject = email_cfg.get('weekly_subject', 'Weekly Digest - New Additions')
 
     # Get rips from the past week
     rips_this_week = activity.get_recent_rips(days=7)
     total_size = sum(rip.get('size_gb', 0) for rip in rips_this_week)
 
-    # Build recap email
-    subject = f"RipForge: Weekly Recap - {len(rips_this_week)} discs ripped"
+    # Build subject with count
+    subject = f"{weekly_subject} ({len(rips_this_week)} titles)" if rips_this_week else weekly_subject
 
     if rips_this_week:
-        # Build movie cards with posters
+        # Build movie cards with posters, ratings, and blurbs
         movie_cards = ""
         for rip in rips_this_week:
             poster_url = rip.get('poster_url', '')
-            # Use a placeholder if no poster
-            poster_html = f'<img src="{poster_url}" alt="" style="width: 80px; height: 120px; object-fit: cover; border-radius: 6px;">' if poster_url else '<div style="width: 80px; height: 120px; background: #333; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #666; font-size: 24px;">🎬</div>'
+            poster_html = f'<img src="{poster_url}" alt="" style="width: 100px; height: 150px; object-fit: cover; border-radius: 6px;">' if poster_url else '<div style="width: 100px; height: 150px; background: #333; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #666; font-size: 32px;">🎬</div>'
 
             disc_badge = rip.get('disc_type', '').upper()
-            badge_color = "#0095d9" if disc_badge == "BLURAY" else "#f97316"  # Blu-ray blue, DVD orange
+            badge_color = "#0095d9" if disc_badge == "BLURAY" else "#f97316"
+
+            # Truncate overview to ~120 chars
+            overview = rip.get('overview', '')
+            if len(overview) > 120:
+                overview = overview[:117] + '...'
+
+            # Build ratings display
+            rt_rating = rip.get('rt_rating', 0)
+            imdb_rating = rip.get('imdb_rating', 0)
+            ratings_html = ""
+            if rt_rating:
+                # Fresh tomato for >= 60%, rotten for < 60%
+                tomato = "🍅" if rt_rating >= 60 else "🥫"
+                ratings_html += f'<span style="font-size: 12px; color: #fff; margin-right: 12px;">{tomato} {rt_rating}%</span>'
+            if imdb_rating:
+                ratings_html += f'<span style="font-size: 12px; color: #f5c518;">⭐ {imdb_rating:.1f}</span>'
 
             movie_cards += f"""
             <div style="display: flex; gap: 16px; padding: 16px; background: #1a1a1a; border-radius: 8px; margin-bottom: 12px;">
                 {poster_html}
                 <div style="flex: 1;">
-                    <div style="font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 6px;">{rip.get('title', 'Unknown')}</div>
-                    <div style="font-size: 12px; color: #888; margin-bottom: 8px;">
+                    <div style="font-size: 17px; font-weight: 600; color: #fff; margin-bottom: 4px;">{rip.get('title', 'Unknown')}</div>
+                    <div style="font-size: 12px; color: #888; margin-bottom: 6px;">
                         {rip.get('year', '')} • {rip.get('runtime', '')}
                     </div>
+                    <div style="margin-bottom: 8px;">{ratings_html}</div>
+                    <div style="font-size: 12px; color: #aaa; line-height: 1.4; margin-bottom: 10px;">{overview}</div>
                     <div style="display: flex; gap: 8px; align-items: center;">
                         <span style="font-size: 10px; background: {badge_color}; color: #fff; padding: 2px 8px; border-radius: 4px; font-weight: 600;">{disc_badge or 'DISC'}</span>
                         <span style="font-size: 11px; color: #888;">{rip.get('size_gb', 0):.1f} GB</span>
-                        <span style="font-size: 11px; color: #4ade80;">✓ Complete</span>
                     </div>
                 </div>
             </div>
@@ -277,14 +303,14 @@ def send_weekly_recap(recipients: list) -> bool:
 <body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a1a; color: #eee; padding: 20px;">
 <div style="max-width: 600px; margin: 0 auto; background: #252525; padding: 30px; border-radius: 12px;">
     <div style="text-align: center; margin-bottom: 24px;">
-        <h1 style="color: #e5a00d; margin: 0 0 8px; font-size: 28px;">🔥 Weekly Recap</h1>
+        <h1 style="color: #e5a00d; margin: 0 0 8px; font-size: 26px;">📺 {from_name}</h1>
         <p style="color: #888; margin: 0; font-size: 14px;">{(datetime.now() - timedelta(days=7)).strftime('%b %d')} - {datetime.now().strftime('%b %d, %Y')}</p>
     </div>
 
     <div style="display: flex; gap: 16px; margin-bottom: 24px;">
         <div style="flex: 1; background: #1a1a1a; padding: 16px; border-radius: 8px; text-align: center;">
             <div style="font-size: 32px; font-weight: bold; color: #e5a00d;">{len(rips_this_week)}</div>
-            <div style="color: #888; font-size: 11px; text-transform: uppercase;">Discs Ripped</div>
+            <div style="color: #888; font-size: 11px; text-transform: uppercase;">New Titles</div>
         </div>
         <div style="flex: 1; background: #1a1a1a; padding: 16px; border-radius: 8px; text-align: center;">
             <div style="font-size: 32px; font-weight: bold; color: #e5a00d;">{total_size:.1f}</div>
@@ -296,7 +322,11 @@ def send_weekly_recap(recipients: list) -> bool:
 
     {movie_cards}
 
-    <p style="color: #555; margin-top: 24px; font-size: 11px; text-align: center;">Sent by RipForge • Powered by SendGrid</p>
+    <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #333; text-align: center;">
+        <p style="color: #666; font-size: 11px; margin: 0;">
+            Media ripped by <a href="https://github.com/paul-tastic/ripforge" style="color: #e5a00d; text-decoration: none;">RipForge</a>
+        </p>
+    </div>
 </div>
 </body>
 </html>
@@ -306,13 +336,17 @@ def send_weekly_recap(recipients: list) -> bool:
 <html>
 <body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a1a; color: #eee; padding: 20px;">
 <div style="max-width: 600px; margin: 0 auto; background: #252525; padding: 30px; border-radius: 12px;">
-    <h1 style="color: #e5a00d; margin: 0 0 10px;">Weekly Recap</h1>
+    <h1 style="color: #e5a00d; margin: 0 0 10px;">📺 {from_name}</h1>
     <p style="color: #888; margin-bottom: 20px;">Week of {(datetime.now() - timedelta(days=7)).strftime('%b %d')} - {datetime.now().strftime('%b %d, %Y')}</p>
-    <p style="color: #fff; text-align: center; padding: 40px 0;">No discs ripped this week</p>
-    <p style="color: #888; margin-top: 30px; font-size: 12px;">Sent by RipForge</p>
+    <p style="color: #fff; text-align: center; padding: 40px 0;">No new titles this week</p>
+    <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #333; text-align: center;">
+        <p style="color: #666; font-size: 11px; margin: 0;">
+            Media ripped by <a href="https://github.com/paul-tastic/ripforge" style="color: #e5a00d; text-decoration: none;">RipForge</a>
+        </p>
+    </div>
 </div>
 </body>
 </html>
 """
 
-    return send_email(recipients, subject, body, html=True)
+    return send_email(recipients, subject, body, html=True, from_name=from_name)

@@ -63,6 +63,8 @@ notifications:
     smtp_host: ""
     smtp_port: 587
     from_address: ""
+    from_name: "Plex Media Server"   # Display name for emails (e.g., "Lakehouse Plex Media Server")
+    weekly_subject: "Weekly Digest - New Additions"  # Subject line for weekly recap
     recipients: []
     on_complete: true
     on_error: true

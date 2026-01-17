@@ -39,6 +39,33 @@
         </div>
     </section>
 
+    <!-- Email Branding -->
+    <section class="card">
+        <h2>Email Branding</h2>
+        <p class="card-description">Customize how your weekly digest appears</p>
+
+        <div class="newsletter-settings">
+            <div class="field">
+                <label>From Name</label>
+                <input type="text" id="email-from-name" placeholder="Lakehouse Plex Media Server">
+                <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+                    This appears as the sender name (e.g., "Lakehouse Plex Media Server")
+                </small>
+            </div>
+            <div class="field" style="margin-top: 16px;">
+                <label>Subject Line</label>
+                <input type="text" id="email-weekly-subject" placeholder="Weekly Digest - New Additions">
+                <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+                    The count will be appended automatically (e.g., "Weekly Digest - New Additions (5 titles)")
+                </small>
+            </div>
+            <div class="settings-actions">
+                <button class="btn btn-primary" onclick="saveEmailBranding()">Save Branding</button>
+                <span class="email-test-status" id="email-branding-status"></span>
+            </div>
+        </div>
+    </section>
+
     <!-- Newsletter Settings -->
     <section class="card">
         <h2>Newsletter Settings</h2>
@@ -169,6 +196,7 @@
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         loadEmailProvider();
+        loadEmailBranding();
         loadNewsletterSettings();
         loadQueue();
     });
@@ -252,6 +280,55 @@
 
     function showProviderStatus(message, type) {
         const el = document.getElementById('email-provider-status');
+        el.textContent = message;
+        el.className = 'email-test-status ' + type;
+    }
+
+    // Email Branding Functions
+    function loadEmailBranding() {
+        fetch('/api/settings')
+            .then(r => r.json())
+            .then(data => {
+                const emailCfg = data.notifications?.email || {};
+                document.getElementById('email-from-name').value = emailCfg.from_name || 'Plex Media Server';
+                document.getElementById('email-weekly-subject').value = emailCfg.weekly_subject || 'Weekly Digest - New Additions';
+            });
+    }
+
+    function saveEmailBranding() {
+        const fromName = document.getElementById('email-from-name').value;
+        const weeklySubject = document.getElementById('email-weekly-subject').value;
+
+        fetch('/api/settings')
+            .then(r => r.json())
+            .then(currentSettings => {
+                if (!currentSettings.notifications) currentSettings.notifications = {};
+                if (!currentSettings.notifications.email) currentSettings.notifications.email = {};
+
+                currentSettings.notifications.email.from_name = fromName;
+                currentSettings.notifications.email.weekly_subject = weeklySubject;
+
+                return fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentSettings)
+                });
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showBrandingStatus('Saved!', 'success');
+                } else {
+                    showBrandingStatus('Save failed', 'error');
+                }
+            })
+            .catch(err => {
+                showBrandingStatus('Error: ' + err, 'error');
+            });
+    }
+
+    function showBrandingStatus(message, type) {
+        const el = document.getElementById('email-branding-status');
         el.textContent = message;
         el.className = 'email-test-status ' + type;
     }

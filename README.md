@@ -1,6 +1,6 @@
 # RipForge
 
-A modern, self-hosted disc ripping solution with smart identification and media server integration.
+**[ripforge.org](https://ripforge.org)** · A modern, self-hosted disc ripping solution with smart identification and media server integration.
 
 ## Features
 
@@ -222,19 +222,9 @@ Identification uses weighted scoring to find the best match:
 
 This prevents issues like "The Transporter" matching "The Transporter Refueled" or "Spider-Man" matching a newer reboot. The TMDB ID lookup ensures posters are always correct even when disc labels are truncated.
 
-## Comparison to ARM
+## Inspiration
 
-| Feature | ARM | RipForge |
-|---------|-----|----------|
-| Identification | CRC64 lookup (unreliable) | Label parsing + runtime matching |
-| TV Show Support | Limited | Auto-detects episodes, rips all tracks |
-| Pre-rip verification | No | Yes - scan, edit, confirm |
-| Hands-free mode | No | Yes - rip first, identify after with actual runtime |
-| Auto-scan on insert | No | Yes - configurable |
-| Auto-rip | Immediate | 20s countdown (configurable) |
-| Low confidence handling | None | Email alert + manual review |
-| Web UI | Dated | Modern dark theme |
-| Email | Basic | HTML with posters, SendGrid, weekly recap |
+RipForge was inspired by [Automatic Ripping Machine (ARM)](https://github.com/automatic-ripping-machine/automatic-ripping-machine). ARM pioneered automated disc ripping - RipForge builds on that foundation with a different approach to identification and workflow.
 
 ## License
 

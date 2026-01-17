@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RipForge - Smart Disc Ripping for Your Media Server</title>
+    <meta name="description" content="A modern, self-hosted disc ripping solution with smart identification and media server integration. Works with Plex, Radarr, and Sonarr.">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-dark: #0a0a0a;
+            --bg-card: #141414;
+            --bg-card-hover: #1a1a1a;
+            --accent: #e5a00d;
+            --accent-dim: #b8820a;
+            --text: #f5f5f5;
+            --text-muted: #888;
+            --border: #2a2a2a;
+            --bluray: #0095d9;
+            --dvd: #f97316;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Nav */
+        nav {
+            padding: 20px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        nav .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo span {
+            color: var(--accent);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 32px;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: var(--text-muted);
+            font-size: 14px;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--text);
+            text-decoration: none;
+        }
+
+        /* Hero */
+        .hero {
+            padding: 80px 0 60px;
+            text-align: center;
+        }
+
+        .hero h1 {
+            font-size: 56px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            line-height: 1.1;
+        }
+
+        .hero h1 span {
+            color: var(--accent);
+        }
+
+        .hero p {
+            font-size: 20px;
+            color: var(--text-muted);
+            max-width: 600px;
+            margin: 0 auto 40px;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #000;
+            border: none;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-dim);
+            text-decoration: none;
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-card);
+            text-decoration: none;
+        }
+
+        /* Screenshot */
+        .screenshot {
+            margin: 60px 0;
+            text-align: center;
+        }
+
+        .screenshot img {
+            max-width: 100%;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            border: 1px solid var(--border);
+        }
+
+        /* Features */
+        .features {
+            padding: 80px 0;
+        }
+
+        .features h2 {
+            text-align: center;
+            font-size: 36px;
+            margin-bottom: 50px;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 28px;
+            transition: all 0.2s;
+        }
+
+        .feature-card:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--accent);
+        }
+
+        .feature-icon {
+            font-size: 32px;
+            margin-bottom: 16px;
+        }
+
+        .feature-card h3 {
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+
+        .feature-card p {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        /* Comparison */
+        .comparison {
+            padding: 80px 0;
+            border-top: 1px solid var(--border);
+        }
+
+        .comparison h2 {
+            text-align: center;
+            font-size: 36px;
+            margin-bottom: 50px;
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg-card);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: 16px 20px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .comparison-table th {
+            background: var(--bg-card-hover);
+            font-weight: 600;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+        }
+
+        .comparison-table th:first-child {
+            color: var(--text);
+        }
+
+        .comparison-table td:first-child {
+            font-weight: 500;
+        }
+
+        .comparison-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .check {
+            color: #4ade80;
+        }
+
+        .x {
+            color: #f87171;
+        }
+
+        /* Install */
+        .install {
+            padding: 80px 0;
+            border-top: 1px solid var(--border);
+        }
+
+        .install h2 {
+            text-align: center;
+            font-size: 36px;
+            margin-bottom: 20px;
+        }
+
+        .install > p {
+            text-align: center;
+            color: var(--text-muted);
+            margin-bottom: 40px;
+        }
+
+        .install-steps {
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .code-block {
+            background: #1e1e1e;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 16px;
+            overflow-x: auto;
+        }
+
+        .code-block code {
+            font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+            font-size: 14px;
+            color: #e5e5e5;
+        }
+
+        .code-block .comment {
+            color: #6a9955;
+        }
+
+        /* Integrations */
+        .integrations {
+            padding: 60px 0;
+            border-top: 1px solid var(--border);
+            text-align: center;
+        }
+
+        .integrations p {
+            color: var(--text-muted);
+            margin-bottom: 30px;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .integration-logos {
+            display: flex;
+            justify-content: center;
+            gap: 48px;
+            flex-wrap: wrap;
+            opacity: 0.7;
+        }
+
+        .integration-logos span {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        /* Footer */
+        footer {
+            padding: 40px 0;
+            border-top: 1px solid var(--border);
+            text-align: center;
+        }
+
+        footer p {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        footer a {
+            color: var(--text-muted);
+        }
+
+        footer a:hover {
+            color: var(--accent);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 36px;
+            }
+
+            .hero p {
+                font-size: 16px;
+            }
+
+            .nav-links {
+                display: none;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .comparison-table {
+                font-size: 14px;
+            }
+
+            .comparison-table th,
+            .comparison-table td {
+                padding: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="container">
+            <div class="logo">🔥 Rip<span>Forge</span></div>
+            <ul class="nav-links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#install">Install</a></li>
+                <li><a href="https://github.com/paul-tastic/ripforge">GitHub</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <section class="hero">
+        <div class="container">
+            <h1>Smart Disc Ripping<br>for Your <span>Media Server</span></h1>
+            <p>Insert a disc, walk away. RipForge identifies your content, rips it perfectly, and adds it to your library automatically.</p>
+            <div class="hero-buttons">
+                <a href="#install" class="btn btn-primary">Get Started</a>
+                <a href="https://github.com/paul-tastic/ripforge" class="btn btn-secondary">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    View on GitHub
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <section class="screenshot">
+        <div class="container">
+            <img src="https://github.com/user-attachments/assets/8258c12f-05ef-48e4-8f82-b0f576f859e8" alt="RipForge Dashboard" />
+        </div>
+    </section>
+
+    <section class="features" id="features">
+        <div class="container">
+            <h2>Everything You Need</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🎯</div>
+                    <h3>Smart Identification</h3>
+                    <p>Parses disc labels and matches runtime against TMDB. No more "DISC_1" folders cluttering your library.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📺</div>
+                    <h3>TV Show Support</h3>
+                    <p>Auto-detects episode-length tracks and rips entire seasons. Works seamlessly with Sonarr.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🤖</div>
+                    <h3>Hands-Free Mode</h3>
+                    <p>Insert disc, walk away. RipForge scans, identifies, rips, and organizes without any input.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">✏️</div>
+                    <h3>Editable Titles</h3>
+                    <p>Not confident in the ID? Edit the title before ripping. Quick IMDB search built in.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔄</div>
+                    <h3>Resilient Ripping</h3>
+                    <p>Job state persists to disk. Service restart mid-rip? No problem - it picks up where it left off.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📧</div>
+                    <h3>Email Notifications</h3>
+                    <p>Get notified on completion, errors, and weekly digests with posters and Rotten Tomatoes ratings.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="integrations">
+        <div class="container">
+            <p>Integrates with your stack</p>
+            <div class="integration-logos">
+                <span>Plex</span>
+                <span>Radarr</span>
+                <span>Sonarr</span>
+                <span>Overseerr</span>
+                <span>Tautulli</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="comparison">
+        <div class="container">
+            <h2>Why RipForge?</h2>
+            <p style="text-align: center; color: var(--text-muted); margin-bottom: 40px; max-width: 600px; margin-left: auto; margin-right: auto;">
+                Inspired by <a href="https://github.com/automatic-ripping-machine/automatic-ripping-machine">ARM</a>,
+                RipForge takes a different approach to disc identification and workflow.
+            </p>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Capability</th>
+                        <th>How RipForge Handles It</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Disc Identification</td>
+                        <td>Label parsing + TMDB runtime matching for reliable results</td>
+                    </tr>
+                    <tr>
+                        <td>TV Shows</td>
+                        <td>Auto-detects episode-length tracks, rips full seasons</td>
+                    </tr>
+                    <tr>
+                        <td>Verification</td>
+                        <td>Preview title before ripping, edit if needed, IMDB search built-in</td>
+                    </tr>
+                    <tr>
+                        <td>Automation</td>
+                        <td>Hands-free mode: rip first, identify after with actual file runtime</td>
+                    </tr>
+                    <tr>
+                        <td>Uncertain IDs</td>
+                        <td>Email notification + countdown pause for manual review</td>
+                    </tr>
+                    <tr>
+                        <td>Notifications</td>
+                        <td>Weekly digest with posters, Rotten Tomatoes ratings, and blurbs</td>
+                    </tr>
+                    <tr>
+                        <td>Reliability</td>
+                        <td>Job state persists to disk - survives restarts mid-rip</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="install" id="install">
+        <div class="container">
+            <h2>Quick Start</h2>
+            <p>Get up and running in minutes</p>
+            <div class="install-steps">
+                <div class="code-block">
+                    <code><span class="comment"># Clone and setup</span><br>
+git clone https://github.com/paul-tastic/ripforge.git<br>
+cd ripforge<br>
+./scripts/setup.sh</code>
+                </div>
+                <div class="code-block">
+                    <code><span class="comment"># Or install as a service</span><br>
+sudo cp ripforge.service /etc/systemd/system/<br>
+sudo systemctl enable --now ripforge</code>
+                </div>
+                <div class="code-block">
+                    <code><span class="comment"># Open the dashboard</span><br>
+open http://localhost:8081</code>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>
+                Built by <a href="https://github.com/paul-tastic">paul-tastic</a> ·
+                <a href="https://github.com/paul-tastic/ripforge">Source</a> ·
+                MIT License
+            </p>
+        </div>
+    </footer>
+</body>
+</html>

@@ -164,6 +164,9 @@ def save_rip_to_history(
     duration_str: str = "",
     poster_url: str = "",
     tmdb_id: int = 0,
+    overview: str = "",
+    rt_rating: int = 0,
+    imdb_rating: float = 0.0,
     status: str = "complete"
 ):
     """Save completed rip to history for weekly digest"""
@@ -178,6 +181,9 @@ def save_rip_to_history(
         "rip_duration": duration_str,
         "poster_url": poster_url,
         "tmdb_id": tmdb_id,
+        "overview": overview,
+        "rt_rating": rt_rating,
+        "imdb_rating": imdb_rating,
         "status": status,
         "completed_at": datetime.now().isoformat()
     }
@@ -215,14 +221,17 @@ def get_recent_rips(days: int = 7) -> list:
 def fetch_metadata_by_tmdb_id(tmdb_id: int) -> Dict:
     """
     Fetch metadata directly by TMDB ID - much more reliable than title search.
-    Returns dict with year, poster_url, runtime_str or empty values if not found.
+    Returns dict with year, poster_url, runtime_str, overview, and ratings.
     """
     from . import config
 
     result = {
         "year": 0,
         "poster_url": "",
-        "runtime_str": ""
+        "runtime_str": "",
+        "overview": "",
+        "rt_rating": 0,
+        "imdb_rating": 0.0
     }
 
     if not tmdb_id:
@@ -245,6 +254,7 @@ def fetch_metadata_by_tmdb_id(tmdb_id: int) -> Dict:
             movie = resp.json()
             if movie:
                 result["year"] = movie.get("year", 0)
+                result["overview"] = movie.get("overview", "")
 
                 # Get runtime
                 runtime_min = movie.get("runtime", 0)
@@ -252,6 +262,13 @@ def fetch_metadata_by_tmdb_id(tmdb_id: int) -> Dict:
                     hours = runtime_min // 60
                     mins = runtime_min % 60
                     result["runtime_str"] = f"{hours}h {mins}m" if hours else f"{mins}m"
+
+                # Get ratings
+                ratings = movie.get("ratings", {})
+                if "rottenTomatoes" in ratings:
+                    result["rt_rating"] = int(ratings["rottenTomatoes"].get("value", 0))
+                if "imdb" in ratings:
+                    result["imdb_rating"] = float(ratings["imdb"].get("value", 0))
 
                 # Get poster URL
                 images = movie.get("images", [])
@@ -354,14 +371,17 @@ def enrich_and_save_rip(
     year: int = 0,
     tmdb_id: int = 0,
     poster_url: str = "",
-    runtime_str: str = ""
+    runtime_str: str = "",
+    overview: str = "",
+    rt_rating: int = 0,
+    imdb_rating: float = 0.0
 ):
     """
     Save rip to history, enriching missing metadata from Radarr if needed.
     This should be called instead of save_rip_to_history for automatic enrichment.
     """
-    # If we have TMDB ID but missing poster/runtime, look up by ID (most reliable)
-    if tmdb_id and (not poster_url or not runtime_str):
+    # If we have TMDB ID but missing poster/runtime/overview, look up by ID (most reliable)
+    if tmdb_id and (not poster_url or not runtime_str or not overview):
         metadata = fetch_metadata_by_tmdb_id(tmdb_id)
         if not year:
             year = metadata["year"]
@@ -369,6 +389,12 @@ def enrich_and_save_rip(
             poster_url = metadata["poster_url"]
         if not runtime_str:
             runtime_str = metadata["runtime_str"]
+        if not overview:
+            overview = metadata["overview"]
+        if not rt_rating:
+            rt_rating = metadata["rt_rating"]
+        if not imdb_rating:
+            imdb_rating = metadata["imdb_rating"]
 
     # If still missing metadata (no TMDB ID), fall back to title search
     if not tmdb_id or not poster_url:
@@ -392,5 +418,8 @@ def enrich_and_save_rip(
         duration_str=duration_str,
         poster_url=poster_url,
         tmdb_id=tmdb_id,
+        overview=overview,
+        rt_rating=rt_rating,
+        imdb_rating=imdb_rating,
         status="complete"
     )
