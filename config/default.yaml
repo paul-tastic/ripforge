@@ -24,6 +24,10 @@ ripping:
   auto_rip: true                # Auto-start after scan countdown
   auto_rip_delay: 20            # Seconds before auto-rip starts
   hands_free: false             # Skip confirmations, identify after rip
+  # TV episode detection settings
+  tv_min_episode_length: 1200   # 20 minutes minimum for episode detection
+  tv_max_episode_length: 3600   # 60 minutes maximum for episode detection
+  tv_episode_tolerance: 60      # Seconds tolerance for episode runtime matching
 
 integrations:
   radarr:

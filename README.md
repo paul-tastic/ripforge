@@ -5,7 +5,8 @@ A modern, self-hosted disc ripping solution with smart identification and media 
 ## Features
 
 - **Smart Disc Identification** - Parses disc labels + matches runtime against Radarr/TMDB
-- **Hands-Free Mode** - Insert disc, walk away - rips immediately, identifies after using actual file runtime
+- **TV Show Auto-Detection** - Detects episode-length tracks and rips all episodes automatically
+- **Hands-Free Mode** - Insert disc, walk away - auto-detects movies vs TV, rips everything
 - **Editable Title** - Scan disc, verify/edit title, then rip with confidence
 - **Auto-Scan on Insert** - Detects disc insertion and automatically scans
 - **Auto-Rip Countdown** - 20-second countdown after scan, auto-starts rip (cancellable)
@@ -16,7 +17,7 @@ A modern, self-hosted disc ripping solution with smart identification and media 
 - **Media Server Integration** - Radarr, Sonarr, Overseerr, Plex
 - **Real-time Progress** - Checklist UI shows each step with spinner animations
 - **Hardware Dashboard** - CPU, RAM, storage (SSD/HDD/Pool detection), optical drive
-- **Email Notifications** - Rip complete, errors, and weekly recap with movie posters
+- **Email Notifications** - Rip complete, errors, and weekly recap with movie posters and disc type badges
 - **SendGrid Support** - Optional SendGrid integration for better Gmail deliverability
 - **Activity Logging** - Detailed activity log with identification method tracking
 - **Rip Statistics** - Average rip times by disc type, weekly/daily counts
@@ -85,14 +86,15 @@ sudo systemctl enable --now ripforge
 8. **Eject** - UI auto-resets to ready state, waiting for next disc
 
 ### Hands-Free Mode (hands_free: true)
-1. **Insert disc** - Auto-detected, rip starts immediately (no scan, no preview, no countdown)
-2. **Rip** - Progress shown with file size, checklist updates in real-time
-3. **Identification** - After rip completes, uses ffprobe to get actual file runtime
-4. **Smart Match** - Searches Radarr/TMDB with actual runtime for better accuracy
-5. **Move** - Files moved to final location with identified title
-6. **Eject** - UI auto-resets, ready for next disc
+1. **Insert disc** - Auto-detected, quick scan determines movie vs TV
+2. **Auto-detect** - Movies rip main feature; TV shows rip all episode tracks
+3. **Rip** - Progress shown with file size, checklist updates in real-time
+4. **Identification** - After rip completes, uses ffprobe to get actual file runtime
+5. **Smart Match** - Searches Radarr/Sonarr/TMDB with actual runtime for better accuracy
+6. **Move** - Files moved to final location with identified title
+7. **Eject** - UI auto-resets, ready for next disc
 
-Hands-free mode is ideal for batch ripping - just swap discs without touching the keyboard.
+Hands-free mode is ideal for batch ripping - just swap discs without touching the keyboard. Works with both movies and TV shows.
 
 ## Configuration
 
@@ -103,7 +105,7 @@ Settings stored in `config/settings.yaml`. Edit via web UI or directly.
 ```yaml
 ripping:
   min_length: 2700              # 45 min - skip short tracks
-  main_feature_only: true       # Only rip longest track
+  main_feature_only: true       # Only rip longest track (movies)
   skip_transcode: true          # Keep original quality
   auto_scan_on_insert: true     # Auto-scan when disc inserted
   auto_rip: true                # Auto-start after countdown
@@ -111,6 +113,7 @@ ripping:
   hands_free: false             # Skip scan/preview, rip immediately, identify after
   confidence_threshold: 75      # Below this = needs manual review
   notify_uncertain: true        # Email when ID confidence is low
+  tv_min_episode_length: 1200   # 20 min - minimum track length for TV detection
 ```
 
 ### Email Notifications
@@ -131,7 +134,7 @@ notifications:
 - **SendGrid (recommended)** - Better Gmail/spam deliverability, 100 free emails/day
 - **msmtp** - System mail, requires server configuration
 
-Configure from the Notifications page. Weekly recap includes movie posters from TMDB.
+Configure from the Notifications page. Weekly recap includes movie posters from TMDB, disc type badges (Blu-ray blue / DVD orange), and rip statistics.
 
 ### Integrations
 
@@ -201,16 +204,30 @@ Automatically strips:
 - Studio prefixes (MARVEL_STUDIOS_, DISNEY_, WARNER_, etc.)
 - Region codes (PS, US, UK, EU, etc.)
 - Disc numbers (DISC1, D2, etc.)
+- Aspect ratios (4X3, 16X9, WS, FS)
+- Format codes (NTSC, PAL)
 
 Examples:
 - `MARVEL_STUDIOS_GUARDIANS_3` → "Guardians of the Galaxy Vol 3"
 - `NACHO_LIBRE_PS` → "Nacho Libre"
+- `SCHOOL_OF_ROCK_4X3` → "School of Rock"
+
+## Smart Title Matching
+
+Identification uses weighted scoring to find the best match:
+- **Exact title match** - Strong signal, prevents sequel confusion
+- **Runtime matching** - Compares disc runtime to TMDB data
+- **Year proximity** - Prefers closer release years
+- **TMDB ID lookup** - Once identified, poster/metadata fetched by ID (not title search)
+
+This prevents issues like "The Transporter" matching "The Transporter Refueled" or "Spider-Man" matching a newer reboot. The TMDB ID lookup ensures posters are always correct even when disc labels are truncated.
 
 ## Comparison to ARM
 
 | Feature | ARM | RipForge |
 |---------|-----|----------|
 | Identification | CRC64 lookup (unreliable) | Label parsing + runtime matching |
+| TV Show Support | Limited | Auto-detects episodes, rips all tracks |
 | Pre-rip verification | No | Yes - scan, edit, confirm |
 | Hands-free mode | No | Yes - rip first, identify after with actual runtime |
 | Auto-scan on insert | No | Yes - configurable |

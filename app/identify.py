@@ -9,7 +9,7 @@ import subprocess
 import time
 import requests
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Any
 from dataclasses import dataclass
 
 from . import activity
@@ -27,6 +27,13 @@ class IdentificationResult:
     radarr_id: Optional[int] = None
     sonarr_id: Optional[int] = None
     poster_url: str = ""
+    # TV-specific fields
+    season_number: int = 0
+    episode_mapping: Dict[int, dict] = None  # track_idx -> episode info
+
+    def __post_init__(self):
+        if self.episode_mapping is None:
+            self.episode_mapping = {}
 
     @property
     def is_confident(self) -> bool:
@@ -67,7 +74,7 @@ class SmartIdentifier:
         # Region/market codes
         'DOM', 'DOMESTIC', 'INTL', 'INT', 'WW',
         # Format codes
-        'WS', 'WIDESCREEN', 'FS', 'FULLSCREEN', 'NTSC', 'PAL',
+        'WS', 'WIDESCREEN', 'FS', 'FULLSCREEN', '4X3', '16X9', 'NTSC', 'PAL',
         # Edition codes
         'SE', 'CE', 'DE', 'UE', 'DC', 'TC', 'EXT', 'EXTENDED', 'UNRATED', 'RATED', 'REMASTERED',
         # Audio codes
@@ -152,10 +159,25 @@ class SmartIdentifier:
         (r'^AVENGERS', 'Avengers'),
     ]
 
+    # TV show detection patterns for disc labels
+    TV_PATTERNS = [
+        (r'[_\s]S(\d{1,2})(?:[_\s]|$)', 'season'),           # S01, S1, S02
+        (r'[_\s]SEASON[_\s]*(\d{1,2})', 'season'),           # SEASON_1, SEASON 2, SEASON1
+        (r'COMPLETE[_\s]*SERIES', 'complete_series'),        # COMPLETE_SERIES
+        (r'COMPLETE[_\s]*(?:S|SEASON)', 'complete_season'),  # COMPLETE_SEASON, COMPLETE_S1
+        (r'[_\s](?:DISC|D)[_\s]*(\d+)[_\s]*OF[_\s]*(\d+)', 'multi_disc'),  # DISC_1_OF_4
+    ]
+
     def __init__(self, config: dict):
         self.config = config
         self.runtime_tolerance = config.get('identification', {}).get('runtime_tolerance', 300)
         self.confidence_threshold = config.get('identification', {}).get('confidence_threshold', 75)
+
+        # TV episode detection thresholds (from config or defaults)
+        ripping_cfg = config.get('ripping', {})
+        self.tv_min_episode_length = ripping_cfg.get('tv_min_episode_length', 1200)  # 20 min
+        self.tv_max_episode_length = ripping_cfg.get('tv_max_episode_length', 3600)  # 60 min
+        self.tv_episode_tolerance = ripping_cfg.get('tv_episode_tolerance', 60)  # seconds
 
         # Radarr config
         radarr_cfg = config.get('integrations', {}).get('radarr', {})
@@ -251,6 +273,68 @@ class SmartIdentifier:
 
         return parsed
 
+    def detect_media_type(self, label: str, tracks: List[dict] = None) -> Tuple[str, int, str]:
+        """
+        Detect if disc is a TV show based on label patterns and track analysis.
+
+        Args:
+            label: Disc label string
+            tracks: List of track dicts with 'duration' in seconds
+
+        Returns:
+            Tuple of (media_type, season_number, cleaned_title)
+            - media_type: 'movie' or 'tv'
+            - season_number: Extracted season number (0 if unknown)
+            - cleaned_title: Title with season info removed for searching
+        """
+        upper_label = label.upper()
+        season_number = 0
+        is_tv = False
+        cleaned_title = label
+
+        # Check disc label for TV patterns
+        for pattern, pattern_type in self.TV_PATTERNS:
+            match = re.search(pattern, upper_label)
+            if match:
+                is_tv = True
+                if pattern_type == 'season' and match.groups():
+                    season_number = int(match.group(1))
+                    # Remove the season indicator from title for cleaner search
+                    cleaned_title = re.sub(pattern, '', upper_label, flags=re.IGNORECASE).strip('_').strip()
+                elif pattern_type == 'complete_series':
+                    season_number = 0  # All seasons
+                    cleaned_title = re.sub(pattern, '', upper_label, flags=re.IGNORECASE).strip('_').strip()
+                elif pattern_type == 'complete_season':
+                    # Try to extract season number if present
+                    season_match = re.search(r'(\d+)', match.group(0))
+                    if season_match:
+                        season_number = int(season_match.group(1))
+                    cleaned_title = re.sub(pattern, '', upper_label, flags=re.IGNORECASE).strip('_').strip()
+                break
+
+        # Additional heuristic: multiple episode-length tracks suggest TV
+        if not is_tv and tracks:
+            episode_length_tracks = [
+                t for t in tracks
+                if self.tv_min_episode_length <= t.get('duration', 0) <= self.tv_max_episode_length
+            ]
+            # If 3+ tracks in episode range and no long (movie-length) track, likely TV
+            if len(episode_length_tracks) >= 3:
+                has_movie_length = any(t.get('duration', 0) > self.tv_max_episode_length * 1.5 for t in tracks)
+                if not has_movie_length:
+                    is_tv = True
+                    activity.log_info(f"DETECT: Found {len(episode_length_tracks)} episode-length tracks, classifying as TV")
+
+        media_type = 'tv' if is_tv else 'movie'
+
+        if is_tv:
+            activity.log_info(f"DETECT: '{label}' -> TV (season {season_number if season_number else 'unknown'})")
+            activity.log_info(f"DETECT: Cleaned title for search: '{cleaned_title}'")
+        else:
+            activity.log_info(f"DETECT: '{label}' -> Movie")
+
+        return media_type, season_number, cleaned_title
+
     def get_video_runtime(self, folder: str) -> Optional[int]:
         """Get runtime of video file in seconds using ffprobe"""
         # Find video file
@@ -339,12 +423,36 @@ class SmartIdentifier:
             best_score = 0
             candidates = []  # Track top candidates for logging
 
+            # Normalize search title for comparison
+            search_title_lower = title.lower().strip()
+
             for movie in results[:10]:
                 score = 0
                 score_breakdown = []
                 movie_runtime = movie.get('runtime', 0) * 60  # Radarr returns minutes
                 movie_title = movie.get('title', 'Unknown')
                 movie_year = movie.get('year', 0)
+                movie_title_lower = movie_title.lower().strip()
+
+                # Title match scoring - most important signal!
+                if movie_title_lower == search_title_lower:
+                    # Exact match - should pass threshold on its own
+                    score += 50
+                    score_breakdown.append("title exact +50")
+                elif (movie_title_lower.startswith(search_title_lower + " ") or
+                      movie_title_lower.startswith(search_title_lower + ":")):
+                    # Movie title starts with our search followed by space/colon
+                    # (e.g., "The Transporter" matches "The Transporter Refueled" but not "The Transporters")
+                    len_ratio = len(search_title_lower) / len(movie_title_lower)
+                    if len_ratio > 0.7:
+                        score += 25
+                        score_breakdown.append("title prefix +25")
+                    else:
+                        score += 10
+                        score_breakdown.append(f"title prefix +10 (ratio {len_ratio:.0%})")
+                elif search_title_lower in movie_title_lower:
+                    score += 5
+                    score_breakdown.append("title contains +5")
 
                 # Runtime match scoring
                 if runtime_seconds and movie_runtime > 0:
@@ -437,40 +545,320 @@ class SmartIdentifier:
 
         return None
 
-    def search_sonarr(self, title: str) -> Optional[IdentificationResult]:
-        """Search Sonarr for TV show match"""
+    def search_sonarr(self, title: str, episode_runtimes: List[int] = None,
+                      season_number: int = 0, verbose: bool = True) -> Optional[IdentificationResult]:
+        """Search Sonarr for TV show match with multi-factor scoring.
+
+        Args:
+            title: Show title to search for
+            episode_runtimes: List of episode durations in seconds (for runtime matching)
+            season_number: Season number if known (for episode lookup)
+            verbose: Whether to log details
+
+        Returns:
+            IdentificationResult with show info and episode mapping if found
+        """
         if not self.sonarr_api:
+            if verbose:
+                activity.log_warning("SONARR: No API key configured")
+            return None
+
+        if verbose:
+            activity.log_info(f"SONARR: Searching for '{title}'")
+            if episode_runtimes:
+                avg_runtime = sum(episode_runtimes) / len(episode_runtimes) / 60
+                activity.log_info(f"SONARR: {len(episode_runtimes)} episode tracks (avg {avg_runtime:.0f}m)")
+
+        # Retry logic
+        max_retries = 3
+        response = None
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(
+                    f"{self.sonarr_url}/api/v3/series/lookup",
+                    params={'term': title},
+                    headers={'X-Api-Key': self.sonarr_api},
+                    timeout=10
+                )
+                break
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    if verbose:
+                        activity.log_warning(f"SONARR: Attempt {attempt + 1}/{max_retries} failed, retrying...")
+                    time.sleep(1)
+                continue
+            except Exception as e:
+                if verbose:
+                    activity.log_error(f"SONARR: Search error: {e}")
+                return None
+
+        if response is None:
+            if verbose:
+                activity.log_error(f"SONARR: All {max_retries} attempts failed: {last_error}")
             return None
 
         try:
+            if response.status_code != 200:
+                if verbose:
+                    activity.log_warning(f"SONARR: API returned status {response.status_code}")
+                return None
+
+            results = response.json()
+            if not results:
+                if verbose:
+                    activity.log_info(f"SONARR: No results found for '{title}'")
+                return None
+
+            if verbose:
+                activity.log_info(f"SONARR: Found {len(results)} result(s)")
+
+            best_match = None
+            best_score = 0
+            candidates = []
+
+            for show in results[:10]:
+                score = 0
+                score_breakdown = []
+                show_title = show.get('title', 'Unknown')
+                show_year = show.get('year', 0)
+                show_runtime = show.get('runtime', 0)  # Average episode runtime in minutes
+
+                # Runtime match scoring (if we have episode runtimes)
+                if episode_runtimes and show_runtime > 0:
+                    avg_track_runtime = sum(episode_runtimes) / len(episode_runtimes) / 60  # minutes
+                    diff = abs(avg_track_runtime - show_runtime)
+                    if diff <= 5:  # Within 5 minutes
+                        runtime_score = 50 - (diff * 5)
+                        score += runtime_score
+                        score_breakdown.append(f"runtime +{runtime_score:.0f} (diff {diff:.0f}m)")
+                    elif diff <= 15:
+                        score += 20
+                        score_breakdown.append(f"runtime +20 (diff {diff:.0f}m, partial)")
+                    else:
+                        score_breakdown.append(f"runtime +0 (diff {diff:.0f}m, too far)")
+                else:
+                    score_breakdown.append("runtime N/A")
+
+                # Popularity/ratings bonus
+                ratings = show.get('ratings', {})
+                if ratings.get('votes', 0) > 1000:
+                    score += 20
+                    score_breakdown.append("popular +20")
+                elif ratings.get('votes', 0) > 100:
+                    score += 10
+                    score_breakdown.append("popular +10")
+
+                # Year recency bonus
+                if show_year >= 2020:
+                    score += 15
+                    score_breakdown.append("recent +15")
+                elif show_year >= 2010:
+                    score += 10
+                    score_breakdown.append("recent +10")
+                elif show_year >= 2000:
+                    score += 5
+                    score_breakdown.append("recent +5")
+
+                # Title match bonus - exact match gets boost
+                if show_title.upper() == title.upper():
+                    score += 20
+                    score_breakdown.append("exact title +20")
+
+                candidates.append({
+                    'title': show_title,
+                    'year': show_year,
+                    'runtime': show_runtime,
+                    'score': score,
+                    'breakdown': score_breakdown,
+                    'tvdb_id': show.get('tvdbId', 0)
+                })
+
+                if score > best_score:
+                    best_score = score
+                    best_match = show
+
+            # Log top candidates
+            if verbose and candidates:
+                candidates.sort(key=lambda x: x['score'], reverse=True)
+                activity.log_info(f"SONARR: Top candidates:")
+                for i, c in enumerate(candidates[:3]):
+                    breakdown = ', '.join(c['breakdown'])
+                    activity.log_info(f"SONARR:   {i+1}. {c['title']} ({c['year']}) [{c['runtime']}m/ep] = {c['score']:.0f} pts ({breakdown})")
+
+            if best_match and best_score >= 30:
+                # Get poster URL
+                poster_url = ""
+                images = best_match.get('images', [])
+                for img in images:
+                    if img.get('coverType') == 'poster':
+                        poster_url = img.get('remoteUrl', '')
+                        break
+
+                # Get episode mapping if we have episode runtimes and season
+                episode_mapping = {}
+                if episode_runtimes and season_number > 0:
+                    episode_mapping = self.match_episodes_to_tracks(
+                        best_match.get('tvdbId', 0),
+                        season_number,
+                        episode_runtimes
+                    )
+
+                result = IdentificationResult(
+                    title=best_match.get('title', ''),
+                    year=best_match.get('year', 0),
+                    tmdb_id=best_match.get('tvdbId', 0),  # Store TVDB ID here
+                    runtime_minutes=best_match.get('runtime', 0),
+                    confidence=int(best_score),
+                    media_type='tv',
+                    sonarr_id=best_match.get('id'),
+                    poster_url=poster_url,
+                    season_number=season_number,
+                    episode_mapping=episode_mapping
+                )
+
+                if verbose:
+                    activity.log_success(f"SONARR: Selected '{result.title}' ({result.year}) with {best_score:.0f} pts")
+                return result
+            else:
+                if verbose:
+                    if best_match:
+                        activity.log_warning(f"SONARR: Best match score {best_score:.0f} < 30, rejected")
+                    else:
+                        activity.log_warning(f"SONARR: No suitable match found")
+                return None
+
+        except Exception as e:
+            if verbose:
+                activity.log_error(f"SONARR: Search error: {e}")
+            return None
+
+    def get_sonarr_episodes(self, series_id: int, season: int) -> List[dict]:
+        """Fetch episode list for a series/season from Sonarr.
+
+        Args:
+            series_id: TVDB series ID
+            season: Season number
+
+        Returns:
+            List of episode dicts with runtime and title info
+        """
+        if not self.sonarr_api:
+            return []
+
+        try:
+            # First need to check if series is in Sonarr library
             response = requests.get(
                 f"{self.sonarr_url}/api/v3/series/lookup",
-                params={'term': title},
+                params={'term': f"tvdb:{series_id}"},
                 headers={'X-Api-Key': self.sonarr_api},
                 timeout=10
             )
 
             if response.status_code != 200:
-                return None
+                activity.log_warning(f"SONARR: Could not fetch series {series_id}")
+                return []
 
-            results = response.json()
-            if not results:
-                return None
+            series_data = response.json()
+            if not series_data:
+                return []
 
-            # For TV, just return the top match with reasonable confidence
-            show = results[0]
-            return IdentificationResult(
-                title=show.get('title', ''),
-                year=show.get('year', 0),
-                tmdb_id=show.get('tvdbId', 0),
-                confidence=70,  # TV matching is less precise
-                media_type='tv'
-            )
+            # Extract episodes from series data for the specified season
+            series = series_data[0] if isinstance(series_data, list) else series_data
+            seasons = series.get('seasons', [])
+
+            for s in seasons:
+                if s.get('seasonNumber') == season:
+                    # Get episode count - actual episode info requires series to be in library
+                    episode_count = s.get('statistics', {}).get('totalEpisodeCount', 0)
+                    activity.log_info(f"SONARR: Season {season} has {episode_count} episodes")
+
+                    # Build episode list with standard runtimes
+                    runtime = series.get('runtime', 45)  # Default episode runtime
+                    episodes = []
+                    for ep_num in range(1, episode_count + 1):
+                        episodes.append({
+                            'episode_number': ep_num,
+                            'season_number': season,
+                            'runtime': runtime * 60,  # Convert to seconds
+                            'title': f"Episode {ep_num}"  # Placeholder - real title requires series in library
+                        })
+                    return episodes
+
+            return []
 
         except Exception as e:
-            print(f"Error searching Sonarr: {e}")
+            activity.log_error(f"SONARR: Error fetching episodes: {e}")
+            return []
 
-        return None
+    def match_episodes_to_tracks(self, series_id: int, season: int,
+                                  track_runtimes: List[int]) -> Dict[int, dict]:
+        """Match disc tracks to episodes based on runtime.
+
+        Args:
+            series_id: TVDB series ID
+            season: Season number
+            track_runtimes: List of track durations in seconds (index = track index)
+
+        Returns:
+            Dict mapping track index to episode info
+        """
+        episodes = self.get_sonarr_episodes(series_id, season)
+        if not episodes:
+            # Fallback: create sequential episode mapping
+            activity.log_info(f"SONARR: Using fallback sequential episode numbering")
+            mapping = {}
+            for idx, runtime in enumerate(track_runtimes):
+                mapping[idx] = {
+                    'episode_number': idx + 1,
+                    'season_number': season,
+                    'title': f"Episode {idx + 1}",
+                    'runtime': runtime
+                }
+            return mapping
+
+        # Try to match tracks to episodes by runtime
+        mapping = {}
+        used_episodes = set()
+
+        for track_idx, track_runtime in enumerate(track_runtimes):
+            best_match = None
+            best_diff = float('inf')
+
+            for ep in episodes:
+                ep_num = ep['episode_number']
+                if ep_num in used_episodes:
+                    continue
+
+                ep_runtime = ep.get('runtime', 0)
+                diff = abs(track_runtime - ep_runtime)
+
+                if diff < best_diff and diff <= self.tv_episode_tolerance:
+                    best_diff = diff
+                    best_match = ep
+
+            if best_match:
+                mapping[track_idx] = {
+                    'episode_number': best_match['episode_number'],
+                    'season_number': season,
+                    'title': best_match.get('title', f"Episode {best_match['episode_number']}"),
+                    'runtime': track_runtime
+                }
+                used_episodes.add(best_match['episode_number'])
+            else:
+                # No match - assign sequential episode number
+                next_ep = len(mapping) + 1
+                mapping[track_idx] = {
+                    'episode_number': next_ep,
+                    'season_number': season,
+                    'title': f"Episode {next_ep}",
+                    'runtime': track_runtime
+                }
+
+        activity.log_info(f"SONARR: Matched {len(mapping)} tracks to episodes")
+        return mapping
 
     def check_overseerr_wanted(self, title: str) -> Optional[IdentificationResult]:
         """Check if title is on Overseerr wanted list for better matching"""

@@ -212,10 +212,68 @@ def get_recent_rips(days: int = 7) -> list:
     return [rip for rip in history if rip.get('completed_at', '') >= cutoff]
 
 
+def fetch_metadata_by_tmdb_id(tmdb_id: int) -> Dict:
+    """
+    Fetch metadata directly by TMDB ID - much more reliable than title search.
+    Returns dict with year, poster_url, runtime_str or empty values if not found.
+    """
+    from . import config
+
+    result = {
+        "year": 0,
+        "poster_url": "",
+        "runtime_str": ""
+    }
+
+    if not tmdb_id:
+        return result
+
+    try:
+        cfg = config.load_config()
+        radarr_url = cfg.get('integrations', {}).get('radarr', {}).get('url', 'http://localhost:7878')
+        radarr_key = cfg.get('integrations', {}).get('radarr', {}).get('api_key', '')
+
+        # Radarr lookup by TMDB ID - returns exact match
+        resp = requests.get(
+            f"{radarr_url}/api/v3/movie/lookup/tmdb",
+            params={"tmdbId": tmdb_id},
+            headers={"X-Api-Key": radarr_key},
+            timeout=10
+        )
+
+        if resp.status_code == 200:
+            movie = resp.json()
+            if movie:
+                result["year"] = movie.get("year", 0)
+
+                # Get runtime
+                runtime_min = movie.get("runtime", 0)
+                if runtime_min:
+                    hours = runtime_min // 60
+                    mins = runtime_min % 60
+                    result["runtime_str"] = f"{hours}h {mins}m" if hours else f"{mins}m"
+
+                # Get poster URL
+                images = movie.get("images", [])
+                for img in images:
+                    if img.get("coverType") == "poster":
+                        remote_url = img.get("remoteUrl", "")
+                        result["poster_url"] = remote_url.replace("/original/", "/w500/")
+                        break
+
+                log_info(f"Fetched metadata by TMDB ID {tmdb_id}: {movie.get('title')} ({result['year']})")
+
+    except Exception as e:
+        log_warning(f"Failed to fetch metadata for TMDB {tmdb_id}: {e}")
+
+    return result
+
+
 def fetch_metadata_from_radarr(title: str, year: int = None) -> Dict:
     """
     Fetch metadata (poster, tmdb_id, runtime) from Radarr for a given title.
     Returns dict with year, tmdb_id, poster_url, runtime_str or empty values if not found.
+    NOTE: This uses title search which can be unreliable. Prefer fetch_metadata_by_tmdb_id when possible.
     """
     from . import config
 
@@ -302,7 +360,17 @@ def enrich_and_save_rip(
     Save rip to history, enriching missing metadata from Radarr if needed.
     This should be called instead of save_rip_to_history for automatic enrichment.
     """
-    # If missing metadata, try to fetch from Radarr
+    # If we have TMDB ID but missing poster/runtime, look up by ID (most reliable)
+    if tmdb_id and (not poster_url or not runtime_str):
+        metadata = fetch_metadata_by_tmdb_id(tmdb_id)
+        if not year:
+            year = metadata["year"]
+        if not poster_url:
+            poster_url = metadata["poster_url"]
+        if not runtime_str:
+            runtime_str = metadata["runtime_str"]
+
+    # If still missing metadata (no TMDB ID), fall back to title search
     if not tmdb_id or not poster_url:
         metadata = fetch_metadata_from_radarr(title, year)
         if not year:

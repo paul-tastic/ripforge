@@ -23,6 +23,7 @@
             <div class="scan-results" id="scan-results" style="display: none;">
                 <div class="scan-info">
                     <span class="scan-disc-type" id="scan-disc-type">DVD</span>
+                    <span class="scan-media-type" id="scan-media-type" style="display: none;">TV</span>
                     <span class="scan-disc-label" id="scan-disc-label">DISC_LABEL</span>
                     <span class="scan-runtime" id="scan-runtime">1:30:00</span>
                     <span class="scan-size" id="scan-size"></span>
@@ -32,6 +33,25 @@
                     <input type="text" id="custom-title" class="title-input" placeholder="Movie Title (Year)">
                     <span class="confidence-badge" id="confidence-badge" style="display: none;">HIGH</span>
                     <a href="#" id="imdb-search-btn" class="btn btn-small" target="_blank" title="Search IMDB">IMDB</a>
+                </div>
+
+                <!-- TV Season selector (shown for TV discs) -->
+                <div class="tv-season-edit" id="tv-season-edit" style="display: none;">
+                    <label for="season-number">Season:</label>
+                    <input type="number" id="season-number" class="season-input" min="1" max="99" value="1">
+                </div>
+
+                <!-- TV Episode List (shown for TV discs) -->
+                <div class="tv-episode-list" id="tv-episode-list" style="display: none;">
+                    <div class="episode-list-header">
+                        <span class="episode-list-title">Episodes to Rip</span>
+                        <label class="select-all-label">
+                            <input type="checkbox" id="select-all-episodes" checked> Select All
+                        </label>
+                    </div>
+                    <div class="episode-items" id="episode-items">
+                        <!-- Episode items will be populated by JavaScript -->
+                    </div>
                 </div>
 
                 <!-- Identification Methods Debug -->
@@ -437,16 +457,32 @@
     function displayScanResults(data) {
         showingScanResults = true;
 
+        // Store scan data for later use
+        window.currentScanData = data;
+
         // Update status text
         const statusTitle = document.querySelector('.status-title');
         const statusSubtitle = document.querySelector('.status-subtitle');
 
+        // Check if this is a TV disc
+        const isTVDisc = data.media_type === 'tv' || data.is_tv_disc;
+
         if (data.identified) {
             statusTitle.textContent = data.identified.title;
-            statusSubtitle.textContent = `Identified with ${data.identified.confidence}% confidence`;
+            if (isTVDisc) {
+                const seasonNum = data.season_number || 1;
+                const epCount = data.episode_tracks ? data.episode_tracks.length : 0;
+                statusSubtitle.textContent = `TV Show - Season ${seasonNum} (${epCount} episodes, ${data.identified.confidence}% confidence)`;
+            } else {
+                statusSubtitle.textContent = `Identified with ${data.identified.confidence}% confidence`;
+            }
         } else {
             statusTitle.textContent = data.parsed_search || data.disc_label;
-            statusSubtitle.textContent = 'Could not auto-identify - please verify title';
+            if (isTVDisc) {
+                statusSubtitle.textContent = 'TV Show detected - please verify series and season';
+            } else {
+                statusSubtitle.textContent = 'Could not auto-identify - please verify title';
+            }
         }
 
         // Show scan results section
@@ -457,8 +493,22 @@
         document.getElementById('scan-disc-type').textContent = (data.disc_type || 'DISC').toUpperCase();
         document.getElementById('scan-disc-label').textContent = data.disc_label;
 
-        // Runtime
-        if (data.main_feature !== null && data.tracks) {
+        // Show media type badge for TV
+        const mediaTypeBadge = document.getElementById('scan-media-type');
+        if (isTVDisc) {
+            mediaTypeBadge.textContent = 'TV';
+            mediaTypeBadge.style.display = 'inline';
+        } else {
+            mediaTypeBadge.style.display = 'none';
+        }
+
+        // Runtime - show total for TV, main feature for movies
+        if (isTVDisc && data.episode_tracks && data.episode_tracks.length > 0) {
+            const totalDuration = data.episode_tracks.reduce((sum, t) => sum + t.duration, 0);
+            const hours = Math.floor(totalDuration / 3600);
+            const mins = Math.floor((totalDuration % 3600) / 60);
+            document.getElementById('scan-runtime').textContent = hours > 0 ? `${hours}h ${mins}m total` : `${mins}m total`;
+        } else if (data.main_feature !== null && data.tracks) {
             const track = data.tracks.find(t => t.index === data.main_feature);
             if (track) {
                 document.getElementById('scan-runtime').textContent = track.duration_str;
@@ -475,6 +525,26 @@
         // Fill in editable title
         const titleInput = document.getElementById('custom-title');
         titleInput.value = data.suggested_title || data.parsed_search || data.disc_label;
+        titleInput.placeholder = isTVDisc ? "Series Name" : "Movie Title (Year)";
+
+        // Show TV-specific controls
+        const tvSeasonEdit = document.getElementById('tv-season-edit');
+        const tvEpisodeList = document.getElementById('tv-episode-list');
+
+        if (isTVDisc) {
+            // Show season editor
+            tvSeasonEdit.style.display = 'flex';
+            document.getElementById('season-number').value = data.season_number || 1;
+
+            // Show episode list
+            if (data.episode_tracks && data.episode_tracks.length > 0) {
+                tvEpisodeList.style.display = 'block';
+                populateEpisodeList(data.episode_tracks, data.episode_mapping || {});
+            }
+        } else {
+            tvSeasonEdit.style.display = 'none';
+            tvEpisodeList.style.display = 'none';
+        }
 
         // Show confidence badge if identified
         const badge = document.getElementById('confidence-badge');
@@ -518,33 +588,116 @@
             methodsContainer.style.display = 'none';
         }
 
-        // Set IMDB search link
+        // Set IMDB search link - use TV search for TV discs
         const imdbBtn = document.getElementById('imdb-search-btn');
         const searchTerm = data.parsed_search || data.disc_label.replace(/_/g, ' ');
-        imdbBtn.href = `https://www.imdb.com/find/?q=${encodeURIComponent(searchTerm)}&s=tt&ttype=ft`;
+        if (isTVDisc) {
+            imdbBtn.href = `https://www.imdb.com/find/?q=${encodeURIComponent(searchTerm)}&s=tt&ttype=tv`;
+        } else {
+            imdbBtn.href = `https://www.imdb.com/find/?q=${encodeURIComponent(searchTerm)}&s=tt&ttype=ft`;
+        }
 
         // Update IMDB link and rip button when title input changes
         titleInput.addEventListener('input', function() {
             const term = this.value.trim() || searchTerm;
-            imdbBtn.href = `https://www.imdb.com/find/?q=${encodeURIComponent(term)}&s=tt&ttype=ft`;
+            if (isTVDisc) {
+                imdbBtn.href = `https://www.imdb.com/find/?q=${encodeURIComponent(term)}&s=tt&ttype=tv`;
+            } else {
+                imdbBtn.href = `https://www.imdb.com/find/?q=${encodeURIComponent(term)}&s=tt&ttype=ft`;
+            }
             // Update rip button to show what will be ripped
-            updateRipButtonText(this.value.trim());
+            updateRipButtonText(this.value.trim(), isTVDisc);
             // Cancel countdown if user is editing
             cancelCountdown();
         });
 
         // Set initial button text
-        updateRipButtonText(titleInput.value.trim());
+        updateRipButtonText(titleInput.value.trim(), isTVDisc);
 
         // Only start auto-rip countdown if confident identification
         // If needs_review is true, wait for user to confirm
         if (data.needs_review) {
             // Show review needed banner
-            statusSubtitle.textContent = '⚠️ Low confidence - please verify title before ripping';
+            if (isTVDisc) {
+                statusSubtitle.textContent = '⚠️ Please verify series name and season before ripping';
+            } else {
+                statusSubtitle.textContent = '⚠️ Low confidence - please verify title before ripping';
+            }
         } else {
             // Start auto-rip countdown
             startCountdown();
         }
+    }
+
+    // Populate the episode list for TV discs
+    function populateEpisodeList(episodeTracks, episodeMapping) {
+        const container = document.getElementById('episode-items');
+        let html = '';
+
+        episodeTracks.forEach((track, idx) => {
+            const epInfo = episodeMapping[track.index] || {};
+            const epNum = epInfo.episode_number || (idx + 1);
+            const epTitle = epInfo.title || `Episode ${epNum}`;
+            const duration = track.duration_str || formatDuration(track.duration);
+
+            html += `
+                <div class="episode-item" data-track="${track.index}">
+                    <label class="episode-checkbox">
+                        <input type="checkbox" class="ep-select" data-track="${track.index}" checked>
+                    </label>
+                    <span class="episode-number">E${epNum.toString().padStart(2, '0')}</span>
+                    <span class="episode-title">${escapeHtml(epTitle)}</span>
+                    <span class="episode-duration">${duration}</span>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+
+        // Setup select-all checkbox
+        document.getElementById('select-all-episodes').addEventListener('change', function() {
+            document.querySelectorAll('.ep-select').forEach(cb => cb.checked = this.checked);
+            updateRipButtonForTV();
+        });
+
+        // Update rip button when individual episodes are toggled
+        document.querySelectorAll('.ep-select').forEach(cb => {
+            cb.addEventListener('change', updateRipButtonForTV);
+        });
+    }
+
+    function formatDuration(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    function updateRipButtonForTV() {
+        const selectedCount = document.querySelectorAll('.ep-select:checked').length;
+        const totalCount = document.querySelectorAll('.ep-select').length;
+        const titleInput = document.getElementById('custom-title');
+        const title = titleInput.value.trim();
+
+        if (selectedCount === 0) {
+            document.getElementById('btn-start-rip').textContent = 'Select Episodes';
+            document.getElementById('btn-start-rip').disabled = true;
+        } else {
+            document.getElementById('btn-start-rip').disabled = false;
+            if (title) {
+                document.getElementById('btn-start-rip').textContent = `Rip ${selectedCount} Episode${selectedCount > 1 ? 's' : ''}`;
+            } else {
+                document.getElementById('btn-start-rip').textContent = `Rip ${selectedCount} Episode${selectedCount > 1 ? 's' : ''}`;
+            }
+        }
+    }
+
+    // Get selected episode tracks for TV rip
+    function getSelectedEpisodeTracks() {
+        const selected = [];
+        document.querySelectorAll('.ep-select:checked').forEach(cb => {
+            selected.push(parseInt(cb.dataset.track));
+        });
+        return selected;
     }
 
     function loadHardware() {
@@ -639,14 +792,19 @@
     }
 
     // Update rip button to show the title that will be used
-    function updateRipButtonText(title) {
+    function updateRipButtonText(title, isTVDisc = false) {
         const btn = document.getElementById('btn-start-rip');
-        if (title) {
+        if (isTVDisc) {
+            // For TV, call the TV-specific update function
+            updateRipButtonForTV();
+        } else if (title) {
             // Truncate long titles
             const displayTitle = title.length > 30 ? title.substring(0, 27) + '...' : title;
             btn.textContent = `Rip "${displayTitle}"`;
+            btn.disabled = false;
         } else {
             btn.textContent = 'Start Rip';
+            btn.disabled = false;
         }
     }
 
@@ -819,8 +977,12 @@
         document.getElementById('status-idle').style.display = 'none';
         document.getElementById('rip-checklist').style.display = 'block';
 
-        // Update title - prefer identified title over disc label
-        document.querySelector('.disc-label').textContent = ripData.identified_title || ripData.disc_label || 'Processing disc...';
+        // Update title - handle TV shows with season info
+        let displayTitle = ripData.identified_title || ripData.disc_label || 'Processing disc...';
+        if (ripData.media_type === 'tv' && ripData.season_number) {
+            displayTitle = `${ripData.series_title || ripData.identified_title} S${ripData.season_number.toString().padStart(2, '0')}`;
+        }
+        document.querySelector('.disc-label').textContent = displayTitle;
 
         // Update each step and find current active step
         const steps = ['insert', 'detect', 'scan', 'rip', 'identify', 'library', 'move', 'scan-plex'];
@@ -887,10 +1049,19 @@
                 sizeEl.textContent = '';
             }
 
-            if (ripData.eta) {
-                document.getElementById('progress-eta').textContent = ripData.eta;
+            // Show episode progress for TV
+            const etaEl = document.getElementById('progress-eta');
+            if (ripData.status === 'complete') {
+                etaEl.textContent = 'Completed';
+            } else if (ripData.media_type === 'tv' && ripData.total_tracks > 0) {
+                const currentEp = (ripData.current_track_index || 0) + 1;
+                etaEl.textContent = `Episode ${currentEp} of ${ripData.total_tracks}`;
+            } else if (ripData.eta) {
+                etaEl.textContent = ripData.eta;
             } else if (pct === 0) {
-                document.getElementById('progress-eta').textContent = 'Starting...';
+                etaEl.textContent = 'Starting...';
+            } else if (pct >= 100) {
+                etaEl.textContent = 'Finishing...';
             }
         } else {
             document.getElementById('rip-progress').style.display = 'none';
@@ -966,6 +1137,9 @@
                 // Get scan results to check if user corrected the title
                 const scanData = getScanResults();
 
+                // Check if this is a TV disc
+                const isTVDisc = scanData && (scanData.media_type === 'tv' || scanData.is_tv_disc);
+
                 // Clear scan results since we're starting the rip
                 clearScanResults();
 
@@ -982,6 +1156,25 @@
                     requestBody.disc_label = scanData.disc_label || '';
                     requestBody.runtime_str = scanData.runtime_str || '';
                     requestBody.confidence = scanData.identified ? scanData.identified.confidence : 0;
+                }
+
+                // Add TV-specific parameters
+                if (isTVDisc) {
+                    requestBody.media_type = 'tv';
+                    requestBody.season_number = parseInt(document.getElementById('season-number').value) || 1;
+                    requestBody.selected_tracks = getSelectedEpisodeTracks();
+                    requestBody.episode_mapping = scanData.episode_mapping || {};
+                    requestBody.series_title = customTitle || scanData.suggested_title || '';
+
+                    // Validate that at least one episode is selected
+                    if (requestBody.selected_tracks.length === 0) {
+                        alert('Please select at least one episode to rip');
+                        btn.disabled = false;
+                        btn.textContent = 'Select Episodes';
+                        return null;
+                    }
+                } else {
+                    requestBody.media_type = 'movie';
                 }
 
                 return fetch('/api/rip/start', {
@@ -1091,39 +1284,69 @@
             });
     }
 
-    // Hands-free mode: start rip immediately without scan/preview
+    // Hands-free mode: start rip with automatic TV detection
     function startHandsFreeRip(discLabel) {
         // Update UI to show we're starting
         const statusTitle = document.querySelector('.status-title');
         const statusSubtitle = document.querySelector('.status-subtitle');
-        statusTitle.textContent = 'Starting Rip...';
-        statusSubtitle.textContent = discLabel || 'Disc detected, ripping in hands-free mode';
+        statusTitle.textContent = 'Detecting Disc...';
+        statusSubtitle.textContent = discLabel || 'Getting disc info...';
 
-        // Start rip directly - identification will happen after rip completes
-        fetch('/api/rip/start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                device: '/dev/sr0',
-                custom_title: null,  // Let post-rip identification determine title
-                hands_free: true
+        // First get disc info to detect if it's a TV disc
+        fetch('/api/disc/info')
+            .then(r => r.json())
+            .then(info => {
+                const isTVDisc = info.is_tv_disc || false;
+                const episodeTracks = info.episode_tracks || [];
+
+                // Build rip request
+                const requestBody = {
+                    device: '/dev/sr0',
+                    custom_title: null,  // Let post-rip identification determine title
+                    hands_free: true
+                };
+
+                if (isTVDisc && episodeTracks.length > 0) {
+                    // TV disc - rip all episode tracks
+                    requestBody.media_type = 'tv';
+                    requestBody.season_number = 1;  // Default, will be corrected in post-ID
+                    requestBody.selected_tracks = episodeTracks.map(t => t.index);
+                    requestBody.series_title = info.disc_label || '';
+
+                    statusTitle.textContent = 'Starting TV Rip...';
+                    statusSubtitle.textContent = `${episodeTracks.length} episodes detected`;
+                    console.log('Hands-free: TV disc detected, ripping', episodeTracks.length, 'episodes');
+                } else {
+                    // Movie disc - rip main feature
+                    requestBody.media_type = 'movie';
+
+                    statusTitle.textContent = 'Starting Rip...';
+                    statusSubtitle.textContent = discLabel || 'Ripping main feature';
+                    console.log('Hands-free: Movie disc, ripping main feature');
+                }
+
+                // Start the rip
+                return fetch('/api/rip/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
             })
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                console.log('Hands-free rip started');
-            } else {
-                console.error('Error starting hands-free rip:', data.error);
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('Hands-free rip started');
+                } else {
+                    console.error('Error starting hands-free rip:', data.error);
+                    statusTitle.textContent = 'Error';
+                    statusSubtitle.textContent = data.error || 'Could not start rip';
+                }
+            })
+            .catch(err => {
+                console.error('Error starting hands-free rip:', err);
                 statusTitle.textContent = 'Error';
-                statusSubtitle.textContent = data.error || 'Could not start rip';
-            }
-        })
-        .catch(err => {
-            console.error('Error starting hands-free rip:', err);
-            statusTitle.textContent = 'Error';
-            statusSubtitle.textContent = 'Could not start rip';
-        });
+                statusSubtitle.textContent = 'Could not start rip';
+            });
     }
 
     // Demo function to test the UI (can be called from console)

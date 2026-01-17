@@ -91,10 +91,32 @@ def api_rip_start():
     disc_label = data.get('disc_label', '')
     runtime_str = data.get('runtime_str', '')
 
-    success = engine.start_rip(device, custom_title=custom_title)
+    # TV-specific parameters
+    media_type = data.get('media_type', 'movie')
+    season_number = data.get('season_number', 0)
+    selected_tracks = data.get('selected_tracks', [])  # Track indices for TV episodes
+    episode_mapping = data.get('episode_mapping', {})  # track_idx -> episode info
+    series_title = data.get('series_title', '')
+
+    # Convert episode_mapping keys from strings to ints (JSON serialization)
+    if episode_mapping:
+        episode_mapping = {int(k): v for k, v in episode_mapping.items()}
+
+    success = engine.start_rip(
+        device,
+        custom_title=custom_title,
+        media_type=media_type,
+        season_number=season_number,
+        selected_tracks=selected_tracks,
+        episode_mapping=episode_mapping,
+        series_title=series_title
+    )
     if success:
-        title = custom_title or "Unknown disc"
-        activity.rip_started(title, "main feature only")
+        title = custom_title or series_title or "Unknown disc"
+        if media_type == 'tv':
+            activity.rip_started(f"{title} S{season_number:02d}", f"{len(selected_tracks)} episodes")
+        else:
+            activity.rip_started(title, "main feature only")
 
         # Send uncertain email ONLY if user didn't correct the title
         if was_uncertain and custom_title == original_suggested:
@@ -178,14 +200,33 @@ def api_disc_scan_identify():
     device = request.args.get('device', '/dev/sr0')
     activity.scan_started(device)
 
-    # Get disc info from MakeMKV
-    info = engine.makemkv.get_disc_info(device)
+    # Get disc info from MakeMKV (pass config for TV detection thresholds)
+    cfg = config.load_config()
+    info = engine.makemkv.get_disc_info(device, cfg)
 
     if not info.get('disc_label'):
         activity.scan_failed("No disc found")
         return jsonify({'error': 'No disc found'})
 
-    # Get main feature runtime in seconds
+    # Run smart identification
+    from .identify import SmartIdentifier
+    identifier = SmartIdentifier(cfg)
+
+    # Detect media type from disc label and tracks
+    media_type, season_number, cleaned_title = identifier.detect_media_type(
+        info['disc_label'],
+        info.get('tracks', [])
+    )
+
+    # Also consider the disc info's TV detection
+    if info.get('is_tv_disc') and media_type == 'movie':
+        media_type = 'tv'
+        activity.log_info("SCAN: Disc has multiple episode tracks, switching to TV mode")
+
+    # Get episode tracks for TV
+    episode_tracks = info.get('episode_tracks', [])
+
+    # Get main feature runtime in seconds (for movies)
     main_feature = info.get('main_feature')
     runtime_seconds = None
     if main_feature is not None:
@@ -193,16 +234,18 @@ def api_disc_scan_identify():
         if track:
             runtime_seconds = track.get('duration')
 
-    # Run smart identification
-    from .identify import SmartIdentifier
-    cfg = config.load_config()
-    identifier = SmartIdentifier(cfg)
-
     # Parse disc label into search term
-    search_term = identifier.parse_disc_label(info['disc_label'])
+    search_term = identifier.parse_disc_label(cleaned_title if media_type == 'tv' else info['disc_label'])
 
-    # Search Radarr with runtime matching
-    result = identifier.search_radarr(search_term, runtime_seconds)
+    # Search based on media type
+    result = None
+    if media_type == 'tv':
+        # Get episode runtimes for Sonarr matching
+        episode_runtimes = [t['duration'] for t in episode_tracks]
+        result = identifier.search_sonarr(search_term, episode_runtimes, season_number)
+    else:
+        # Search Radarr with runtime matching
+        result = identifier.search_radarr(search_term, runtime_seconds)
 
     # Get runtime string for logging
     runtime_str = None
@@ -270,7 +313,13 @@ def api_disc_scan_identify():
         'parsed_search': search_term,
         'identified': None,
         'suggested_title': search_term,  # Fallback to parsed label
-        'identification_methods': identification_methods
+        'identification_methods': identification_methods,
+        # TV-specific fields
+        'media_type': media_type,
+        'season_number': season_number,
+        'episode_tracks': episode_tracks,
+        'is_tv_disc': info.get('is_tv_disc', False),
+        'episode_mapping': {}  # Will be populated from result if TV
     }
 
     # Log scan completion
@@ -289,16 +338,29 @@ def api_disc_scan_identify():
             'runtime_minutes': result.runtime_minutes,
             'confidence': result.confidence,
             'folder_name': result.folder_name,
-            'poster_url': result.poster_url
+            'poster_url': result.poster_url,
+            'media_type': result.media_type
         }
+
+        # For TV, include episode mapping and season info
+        if result.media_type == 'tv':
+            response['episode_mapping'] = result.episode_mapping
+            response['season_number'] = result.season_number or season_number
+            response['suggested_title'] = result.title  # Series name without year for TV
+
         # Only use identified title if confidence is high enough
         if result.confidence >= confidence_threshold:
-            response['suggested_title'] = result.folder_name
+            if result.media_type == 'movie':
+                response['suggested_title'] = result.folder_name
             response['needs_review'] = False
         else:
             response['needs_review'] = True
+
         # Log identification
-        activity.rip_identified(info['disc_label'], result.folder_name, result.confidence)
+        if result.media_type == 'tv':
+            activity.rip_identified(info['disc_label'], f"{result.title} S{response['season_number']:02d}", result.confidence)
+        else:
+            activity.rip_identified(info['disc_label'], result.folder_name, result.confidence)
     else:
         response['needs_review'] = True
 

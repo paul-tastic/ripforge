@@ -67,6 +67,14 @@ class RipJob:
     expected_size_bytes: int = 0
     current_size_bytes: int = 0
     rip_output_dir: str = ""  # Track where MakeMKV is writing during rip
+    # TV-specific fields
+    media_type: str = "movie"  # "movie" or "tv"
+    series_title: str = ""  # Original series title for TV
+    season_number: int = 0
+    tracks_to_rip: List[int] = field(default_factory=list)  # Track indices for episodes
+    current_track_index: int = 0  # Current track being ripped (for progress)
+    episode_mapping: Dict[int, dict] = field(default_factory=dict)  # track_idx -> episode info
+    ripped_files: List[str] = field(default_factory=list)  # Paths of ripped episode files
     steps: Dict[str, RipStep] = field(default_factory=lambda: {
         "insert": RipStep(),
         "detect": RipStep(),
@@ -96,6 +104,14 @@ class RipJob:
             "expected_size_bytes": self.expected_size_bytes,
             "current_size_bytes": self.current_size_bytes,
             "rip_output_dir": self.rip_output_dir,
+            # TV-specific fields
+            "media_type": self.media_type,
+            "series_title": self.series_title,
+            "season_number": self.season_number,
+            "tracks_to_rip": self.tracks_to_rip,
+            "current_track_index": self.current_track_index,
+            "episode_mapping": self.episode_mapping,
+            "total_tracks": len(self.tracks_to_rip) if self.tracks_to_rip else 0,
             "steps": {k: {"status": v.status, "detail": v.detail} for k, v in self.steps.items()}
         }
 
@@ -123,14 +139,32 @@ class MakeMKV:
         )
         return process
 
-    def get_disc_info(self, device: str = "/dev/sr0") -> Dict:
-        """Get information about the disc in the drive"""
+    def get_disc_info(self, device: str = "/dev/sr0", config: dict = None) -> Dict:
+        """Get information about the disc in the drive.
+
+        Args:
+            device: Optical drive device path
+            config: Optional config dict for TV episode detection thresholds
+
+        Returns:
+            Dict with disc info including episode_tracks for TV detection
+        """
+        # Get TV detection thresholds from config or use defaults
+        tv_min = 1200  # 20 min default
+        tv_max = 3600  # 60 min default
+        if config:
+            ripping_cfg = config.get('ripping', {})
+            tv_min = ripping_cfg.get('tv_min_episode_length', 1200)
+            tv_max = ripping_cfg.get('tv_max_episode_length', 3600)
+
         info = {
             "disc_label": "",
             "disc_type": "unknown",
             "tracks": [],
             "main_feature": None,
-            "track_sizes": {}  # Track index -> size in bytes
+            "track_sizes": {},  # Track index -> size in bytes
+            "episode_tracks": [],  # Tracks that look like TV episodes (20-60 min)
+            "is_tv_disc": False  # True if multiple episode-length tracks detected
         }
 
         # Convert device to MakeMKV format (disc:0 for /dev/sr0)
@@ -200,6 +234,23 @@ class MakeMKV:
         # Set main feature as longest track over 45 minutes
         if longest_track["duration"] > 2700:  # 45 min
             info["main_feature"] = longest_track["index"]
+
+        # Detect episode-length tracks (for TV show detection)
+        episode_tracks = []
+        for track in info["tracks"]:
+            duration = track.get("duration", 0)
+            if tv_min <= duration <= tv_max:
+                episode_tracks.append(track)
+
+        info["episode_tracks"] = episode_tracks
+
+        # If 2+ episode-length tracks, likely a TV disc
+        if len(episode_tracks) >= 2:
+            info["is_tv_disc"] = True
+            # For TV discs, log the episode tracks
+            activity.log_info(f"DISC: Detected {len(episode_tracks)} episode-length tracks (TV disc)")
+            for et in episode_tracks:
+                activity.log_info(f"DISC:   Track {et['index']}: {et['duration_str']} ({et['duration'] // 60}m)")
 
         return info
 
@@ -698,13 +749,21 @@ class RipEngine:
             self.current_job.progress = percent
             self.current_job.eta = eta
 
-    def start_rip(self, device: str = "/dev/sr0", custom_title: str = None) -> bool:
+    def start_rip(self, device: str = "/dev/sr0", custom_title: str = None,
+                  media_type: str = "movie", season_number: int = 0,
+                  selected_tracks: List[int] = None, episode_mapping: Dict[int, dict] = None,
+                  series_title: str = "") -> bool:
         """Start a new rip job
 
         Args:
             device: Optical drive device path
             custom_title: User-specified title (from scan/identify). If provided,
                          skips auto-identification and uses this for output folder.
+            media_type: "movie" or "tv"
+            season_number: Season number for TV shows
+            selected_tracks: List of track indices to rip (for TV multi-episode)
+            episode_mapping: Dict mapping track index to episode info
+            series_title: Original series title (for TV)
         """
         with self._lock:
             if self.current_job and self.current_job.status not in [RipStatus.IDLE, RipStatus.COMPLETE, RipStatus.ERROR]:
@@ -715,14 +774,22 @@ class RipEngine:
                 id=datetime.now().strftime("%Y%m%d_%H%M%S"),
                 device=device,
                 status=RipStatus.DETECTING,
-                started_at=datetime.now().isoformat()
+                started_at=datetime.now().isoformat(),
+                media_type=media_type,
+                season_number=season_number,
+                tracks_to_rip=selected_tracks or [],
+                episode_mapping=episode_mapping or {},
+                series_title=series_title
             )
             # Store custom title if provided
             if custom_title:
                 self.current_job.identified_title = custom_title
 
-        # Start rip in background thread
-        self._rip_thread = threading.Thread(target=self._run_rip_pipeline)
+        # Start rip in background thread - choose pipeline based on media type
+        if media_type == "tv" and selected_tracks:
+            self._rip_thread = threading.Thread(target=self._run_tv_rip_pipeline)
+        else:
+            self._rip_thread = threading.Thread(target=self._run_rip_pipeline)
         self._rip_thread.daemon = True
         self._rip_thread.start()
 
@@ -844,6 +911,7 @@ class RipEngine:
                 mkv_files = glob.glob(os.path.join(found_path, "*.mkv"))
                 total_size = sum(os.path.getsize(f) for f in mkv_files)
                 size_gb = total_size / (1024**3)
+                job.size_gb = size_gb  # Store for rip history
                 activity.log_success(f"Rip output: {found_path}/ ({size_gb:.1f} GB)")
 
                 # Note if output went to unexpected location
@@ -1025,6 +1093,238 @@ class RipEngine:
                 self.current_job.status = RipStatus.ERROR
                 self.current_job.error_message = str(e)
                 activity.rip_failed(self.current_job.identified_title or self.current_job.disc_label, str(e))
+
+    def _run_tv_rip_pipeline(self):
+        """Execute the TV show rip pipeline - handles multiple episode tracks"""
+        try:
+            job = self.current_job
+            if not job:
+                return
+
+            activity.log_info(f"=== TV RIP PIPELINE START ===")
+            activity.log_info(f"Series: {job.series_title or job.identified_title}")
+            activity.log_info(f"Season: {job.season_number}")
+            activity.log_info(f"Episodes to rip: {len(job.tracks_to_rip)}")
+
+            # Step 1: Disc inserted
+            self._update_step("insert", "complete", "Disc detected")
+
+            # Step 2: Detect disc type
+            self._update_step("detect", "active", "Reading disc...")
+            job.status = RipStatus.DETECTING
+
+            disc_info = self.makemkv.get_disc_info(job.device, self.config)
+            job.disc_label = disc_info.get("disc_label", "UNKNOWN")
+            job.disc_type = disc_info.get("disc_type", "unknown")
+
+            activity.disc_detected(job.disc_type.upper(), job.disc_label)
+            self._update_step("detect", "complete", f"{job.disc_type.upper()}: {job.disc_label}")
+
+            # Step 3: Scan tracks
+            self._update_step("scan", "active", f"Found {len(job.tracks_to_rip)} episode tracks")
+            job.status = RipStatus.SCANNING
+
+            # Calculate total expected size for all tracks
+            track_sizes = disc_info.get("track_sizes", {})
+            total_size = sum(track_sizes.get(t, 0) for t in job.tracks_to_rip)
+            job.expected_size_bytes = total_size
+
+            import math
+            size_gb = math.ceil(total_size / (1024**3) * 10) / 10
+            self._update_step("scan", "complete", f"{len(job.tracks_to_rip)} episodes ({size_gb:.1f} GB total)")
+
+            # Step 4: Rip episodes sequentially
+            self._update_step("rip", "active", "Starting episode rips...")
+            job.status = RipStatus.RIPPING
+
+            # Create output directory for this series/season
+            series_name = job.series_title or job.identified_title or job.disc_label.replace("_", " ").title()
+            output_dir = os.path.join(self.raw_path, f"{series_name}_S{job.season_number:02d}")
+            job.rip_output_dir = output_dir
+
+            # Persist job state
+            self._save_job_state()
+
+            activity.log_info(f"Saving episodes to {output_dir}/")
+
+            # Rip each track
+            total_tracks = len(job.tracks_to_rip)
+            ripped_files = []
+            errors = []
+
+            for idx, track_num in enumerate(job.tracks_to_rip):
+                job.current_track_index = idx
+                ep_info = job.episode_mapping.get(track_num, {})
+                ep_num = ep_info.get('episode_number', idx + 1)
+                ep_title = ep_info.get('title', f'Episode {ep_num}')
+
+                activity.log_info(f"=== Ripping episode {idx + 1}/{total_tracks}: S{job.season_number:02d}E{ep_num:02d} - {ep_title} ===")
+                self._update_step("rip", "active", f"Episode {idx + 1}/{total_tracks}: S{job.season_number:02d}E{ep_num:02d}")
+
+                # Progress callback that accounts for multiple tracks
+                def progress_cb(percent):
+                    # Overall progress = (completed tracks + current progress) / total
+                    overall = int(((idx + percent / 100) / total_tracks) * 100)
+                    self._set_progress(overall, f"Episode {idx + 1}/{total_tracks}")
+
+                success, error_msg, actual_path = self.makemkv.rip_track(
+                    job.device,
+                    track_num,
+                    output_dir,
+                    progress_callback=progress_cb
+                )
+
+                if success:
+                    # Find the ripped file
+                    import glob
+                    mkv_files = glob.glob(os.path.join(output_dir, "*.mkv"))
+                    # Get the newest file (just ripped)
+                    if mkv_files:
+                        newest = max(mkv_files, key=os.path.getmtime)
+                        ripped_files.append({
+                            'path': newest,
+                            'track': track_num,
+                            'episode': ep_num,
+                            'title': ep_title
+                        })
+                        activity.log_success(f"Episode {ep_num} ripped: {os.path.basename(newest)}")
+                else:
+                    errors.append(f"Episode {ep_num}: {error_msg}")
+                    activity.log_error(f"Failed to rip episode {ep_num}: {error_msg}")
+                    # Continue with next track
+
+            job.ripped_files = [f['path'] for f in ripped_files]
+            self._set_progress(100)
+
+            if not ripped_files:
+                self._update_step("rip", "error", "All episodes failed")
+                job.status = RipStatus.ERROR
+                job.error_message = "All episode rips failed"
+                return
+
+            if errors:
+                self._update_step("rip", "complete", f"Ripped {len(ripped_files)}/{total_tracks} episodes")
+                activity.log_warning(f"Partial success: {len(errors)} errors")
+            else:
+                self._update_step("rip", "complete", f"All {total_tracks} episodes ripped")
+
+            job.output_path = output_dir
+
+            # Step 5: Identify (already done pre-rip for TV)
+            self._update_step("identify", "complete", f"{series_name} S{job.season_number:02d} [TV]")
+            job.status = RipStatus.IDENTIFYING
+
+            # Step 6: Add to library (Sonarr)
+            self._update_step("library", "active", "Checking Sonarr...")
+            self._update_step("library", "complete", "Sonarr notified")
+
+            # Step 7: Organize files into TV folder structure
+            self._update_step("move", "active", "Organizing episodes...")
+            job.status = RipStatus.MOVING
+
+            dest_path = self._organize_tv_files(job, ripped_files)
+            if dest_path:
+                self._update_step("move", "complete", f"Moved to tv/{series_name}/")
+                job.output_path = dest_path
+            else:
+                self._update_step("move", "error", "Organization failed")
+
+            # Step 8: Trigger Plex scan
+            self._update_step("scan-plex", "active", "Triggering scan...")
+            self._update_step("scan-plex", "complete", "Plex notified")
+            activity.plex_scan_triggered("TV Shows")
+
+            # Done!
+            job.status = RipStatus.COMPLETE
+            job.completed_at = datetime.now().isoformat()
+
+            # Calculate duration
+            if job.started_at:
+                start = datetime.fromisoformat(job.started_at)
+                duration = datetime.now() - start
+                duration_str = str(duration).split('.')[0]
+            else:
+                duration_str = None
+
+            activity.rip_completed(f"{series_name} S{job.season_number:02d} ({len(ripped_files)} episodes)", duration_str)
+
+            # Add to history
+            self.job_history.append(job)
+
+            # Clear persisted job state
+            self._clear_job_state()
+
+            activity.log_success(f"=== TV RIP PIPELINE COMPLETE ===")
+
+        except Exception as e:
+            if self.current_job:
+                self.current_job.status = RipStatus.ERROR
+                self.current_job.error_message = str(e)
+                activity.rip_failed(self.current_job.series_title or self.current_job.disc_label, str(e))
+                activity.log_error(f"TV rip pipeline failed: {e}")
+
+    def _organize_tv_files(self, job: RipJob, ripped_files: List[dict]) -> Optional[str]:
+        """Organize ripped TV episode files into proper folder structure.
+
+        Args:
+            job: Current RipJob with series/season info
+            ripped_files: List of dicts with path, episode number, title
+
+        Returns:
+            Destination folder path, or None on failure
+        """
+        import shutil
+
+        series_name = job.series_title or job.identified_title or job.disc_label.replace("_", " ").title()
+        # Sanitize series name for filesystem
+        series_name = re.sub(r'[:]', '-', series_name)
+        series_name = re.sub(r'[?<>"|*]', '', series_name)
+
+        season_folder = f"Season {job.season_number:02d}"
+        dest_dir = os.path.join(self.tv_path, series_name, season_folder)
+
+        activity.log_info(f"=== ORGANIZE TV FILES ===")
+        activity.log_info(f"Destination: {dest_dir}")
+
+        try:
+            Path(dest_dir).mkdir(parents=True, exist_ok=True)
+
+            for file_info in ripped_files:
+                src_path = file_info['path']
+                ep_num = file_info['episode']
+                ep_title = file_info.get('title', '')
+
+                # Build filename: "Series Name - SxxExx - Episode Title.mkv"
+                if ep_title and ep_title != f"Episode {ep_num}":
+                    # Sanitize episode title
+                    safe_title = re.sub(r'[:]', '-', ep_title)
+                    safe_title = re.sub(r'[?<>"|*]', '', safe_title)
+                    filename = f"{series_name} - S{job.season_number:02d}E{ep_num:02d} - {safe_title}.mkv"
+                else:
+                    filename = f"{series_name} - S{job.season_number:02d}E{ep_num:02d}.mkv"
+
+                dest_path = os.path.join(dest_dir, filename)
+
+                activity.log_info(f"Moving: {os.path.basename(src_path)} -> {filename}")
+                shutil.move(src_path, dest_path)
+
+            # Clean up source directory if empty
+            src_dir = job.rip_output_dir
+            if src_dir and os.path.isdir(src_dir):
+                try:
+                    os.rmdir(src_dir)
+                    activity.log_info(f"Removed empty source directory: {src_dir}")
+                except OSError:
+                    activity.log_info(f"Source directory not empty, keeping: {src_dir}")
+
+            activity.file_moved(f"{series_name} S{job.season_number:02d}", dest_dir)
+            activity.log_success(f"=== TV FILES ORGANIZED: {len(ripped_files)} episodes ===")
+
+            return dest_dir
+
+        except Exception as e:
+            activity.log_error(f"Failed to organize TV files: {e}")
+            return None
 
     def check_disc(self, device: str = "/dev/sr0") -> dict:
         """Check if a disc is present and get basic info"""

@@ -1480,3 +1480,154 @@ body {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.6; }
 }
+
+/* TV Mode Styles */
+.scan-media-type {
+    background: #8b5cf6;
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.tv-season-edit {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 12px 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.tv-season-edit label {
+    color: var(--text-muted);
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.season-input {
+    width: 80px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.season-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* TV Episode List */
+.tv-episode-list {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.episode-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.episode-list-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.select-all-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.select-all-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.episode-items {
+    background: var(--bg-card);
+    border-radius: 8px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.episode-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.2s;
+}
+
+.episode-item:last-child {
+    border-bottom: none;
+}
+
+.episode-item:hover {
+    background: var(--bg-card-hover);
+}
+
+.episode-checkbox {
+    display: flex;
+    align-items: center;
+}
+
+.episode-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.episode-number {
+    font-family: monospace;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 40px;
+}
+
+.episode-title {
+    flex: 1;
+    font-size: 14px;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.episode-duration {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: monospace;
+    flex-shrink: 0;
+}
+
+/* Episode item unchecked state */
+.episode-item:has(input[type="checkbox"]:not(:checked)) {
+    opacity: 0.5;
+}
+
+.episode-item:has(input[type="checkbox"]:not(:checked)) .episode-number,
+.episode-item:has(input[type="checkbox"]:not(:checked)) .episode-title {
+    text-decoration: line-through;
+}

@@ -253,7 +253,7 @@ def send_weekly_recap(recipients: list) -> bool:
             poster_html = f'<img src="{poster_url}" alt="" style="width: 80px; height: 120px; object-fit: cover; border-radius: 6px;">' if poster_url else '<div style="width: 80px; height: 120px; background: #333; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #666; font-size: 24px;">🎬</div>'
 
             disc_badge = rip.get('disc_type', '').upper()
-            badge_color = "#a855f7" if disc_badge == "BLURAY" else "#3b82f6"  # Purple for Blu-ray, Blue for DVD
+            badge_color = "#0095d9" if disc_badge == "BLURAY" else "#f97316"  # Blu-ray blue, DVD orange
 
             movie_cards += f"""
             <div style="display: flex; gap: 16px; padding: 16px; background: #1a1a1a; border-radius: 8px; margin-bottom: 12px;">
