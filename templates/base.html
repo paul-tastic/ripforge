@@ -4,13 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}RipForge{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     {% block head %}{% endblock %}
 </head>
 <body>
     <nav class="sidebar">
         <div class="logo">
-            <span class="logo-icon">⚙</span>
+            <span class="logo-icon">🔥</span>
             <span class="logo-text">RipForge</span>
         </div>
         <ul class="nav-links">
@@ -27,6 +28,44 @@
                 <span class="nav-icon">⚙️</span> Settings
             </a></li>
         </ul>
+
+        <!-- Quick Stats in Sidebar -->
+        <div class="sidebar-stats">
+            <div class="sidebar-stats-header">Quick Stats</div>
+            <div class="sidebar-stat-row">
+                <span class="stat-label">Today</span>
+                <span class="stat-value" id="stat-today">0</span>
+            </div>
+            <div class="sidebar-stat-row">
+                <span class="stat-label">This Week</span>
+                <span class="stat-value" id="stat-week">0</span>
+            </div>
+            <div class="sidebar-stat-row">
+                <span class="stat-label">All Time</span>
+                <span class="stat-value" id="stat-total">0</span>
+            </div>
+            <div class="sidebar-stat-row">
+                <span class="stat-label">Errors</span>
+                <span class="stat-value error" id="stat-errors">0</span>
+            </div>
+            <div class="sidebar-stat-divider"></div>
+            <div class="sidebar-stat-row">
+                <span class="stat-label">Avg Blu-ray</span>
+                <span class="stat-value" id="stat-avg-bluray">--</span>
+            </div>
+            <div class="sidebar-stat-row">
+                <span class="stat-label">Avg DVD</span>
+                <span class="stat-value" id="stat-avg-dvd">--</span>
+            </div>
+            <div class="sidebar-stat-divider"></div>
+            <div class="sidebar-integrations">
+                <span class="int-dot" id="int-radarr" title="Radarr">●</span>
+                <span class="int-dot" id="int-sonarr" title="Sonarr">●</span>
+                <span class="int-dot" id="int-overseerr" title="Overseerr">●</span>
+                <span class="int-dot" id="int-plex" title="Plex">●</span>
+            </div>
+        </div>
+
         <div class="sidebar-footer">
             <div class="version">v0.1.0</div>
         </div>

@@ -208,54 +208,83 @@
         </div>
     </section>
 
-    <!-- Quick Stats + Integrations -->
-    <section class="card stats">
-        <h2>Quick Stats</h2>
-        <div class="stats-grid">
-            <div class="stat">
-                <div class="stat-value" id="stat-today">0</div>
-                <div class="stat-label">Ripped Today</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value" id="stat-week">0</div>
-                <div class="stat-label">This Week</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value" id="stat-total">0</div>
-                <div class="stat-label">All Time</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value" id="stat-errors">0</div>
-                <div class="stat-label">Errors</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value" id="stat-avg-bluray">--</div>
-                <div class="stat-label">Avg Blu-ray</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value" id="stat-avg-dvd">--</div>
-                <div class="stat-label">Avg DVD</div>
-            </div>
+    <!-- Needs Review Queue -->
+    <section class="card review-queue" id="review-queue-section" style="display: none;">
+        <div class="review-header">
+            <h2>Needs Review</h2>
+            <span class="review-count" id="review-count">0</span>
         </div>
-        <div class="integration-strip" id="integration-list">
-            <div class="integration-dot" title="Radarr">
-                <span class="integration-status" id="int-radarr">●</span>
-                <span class="integration-label">Radarr</span>
-            </div>
-            <div class="integration-dot" title="Sonarr">
-                <span class="integration-status" id="int-sonarr">●</span>
-                <span class="integration-label">Sonarr</span>
-            </div>
-            <div class="integration-dot" title="Overseerr">
-                <span class="integration-status" id="int-overseerr">●</span>
-                <span class="integration-label">Overseerr</span>
-            </div>
-            <div class="integration-dot" title="Plex">
-                <span class="integration-status" id="int-plex">●</span>
-                <span class="integration-label">Plex</span>
-            </div>
+        <p class="review-subtitle">These rips need manual identification before being added to your library.</p>
+        <div class="review-items" id="review-items">
+            <!-- Review items will be populated by JavaScript -->
         </div>
     </section>
+
+    <!-- Review Modal -->
+    <div class="modal-overlay" id="review-modal" style="display: none;">
+        <div class="modal review-modal">
+            <div class="modal-header">
+                <h3>Identify This Rip</h3>
+                <button class="modal-close" onclick="closeReviewModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="review-info">
+                    <div class="review-detail">
+                        <span class="label">Disc Label:</span>
+                        <span class="value" id="modal-disc-label">-</span>
+                    </div>
+                    <div class="review-detail">
+                        <span class="label">Runtime:</span>
+                        <span class="value" id="modal-runtime">-</span>
+                    </div>
+                    <div class="review-detail">
+                        <span class="label">Size:</span>
+                        <span class="value" id="modal-size">-</span>
+                    </div>
+                    <div class="review-detail">
+                        <span class="label">Type:</span>
+                        <span class="value" id="modal-disc-type">-</span>
+                    </div>
+                </div>
+
+                <div class="review-search">
+                    <label for="review-search-input">Search for title:</label>
+                    <div class="search-row">
+                        <input type="text" id="review-search-input" placeholder="Movie or TV show name" autocomplete="off">
+                        <button class="btn btn-primary" onclick="searchReviewTitle()">Search</button>
+                    </div>
+                    <small class="search-hint">Results from Radarr/TMDB. Click IMDB/TMDB links to verify. Wrong match? Try a different search.</small>
+                </div>
+
+                <div class="review-results" id="review-results" style="display: none;">
+                    <div class="result-card" id="review-result-card">
+                        <img class="result-poster" id="result-poster" src="" alt="Poster">
+                        <div class="result-info">
+                            <div class="result-title" id="result-title">-</div>
+                            <div class="result-meta">
+                                <span id="result-year">-</span> &bull;
+                                <span id="result-runtime">-</span>
+                            </div>
+                            <div class="result-folder">
+                                <span class="folder-label">Folder:</span>
+                                <span id="result-folder-name">-</span>
+                            </div>
+                            <div class="result-links">
+                                <a href="#" id="result-imdb-link" target="_blank" class="verify-link">IMDB</a>
+                                <a href="#" id="result-tmdb-link" target="_blank" class="verify-link">TMDB</a>
+                                <a href="#" id="result-tvdb-link" target="_blank" class="verify-link" style="display: none;">TVDB</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="review-actions">
+                    <button class="btn btn-success" id="btn-apply-review" onclick="applyReviewIdentification()" disabled>Apply Identification</button>
+                    <button class="btn btn-danger" onclick="deleteReviewItem()">Delete Rip</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Activity Log -->
     <section class="card activity-log full-width">
@@ -307,14 +336,14 @@
         loadStatus();
         loadHardware();
         loadActivityLog();
-        loadRipStats();
+        loadReviewQueue();     // Load review queue
         startDiscPolling();    // Start polling for disc insertion
         // Refresh status every 2 seconds (faster for progress bar updates)
         setInterval(loadStatus, 2000);
         // Refresh activity log every 5 seconds
         setInterval(loadActivityLog, 5000);
-        // Refresh stats every 30 seconds
-        setInterval(loadRipStats, 30000);
+        // Refresh review queue every 30 seconds
+        setInterval(loadReviewQueue, 30000);
 
         // Setup log filter buttons
         document.querySelectorAll('.log-filter').forEach(btn => {
@@ -351,7 +380,7 @@
                     let level = 'info';
                     let message = entry;
 
-                    const match = entry.match(/^(\d{4}-\d{2}-\d{2}\s+)?(\d{2}:\d{2}:\d{2})?\s*\|?\s*(INFO|ERROR|WARN|SUCCESS|DEBUG)?\s*\|?\s*(.*)$/i);
+                    const match = entry.match(/^(\d{4}-\d{2}-\d{2}\s+)?(\d{2}:\d{2}:\d{2})?\s*\|?\s*(INFO|ERROR|WARN|SUCCESS|DEBUG|START)?\s*\|?\s*(.*)$/i);
                     if (match) {
                         time = match[2] || '--:--:--';
                         level = (match[3] || 'info').toLowerCase();
@@ -381,35 +410,6 @@
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
-    }
-
-    // Load rip statistics
-    function loadRipStats() {
-        fetch('/api/rip-stats')
-            .then(r => r.json())
-            .then(data => {
-                document.getElementById('stat-today').textContent = data.today || 0;
-                document.getElementById('stat-week').textContent = data.week || 0;
-                document.getElementById('stat-total').textContent = data.total || 0;
-                document.getElementById('stat-errors').textContent = data.errors || 0;
-
-                // Format average times as "XXm"
-                const avgBluray = document.getElementById('stat-avg-bluray');
-                const avgDvd = document.getElementById('stat-avg-dvd');
-
-                if (data.avg_bluray_mins !== null) {
-                    avgBluray.textContent = data.avg_bluray_mins + 'm';
-                } else {
-                    avgBluray.textContent = '--';
-                }
-
-                if (data.avg_dvd_mins !== null) {
-                    avgDvd.textContent = data.avg_dvd_mins + 'm';
-                } else {
-                    avgDvd.textContent = '--';
-                }
-            })
-            .catch(err => console.error('Error loading rip stats:', err));
     }
 
     // Restore scan results from sessionStorage (persists across tab switches)
@@ -764,19 +764,16 @@
         fetch('/api/status')
             .then(r => r.json())
             .then(data => {
-                // Update integration status
+                // Update integration status (sidebar dots)
                 for (const [service, status] of Object.entries(data.integrations)) {
                     const el = document.getElementById('int-' + service);
                     if (el) {
                         if (!status.enabled) {
-                            el.className = 'integration-status disabled';
-                            el.textContent = '○';
+                            el.className = 'int-dot disabled';
                         } else if (status.connected) {
-                            el.className = 'integration-status connected';
-                            el.textContent = '●';
+                            el.className = 'int-dot connected';
                         } else {
-                            el.className = 'integration-status error';
-                            el.textContent = '●';
+                            el.className = 'int-dot error';
                         }
                     }
                 }
@@ -1348,6 +1345,255 @@
                 statusSubtitle.textContent = 'Could not start rip';
             });
     }
+
+    // ========================
+    // Review Queue Functions
+    // ========================
+    let currentReviewItem = null;
+    let currentSearchResult = null;
+
+    function loadReviewQueue() {
+        fetch('/api/review/queue')
+            .then(r => r.json())
+            .then(data => {
+                const section = document.getElementById('review-queue-section');
+                const container = document.getElementById('review-items');
+                const countEl = document.getElementById('review-count');
+
+                if (data.items && data.items.length > 0) {
+                    section.style.display = 'block';
+                    countEl.textContent = data.items.length;
+
+                    let html = '';
+                    data.items.forEach(item => {
+                        html += `
+                            <div class="review-item" data-folder="${escapeHtml(item.folder_name)}">
+                                <div class="review-item-info">
+                                    <div class="review-item-title">${escapeHtml(item.fallback_title || item.disc_label)}</div>
+                                    <div class="review-item-details">
+                                        <span class="disc-type">${(item.disc_type || 'unknown').toUpperCase()}</span>
+                                        <span class="runtime">${item.runtime_str || '-'}</span>
+                                        <span class="size">${item.size_gb ? item.size_gb + ' GB' : ''}</span>
+                                    </div>
+                                </div>
+                                <button class="btn btn-primary btn-small" onclick="openReviewModal('${escapeHtml(item.folder_name)}')">
+                                    Identify
+                                </button>
+                            </div>
+                        `;
+                    });
+                    container.innerHTML = html;
+
+                    // Store items for modal access
+                    window.reviewItems = data.items.reduce((acc, item) => {
+                        acc[item.folder_name] = item;
+                        return acc;
+                    }, {});
+                } else {
+                    section.style.display = 'none';
+                }
+            })
+            .catch(err => {
+                console.error('Error loading review queue:', err);
+            });
+    }
+
+    function openReviewModal(folderName) {
+        const item = window.reviewItems[folderName];
+        if (!item) return;
+
+        currentReviewItem = item;
+        currentSearchResult = null;
+
+        // Populate modal with item details
+        document.getElementById('modal-disc-label').textContent = item.disc_label || '-';
+        document.getElementById('modal-runtime').textContent = item.runtime_str || '-';
+        document.getElementById('modal-size').textContent = item.size_gb ? item.size_gb + ' GB' : '-';
+        document.getElementById('modal-disc-type').textContent = (item.disc_type || 'unknown').toUpperCase();
+
+        // Pre-fill search with fallback title
+        document.getElementById('review-search-input').value = item.fallback_title || '';
+
+        // Reset results
+        document.getElementById('review-results').style.display = 'none';
+        document.getElementById('btn-apply-review').disabled = true;
+
+        // Show modal
+        document.getElementById('review-modal').style.display = 'flex';
+    }
+
+    function closeReviewModal() {
+        document.getElementById('review-modal').style.display = 'none';
+        currentReviewItem = null;
+        currentSearchResult = null;
+    }
+
+    function searchReviewTitle() {
+        const query = document.getElementById('review-search-input').value.trim();
+        if (!query || !currentReviewItem) return;
+
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = 'Searching...';
+
+        fetch('/api/review/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                query: query,
+                runtime_seconds: currentReviewItem.runtime_seconds || 0,
+                media_type: currentReviewItem.media_type || 'movie'
+            })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.results && data.results.length > 0) {
+                    const result = data.results[0];
+                    currentSearchResult = result;
+
+                    // Show result
+                    document.getElementById('review-results').style.display = 'block';
+                    document.getElementById('result-title').textContent = result.title || '-';
+                    document.getElementById('result-year').textContent = result.year || '-';
+                    document.getElementById('result-runtime').textContent = result.runtime_minutes ? result.runtime_minutes + ' min' : '-';
+                    document.getElementById('result-folder-name').textContent = result.folder_name || '-';
+
+                    if (result.poster_url) {
+                        document.getElementById('result-poster').src = result.poster_url;
+                        document.getElementById('result-poster').style.display = 'block';
+                    } else {
+                        document.getElementById('result-poster').style.display = 'none';
+                    }
+
+                    // Set verification links
+                    const imdbLink = document.getElementById('result-imdb-link');
+                    const tmdbLink = document.getElementById('result-tmdb-link');
+                    const tvdbLink = document.getElementById('result-tvdb-link');
+
+                    if (result.imdb_id) {
+                        imdbLink.href = `https://www.imdb.com/title/${result.imdb_id}/`;
+                        imdbLink.style.display = 'inline';
+                    } else {
+                        imdbLink.style.display = 'none';
+                    }
+
+                    if (result.tmdb_id) {
+                        const tmdbType = result.media_type === 'tv' ? 'tv' : 'movie';
+                        tmdbLink.href = `https://www.themoviedb.org/${tmdbType}/${result.tmdb_id}`;
+                        tmdbLink.style.display = 'inline';
+                    } else {
+                        tmdbLink.style.display = 'none';
+                    }
+
+                    if (result.tvdb_id && result.media_type === 'tv') {
+                        tvdbLink.href = `https://thetvdb.com/series/${result.tvdb_id}`;
+                        tvdbLink.style.display = 'inline';
+                    } else {
+                        tvdbLink.style.display = 'none';
+                    }
+
+                    document.getElementById('btn-apply-review').disabled = false;
+                } else {
+                    document.getElementById('review-results').style.display = 'none';
+                    document.getElementById('btn-apply-review').disabled = true;
+                    alert('No results found. Try a different search term.');
+                }
+            })
+            .catch(err => {
+                console.error('Search error:', err);
+                alert('Search failed. Please try again.');
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = 'Search';
+            });
+    }
+
+    function applyReviewIdentification() {
+        if (!currentReviewItem || !currentSearchResult) return;
+
+        const btn = document.getElementById('btn-apply-review');
+        btn.disabled = true;
+        btn.textContent = 'Applying...';
+
+        fetch('/api/review/apply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                folder_name: currentReviewItem.folder_name,
+                identified_title: currentSearchResult.folder_name,
+                media_type: currentSearchResult.media_type || 'movie',
+                year: currentSearchResult.year || 0,
+                tmdb_id: currentSearchResult.tmdb_id || 0,
+                poster_url: currentSearchResult.poster_url || ''
+            })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    const folderName = currentSearchResult.folder_name;  // Save before closing modal
+                    closeReviewModal();
+                    loadReviewQueue();  // Refresh the queue
+                    loadActivityLog();  // Refresh activity log
+                    showToast(`Moved to library: ${folderName}`, 'success');
+                } else {
+                    alert('Error: ' + (data.error || 'Could not apply identification'));
+                    btn.disabled = false;
+                    btn.textContent = 'Apply Identification';
+                }
+            })
+            .catch(err => {
+                console.error('Apply error:', err);
+                alert('Error applying identification. Please try again.');
+                btn.disabled = false;
+                btn.textContent = 'Apply Identification';
+            });
+    }
+
+    function deleteReviewItem() {
+        if (!currentReviewItem) return;
+
+        if (!confirm('Are you sure you want to delete this rip? This cannot be undone.')) {
+            return;
+        }
+
+        fetch('/api/review/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                folder_name: currentReviewItem.folder_name
+            })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    closeReviewModal();
+                    loadReviewQueue();  // Refresh the queue
+                    loadActivityLog();  // Refresh activity log
+                    showToast('Deleted from review queue', 'info');
+                } else {
+                    alert('Error: ' + (data.error || 'Could not delete item'));
+                }
+            })
+            .catch(err => {
+                console.error('Delete error:', err);
+                alert('Error deleting item. Please try again.');
+            });
+    }
+
+    // Close modal on escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && document.getElementById('review-modal').style.display === 'flex') {
+            closeReviewModal();
+        }
+    });
+
+    // Close modal on overlay click
+    document.getElementById('review-modal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeReviewModal();
+        }
+    });
 
     // Demo function to test the UI (can be called from console)
     function demoRip() {

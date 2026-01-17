@@ -134,6 +134,12 @@ notifications:
 - **SendGrid (recommended)** - Better Gmail/spam deliverability, 100 free emails/day
 - **msmtp** - System mail, requires server configuration
 
+**Setting up SendGrid:**
+1. Create free account at [sendgrid.com](https://sendgrid.com)
+2. Go to Settings > API Keys > Create API Key
+3. Choose "Restricted Access" and enable only "Mail Send"
+4. Copy the key (starts with `SG.`) to RipForge's Notifications page
+
 Configure from the Notifications page. Weekly recap includes movie posters from TMDB, disc type badges (Blu-ray blue / DVD orange), and rip statistics.
 
 ### Integrations

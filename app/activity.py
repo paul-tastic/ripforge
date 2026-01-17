@@ -78,7 +78,7 @@ def scan_failed(error: str):
 
 
 def rip_started(title: str, mode: str = "main feature only"):
-    log_info(f"Rip started: {title} ({mode})")
+    log(f"Rip started: {title} ({mode})", "START")
 
 
 def rip_progress(title: str, percent: int):
@@ -167,7 +167,8 @@ def save_rip_to_history(
     overview: str = "",
     rt_rating: int = 0,
     imdb_rating: float = 0.0,
-    status: str = "complete"
+    status: str = "complete",
+    content_type: str = "movie"
 ):
     """Save completed rip to history for weekly digest"""
     history = load_rip_history()
@@ -176,6 +177,7 @@ def save_rip_to_history(
         "title": title,
         "year": year,
         "disc_type": disc_type,
+        "content_type": content_type,  # movie or tv
         "runtime": runtime_str,
         "size_gb": round(size_gb, 1),
         "rip_duration": duration_str,
@@ -193,8 +195,9 @@ def save_rip_to_history(
     try:
         with open(HISTORY_FILE, 'w') as f:
             json.dump(history, f, indent=2)
+        log_info(f"Saved to rip history: {title} ({content_type})")
     except Exception as e:
-        print(f"Error saving rip history: {e}")
+        log_error(f"Error saving rip history: {e}")
 
 
 def load_rip_history() -> list:
@@ -374,39 +377,45 @@ def enrich_and_save_rip(
     runtime_str: str = "",
     overview: str = "",
     rt_rating: int = 0,
-    imdb_rating: float = 0.0
+    imdb_rating: float = 0.0,
+    content_type: str = "movie"
 ):
     """
     Save rip to history, enriching missing metadata from Radarr if needed.
     This should be called instead of save_rip_to_history for automatic enrichment.
     """
-    # If we have TMDB ID but missing poster/runtime/overview, look up by ID (most reliable)
-    if tmdb_id and (not poster_url or not runtime_str or not overview):
-        metadata = fetch_metadata_by_tmdb_id(tmdb_id)
-        if not year:
-            year = metadata["year"]
-        if not poster_url:
-            poster_url = metadata["poster_url"]
-        if not runtime_str:
-            runtime_str = metadata["runtime_str"]
-        if not overview:
-            overview = metadata["overview"]
-        if not rt_rating:
-            rt_rating = metadata["rt_rating"]
-        if not imdb_rating:
-            imdb_rating = metadata["imdb_rating"]
+    log_info(f"enrich_and_save_rip called: {title} ({content_type})")
 
-    # If still missing metadata (no TMDB ID), fall back to title search
-    if not tmdb_id or not poster_url:
-        metadata = fetch_metadata_from_radarr(title, year)
-        if not year:
-            year = metadata["year"]
-        if not tmdb_id:
-            tmdb_id = metadata["tmdb_id"]
-        if not poster_url:
-            poster_url = metadata["poster_url"]
-        if not runtime_str:
-            runtime_str = metadata["runtime_str"]
+    try:
+        # If we have TMDB ID but missing poster/runtime/overview, look up by ID (most reliable)
+        if tmdb_id and (not poster_url or not runtime_str or not overview):
+            metadata = fetch_metadata_by_tmdb_id(tmdb_id)
+            if not year:
+                year = metadata["year"]
+            if not poster_url:
+                poster_url = metadata["poster_url"]
+            if not runtime_str:
+                runtime_str = metadata["runtime_str"]
+            if not overview:
+                overview = metadata["overview"]
+            if not rt_rating:
+                rt_rating = metadata["rt_rating"]
+            if not imdb_rating:
+                imdb_rating = metadata["imdb_rating"]
+
+        # If still missing metadata (no TMDB ID), fall back to title search (movies only)
+        if content_type == "movie" and (not tmdb_id or not poster_url):
+            metadata = fetch_metadata_from_radarr(title, year)
+            if not year:
+                year = metadata["year"]
+            if not tmdb_id:
+                tmdb_id = metadata["tmdb_id"]
+            if not poster_url:
+                poster_url = metadata["poster_url"]
+            if not runtime_str:
+                runtime_str = metadata["runtime_str"]
+    except Exception as e:
+        log_error(f"Error enriching metadata for {title}: {e}")
 
     # Save to history with enriched data
     save_rip_to_history(
@@ -421,5 +430,6 @@ def enrich_and_save_rip(
         overview=overview,
         rt_rating=rt_rating,
         imdb_rating=imdb_rating,
-        status="complete"
+        status="complete",
+        content_type=content_type
     )

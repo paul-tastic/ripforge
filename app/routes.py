@@ -590,24 +590,43 @@ def api_newsletter_settings():
     cfg = config.load_config()
 
     if request.method == 'GET':
-        return jsonify(cfg.get('newsletter', {
-            'frequency': 'weekly',
-            'day': 'thursday',
-            'hour': 9,
-            'recipients': [],
-            'queue': []
-        }))
+        newsletter = cfg.get('newsletter', {})
+        email_cfg = cfg.get('notifications', {}).get('email', {})
+        raw_recipients = email_cfg.get('recipients', [])
+
+        # Convert legacy string format to object format
+        recipients = []
+        for r in raw_recipients:
+            if isinstance(r, str):
+                recipients.append({'email': r, 'enabled': True})
+            else:
+                recipients.append(r)
+
+        return jsonify({
+            'frequency': newsletter.get('frequency', 'weekly'),
+            'day': newsletter.get('day', 'thursday'),
+            'hour': newsletter.get('hour', 9),
+            'recipients': recipients,
+            'queue': newsletter.get('queue', [])
+        })
 
     data = request.json
+
+    # Update newsletter scheduling
     if 'newsletter' not in cfg:
         cfg['newsletter'] = {}
-
     cfg['newsletter'].update({
         'frequency': data.get('frequency', 'weekly'),
         'day': data.get('day', 'thursday'),
-        'hour': data.get('hour', 9),
-        'recipients': data.get('recipients', [])
+        'hour': data.get('hour', 9)
     })
+
+    # Update recipients in notifications.email (single source of truth)
+    if 'notifications' not in cfg:
+        cfg['notifications'] = {}
+    if 'email' not in cfg['notifications']:
+        cfg['notifications']['email'] = {}
+    cfg['notifications']['email']['recipients'] = data.get('recipients', [])
 
     config.save_config(cfg)
     return jsonify({'success': True})
@@ -615,35 +634,80 @@ def api_newsletter_settings():
 
 @main.route('/api/newsletter/preview')
 def api_newsletter_preview():
-    """Generate a preview of the next newsletter"""
-    cfg = config.load_config()
-    queue = cfg.get('newsletter', {}).get('queue', [])
+    """Get preview of content that will go in the next weekly digest"""
+    from . import activity
+    from datetime import datetime, timedelta
 
-    # Group by type
-    movies = [item for item in queue if item.get('type') == 'movie']
-    shows = [item for item in queue if item.get('type') == 'tv']
+    # Calculate date range based on newsletter schedule
+    cfg = config.load_config()
+    newsletter_cfg = cfg.get('notifications', {}).get('newsletter', {})
+    frequency = newsletter_cfg.get('frequency', 'weekly')
+    send_day = newsletter_cfg.get('day', 'thursday').lower()
+
+    # Map day names to weekday numbers (Monday=0, Sunday=6)
+    day_map = {
+        'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+        'friday': 4, 'saturday': 5, 'sunday': 6
+    }
+    target_weekday = day_map.get(send_day, 3)  # Default Thursday
+
+    # Calculate the end date (next newsletter send day)
+    now = datetime.now()
+    days_until_send = (target_weekday - now.weekday()) % 7
+    if days_until_send == 0:
+        days_until_send = 7  # If today is send day, show next week
+    end_date = now + timedelta(days=days_until_send)
+
+    # Calculate start date based on frequency
+    if frequency == 'monthly':
+        start_date = end_date - timedelta(days=30)
+    elif frequency == 'biweekly':
+        start_date = end_date - timedelta(days=14)
+    else:
+        start_date = end_date - timedelta(days=7)
+
+    # Get rips within this date range
+    days_back = (now - start_date).days + 1
+    rips = activity.get_recent_rips(days=days_back)
 
     return jsonify({
-        'movies': movies,
-        'shows': shows,
-        'total': len(queue)
+        'rips': rips,
+        'total': len(rips),
+        'start_date': start_date.strftime('%Y-%m-%d'),
+        'end_date': end_date.strftime('%Y-%m-%d'),
+        'frequency': frequency,
+        'send_day': send_day
     })
 
 
 @main.route('/api/newsletter/send-test', methods=['POST'])
 def api_newsletter_send_test():
-    """Send a test newsletter (test mode only)"""
-    # This would integrate with plex-newsletter.sh --test
-    import subprocess
+    """Send a test weekly recap email (to first enabled recipient only)"""
+    from . import email as email_module
+
+    cfg = config.load_config()
+    raw_recipients = cfg.get('notifications', {}).get('email', {}).get('recipients', [])
+
+    # Get enabled recipients only
+    enabled_recipients = []
+    for r in raw_recipients:
+        if isinstance(r, str):
+            enabled_recipients.append(r)
+        elif isinstance(r, dict) and r.get('enabled', True):
+            enabled_recipients.append(r.get('email'))
+
+    if not enabled_recipients:
+        return jsonify({'success': False, 'error': 'No enabled recipients. Enable at least one email in Newsletter Settings.'})
+
+    # Only send to first enabled recipient for testing
+    test_recipient = [enabled_recipients[0]]
+
     try:
-        result = subprocess.run(
-            ['/mnt/media/docker/plex-newsletter.sh'],
-            capture_output=True, text=True, timeout=60
-        )
+        success = email_module.send_weekly_recap(test_recipient)
         return jsonify({
-            'success': result.returncode == 0,
-            'output': result.stdout,
-            'error': result.stderr if result.returncode != 0 else None
+            'success': success,
+            'recipients': test_recipient,
+            'error': None if success else 'Failed to send email'
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -697,3 +761,232 @@ def api_plex_users():
     """Get Plex users with their emails"""
     users = config.get_plex_users()
     return jsonify({'users': users})
+
+
+# ============================================================================
+# Review Queue API
+# ============================================================================
+
+@main.route('/api/review/queue')
+def api_review_queue():
+    """Get all items in the review queue"""
+    import os
+    import json
+    from pathlib import Path
+
+    cfg = config.load_config()
+    review_path = cfg.get('paths', {}).get('review', '/mnt/media/rips/review')
+
+    items = []
+    if os.path.isdir(review_path):
+        for folder_name in os.listdir(review_path):
+            folder_path = os.path.join(review_path, folder_name)
+            if os.path.isdir(folder_path):
+                metadata_file = os.path.join(folder_path, 'review_metadata.json')
+                if os.path.exists(metadata_file):
+                    try:
+                        with open(metadata_file) as f:
+                            metadata = json.load(f)
+                        metadata['folder_name'] = folder_name
+                        metadata['folder_path'] = folder_path
+                        items.append(metadata)
+                    except Exception as e:
+                        activity.log_warning(f"Failed to read review metadata: {folder_name} - {e}")
+
+    # Sort by created_at, newest first
+    items.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+    return jsonify({
+        'items': items,
+        'total': len(items),
+        'review_path': review_path
+    })
+
+
+@main.route('/api/review/search', methods=['POST'])
+def api_review_search():
+    """Search for a movie/show title to identify a review item"""
+    data = request.json or {}
+    search_term = data.get('query', '')
+    runtime_seconds = data.get('runtime_seconds', 0)
+    media_type = data.get('media_type', 'movie')
+
+    if not search_term:
+        return jsonify({'error': 'Search query required'}), 400
+
+    cfg = config.load_config()
+    from .identify import SmartIdentifier
+    identifier = SmartIdentifier(cfg)
+
+    results = []
+
+    if media_type == 'movie':
+        # Search Radarr/TMDB
+        result = identifier.search_radarr(search_term, runtime_seconds if runtime_seconds else None)
+        if result:
+            results.append({
+                'title': result.title,
+                'year': result.year,
+                'tmdb_id': result.tmdb_id,
+                'imdb_id': result.imdb_id,
+                'runtime_minutes': result.runtime_minutes,
+                'confidence': result.confidence,
+                'folder_name': result.folder_name,
+                'poster_url': result.poster_url,
+                'media_type': 'movie'
+            })
+    else:
+        # Search Sonarr for TV
+        result = identifier.search_sonarr(search_term, [], 0)
+        if result:
+            results.append({
+                'title': result.title,
+                'year': result.year,
+                'tmdb_id': result.tmdb_id,
+                'imdb_id': result.imdb_id,
+                'tvdb_id': result.tvdb_id,
+                'runtime_minutes': result.runtime_minutes,
+                'confidence': result.confidence,
+                'folder_name': result.folder_name,
+                'poster_url': result.poster_url,
+                'media_type': 'tv'
+            })
+
+    return jsonify({
+        'results': results,
+        'query': search_term
+    })
+
+
+@main.route('/api/review/apply', methods=['POST'])
+def api_review_apply():
+    """Apply identification and move review item to library"""
+    import os
+    import shutil
+    import json
+    import glob
+    from pathlib import Path
+
+    data = request.json or {}
+    folder_name = data.get('folder_name')
+    identified_title = data.get('identified_title')  # e.g. "Under Siege (1992)"
+    media_type = data.get('media_type', 'movie')
+    year = data.get('year', 0)
+    tmdb_id = data.get('tmdb_id', 0)
+    poster_url = data.get('poster_url', '')
+
+    if not folder_name or not identified_title:
+        return jsonify({'error': 'folder_name and identified_title required'}), 400
+
+    cfg = config.load_config()
+    review_path = cfg.get('paths', {}).get('review', '/mnt/media/rips/review')
+    movies_path = cfg.get('paths', {}).get('movies', '/mnt/media/movies')
+    tv_path = cfg.get('paths', {}).get('tv', '/mnt/media/tv')
+
+    source_path = os.path.join(review_path, folder_name)
+
+    if not os.path.isdir(source_path):
+        return jsonify({'error': f'Review folder not found: {folder_name}'}), 404
+
+    try:
+        # Read metadata for rip history
+        metadata_file = os.path.join(source_path, 'review_metadata.json')
+        metadata = {}
+        if os.path.exists(metadata_file):
+            with open(metadata_file) as f:
+                metadata = json.load(f)
+
+        # Find MKV files
+        mkv_files = glob.glob(os.path.join(source_path, '*.mkv'))
+        if not mkv_files:
+            return jsonify({'error': 'No MKV files found in review folder'}), 400
+
+        # Determine destination
+        if media_type == 'movie':
+            dest_path = os.path.join(movies_path, identified_title)
+        else:
+            # For TV, identified_title should be series name
+            dest_path = os.path.join(tv_path, identified_title)
+
+        activity.log_info(f"REVIEW: Moving '{folder_name}' to '{dest_path}'")
+
+        # Create destination and move files
+        Path(dest_path).mkdir(parents=True, exist_ok=True)
+
+        for mkv_file in mkv_files:
+            if media_type == 'movie':
+                new_filename = f"{identified_title}.mkv"
+                if len(mkv_files) > 1:
+                    idx = mkv_files.index(mkv_file) + 1
+                    new_filename = f"{identified_title} - Part {idx}.mkv"
+            else:
+                # Keep original filename for TV (should be properly named)
+                new_filename = os.path.basename(mkv_file)
+
+            dest_file = os.path.join(dest_path, new_filename)
+            activity.log_info(f"REVIEW: Moving: {os.path.basename(mkv_file)} -> {new_filename}")
+            shutil.move(mkv_file, dest_file)
+
+        # Calculate file size
+        total_size = sum(os.path.getsize(f) for f in glob.glob(os.path.join(dest_path, '*.mkv')))
+        size_gb = total_size / (1024**3)
+
+        # Remove review folder (including metadata.json)
+        shutil.rmtree(source_path)
+
+        activity.file_moved(identified_title, dest_path)
+        activity.log_success(f"REVIEW: Identified and moved: {identified_title}")
+
+        # Save to rip history
+        activity.enrich_and_save_rip(
+            title=identified_title,
+            disc_type=metadata.get('disc_type', 'unknown'),
+            duration_str='',
+            size_gb=size_gb,
+            year=year,
+            tmdb_id=tmdb_id,
+            poster_url=poster_url,
+            runtime_str=metadata.get('runtime_str', ''),
+            content_type=media_type
+        )
+
+        # Trigger Plex scan
+        activity.plex_scan_triggered("Movies" if media_type == 'movie' else "TV Shows")
+
+        return jsonify({
+            'success': True,
+            'message': f'Moved to {dest_path}',
+            'destination': dest_path
+        })
+
+    except Exception as e:
+        activity.log_error(f"REVIEW: Apply failed - {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@main.route('/api/review/delete', methods=['POST'])
+def api_review_delete():
+    """Delete a review item (remove from queue and disk)"""
+    import os
+    import shutil
+
+    data = request.json or {}
+    folder_name = data.get('folder_name')
+
+    if not folder_name:
+        return jsonify({'error': 'folder_name required'}), 400
+
+    cfg = config.load_config()
+    review_path = cfg.get('paths', {}).get('review', '/mnt/media/rips/review')
+    source_path = os.path.join(review_path, folder_name)
+
+    if not os.path.isdir(source_path):
+        return jsonify({'error': f'Review folder not found: {folder_name}'}), 404
+
+    try:
+        shutil.rmtree(source_path)
+        activity.log_warning(f"REVIEW: Deleted review item: {folder_name}")
+        return jsonify({'success': True, 'message': f'Deleted {folder_name}'})
+    except Exception as e:
+        activity.log_error(f"REVIEW: Delete failed - {e}")
+        return jsonify({'error': str(e)}), 500

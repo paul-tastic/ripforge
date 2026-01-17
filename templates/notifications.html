@@ -15,9 +15,12 @@
                 <div class="field">
                     <label>Provider</label>
                     <select id="email-provider" onchange="toggleSendGridKey()">
+                        <option value="sendgrid">SendGrid (Recommended)</option>
                         <option value="msmtp">System Mail (msmtp)</option>
-                        <option value="sendgrid">SendGrid (Recommended for Gmail)</option>
                     </select>
+                    <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+                        SendGrid offers 100 free emails/day with better Gmail deliverability
+                    </small>
                 </div>
             </div>
 
@@ -105,88 +108,30 @@
                 </div>
             </div>
             <div class="field">
-                <label>Recipients (comma-separated emails)</label>
-                <input type="text" id="newsletter-recipients" placeholder="email1@example.com, email2@example.com">
+                <label>Recipients</label>
+                <div class="recipients-list" id="recipients-list" style="max-height: 200px; overflow-y: auto; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 12px;">
+                    <!-- Recipients will be loaded here -->
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <input type="email" id="new-recipient" placeholder="Add email address" style="flex: 1;">
+                    <button class="btn btn-secondary" onclick="addRecipient()">Add</button>
+                </div>
             </div>
             <div class="settings-actions">
                 <button class="btn btn-primary" id="btn-save-newsletter">Save Settings</button>
                 <button class="btn btn-secondary" id="btn-send-test">Send Test Email</button>
+                <small style="color: var(--text-muted); margin-left: 8px;">Test sends to first enabled recipient only</small>
             </div>
         </div>
     </section>
 
-    <!-- Content Queue -->
+    <!-- Newsletter Preview -->
     <section class="card">
-        <h2>Newsletter Queue</h2>
-        <p class="card-description">Content that will be included in the next newsletter</p>
+        <h2>Newsletter Preview</h2>
+        <p class="card-description" id="newsletter-date-range">Loading date range...</p>
 
-        <div class="queue-container">
-            <div class="queue-section">
-                <h3>Movies</h3>
-                <div class="queue-list" id="queue-movies">
-                    <div class="queue-empty">No movies in queue</div>
-                </div>
-            </div>
-            <div class="queue-section">
-                <h3>TV Shows</h3>
-                <div class="queue-list" id="queue-shows">
-                    <div class="queue-empty">No TV shows in queue</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="queue-actions">
-            <button class="btn btn-secondary" id="btn-clear-queue">Clear Queue After Send</button>
-        </div>
-    </section>
-
-    <!-- Add to Queue (Manual) -->
-    <section class="card">
-        <h2>Add to Queue</h2>
-        <p class="card-description">Manually add content to the newsletter queue</p>
-
-        <div class="add-queue-form">
-            <div class="field">
-                <label>Title</label>
-                <input type="text" id="add-title" placeholder="Movie or show title">
-            </div>
-            <div class="field">
-                <label>Type</label>
-                <select id="add-type">
-                    <option value="movie">Movie</option>
-                    <option value="tv">TV Show</option>
-                </select>
-            </div>
-            <div class="field">
-                <label>Year</label>
-                <input type="text" id="add-year" placeholder="2024">
-            </div>
-            <button class="btn btn-primary" id="btn-add-queue">Add to Queue</button>
-        </div>
-    </section>
-
-    <!-- Notification Events -->
-    <section class="card">
-        <h2>Event Notifications</h2>
-        <p class="card-description">Get notified when things happen</p>
-
-        <div class="notification-toggles">
-            <label class="toggle-row">
-                <input type="checkbox" id="notify-rip-complete" checked>
-                <span>Rip completed</span>
-            </label>
-            <label class="toggle-row">
-                <input type="checkbox" id="notify-rip-error" checked>
-                <span>Rip error/failure</span>
-            </label>
-            <label class="toggle-row">
-                <input type="checkbox" id="notify-added-library">
-                <span>Content added to library</span>
-            </label>
-            <label class="toggle-row">
-                <input type="checkbox" id="notify-disc-inserted">
-                <span>Disc inserted</span>
-            </label>
+        <div class="queue-list" id="newsletter-preview" style="max-height: 300px; overflow-y: auto;">
+            <div class="queue-empty">Loading...</div>
         </div>
     </section>
 </div>
@@ -333,6 +278,9 @@
         el.className = 'email-test-status ' + type;
     }
 
+    // Recipient list management
+    let recipientsList = [];
+
     function loadNewsletterSettings() {
         fetch('/api/newsletter/settings')
             .then(r => r.json())
@@ -340,46 +288,105 @@
                 document.getElementById('newsletter-frequency').value = data.frequency || 'weekly';
                 document.getElementById('newsletter-day').value = data.day || 'thursday';
                 document.getElementById('newsletter-hour').value = data.hour || 9;
+
+                // Load recipients as objects with enabled flag
                 if (data.recipients) {
-                    document.getElementById('newsletter-recipients').value = data.recipients.join(', ');
+                    // If recipients are strings, convert to objects
+                    recipientsList = data.recipients.map(r => {
+                        if (typeof r === 'string') {
+                            return { email: r, enabled: true };
+                        }
+                        return r;
+                    });
+                    renderRecipients();
                 }
             });
     }
 
-    function loadQueue() {
-        fetch('/api/newsletter/preview')
-            .then(r => r.json())
-            .then(data => {
-                renderQueue('queue-movies', data.movies, 'movie');
-                renderQueue('queue-shows', data.shows, 'tv');
-            });
-    }
-
-    function renderQueue(containerId, items, type) {
-        const container = document.getElementById(containerId);
-        if (!items || items.length === 0) {
-            container.innerHTML = '<div class="queue-empty">No ' + (type === 'movie' ? 'movies' : 'TV shows') + ' in queue</div>';
+    function renderRecipients() {
+        const container = document.getElementById('recipients-list');
+        if (recipientsList.length === 0) {
+            container.innerHTML = '<div style="color: var(--text-muted); padding: 8px; text-align: center;">No recipients added</div>';
             return;
         }
 
-        container.innerHTML = items.map((item, index) => `
-            <div class="queue-item">
-                <div class="queue-item-info">
-                    <span class="queue-title">${item.title}</span>
-                    <span class="queue-year">${item.year || ''}</span>
-                </div>
-                <button class="btn btn-small btn-danger" onclick="removeFromQueue(${index})">Remove</button>
+        container.innerHTML = recipientsList.map((r, i) => `
+            <div class="recipient-item" style="display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border);">
+                <input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="toggleRecipient(${i})" style="cursor: pointer;">
+                <span style="flex: 1; color: ${r.enabled ? 'var(--text)' : 'var(--text-muted)'}; ${r.enabled ? '' : 'text-decoration: line-through;'}">${r.email}</span>
+                <button onclick="removeRecipient(${i})" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px;" title="Remove">&times;</button>
             </div>
         `).join('');
     }
 
-    function removeFromQueue(index) {
-        fetch('/api/newsletter/queue/' + index, { method: 'DELETE' })
+    function toggleRecipient(index) {
+        recipientsList[index].enabled = !recipientsList[index].enabled;
+        renderRecipients();
+    }
+
+    function addRecipient() {
+        const input = document.getElementById('new-recipient');
+        const email = input.value.trim();
+        if (!email || !email.includes('@')) {
+            alert('Please enter a valid email address');
+            return;
+        }
+        if (recipientsList.some(r => r.email === email)) {
+            alert('This email is already in the list');
+            return;
+        }
+        recipientsList.push({ email: email, enabled: true });
+        input.value = '';
+        renderRecipients();
+    }
+
+    function removeRecipient(index) {
+        recipientsList.splice(index, 1);
+        renderRecipients();
+    }
+
+    function getEnabledRecipients() {
+        return recipientsList.filter(r => r.enabled).map(r => r.email);
+    }
+
+    function loadQueue() {
+        const container = document.getElementById('newsletter-preview');
+        const dateRangeEl = document.getElementById('newsletter-date-range');
+
+        fetch('/api/newsletter/preview')
             .then(r => r.json())
             .then(data => {
-                if (data.success) {
-                    loadQueue();
+                // Update date range display
+                if (data.start_date && data.end_date) {
+                    dateRangeEl.textContent = `Content from ${data.start_date} to ${data.end_date} that will be included in the next digest`;
                 }
+
+                if (!data.rips || data.rips.length === 0) {
+                    container.innerHTML = `<div class="queue-empty">No rips from ${data.start_date || 'last period'} to ${data.end_date || 'now'}</div>`;
+                    return;
+                }
+
+                container.innerHTML = data.rips.map(rip => {
+                    const discBadge = rip.disc_type || 'DVD';
+                    const discColor = discBadge === 'BLURAY' ? '#0095d9' : '#f97316';
+                    const contentType = rip.content_type || 'movie';
+                    const typeLabel = contentType === 'tv' ? 'TV' : 'MOVIE';
+                    const typeColor = contentType === 'tv' ? '#a855f7' : '#22c55e';
+                    const date = rip.completed_at ? new Date(rip.completed_at).toLocaleDateString() : '';
+
+                    return `
+                        <div class="queue-item" style="display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid var(--border);">
+                            <span style="background: ${typeColor}; color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; min-width: 42px; text-align: center;">${typeLabel}</span>
+                            <span style="background: ${discColor}; color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600;">${discBadge}</span>
+                            <span style="flex: 1; color: var(--text);">${rip.title}</span>
+                            <span style="color: var(--text-muted); font-size: 13px;">${rip.year || ''}</span>
+                            <span style="color: var(--text-muted); font-size: 12px;">${date}</span>
+                        </div>
+                    `;
+                }).join('');
+            })
+            .catch(err => {
+                container.innerHTML = '<div class="queue-empty">Error loading preview</div>';
             });
     }
 
@@ -388,7 +395,7 @@
             frequency: document.getElementById('newsletter-frequency').value,
             day: document.getElementById('newsletter-day').value,
             hour: parseInt(document.getElementById('newsletter-hour').value),
-            recipients: document.getElementById('newsletter-recipients').value.split(',').map(s => s.trim()).filter(s => s)
+            recipients: recipientsList  // Send full list with enabled flags
         };
 
         fetch('/api/newsletter/settings', {
@@ -423,34 +430,5 @@
             });
     });
 
-    document.getElementById('btn-add-queue').addEventListener('click', function() {
-        const title = document.getElementById('add-title').value;
-        const type = document.getElementById('add-type').value;
-        const year = document.getElementById('add-year').value;
-
-        if (!title) {
-            alert('Please enter a title');
-            return;
-        }
-
-        fetch('/api/newsletter/queue', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                title: title,
-                type: type,
-                year: year,
-                added: new Date().toISOString()
-            })
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                document.getElementById('add-title').value = '';
-                document.getElementById('add-year').value = '';
-                loadQueue();
-            }
-        });
-    });
 </script>
 {% endblock %}

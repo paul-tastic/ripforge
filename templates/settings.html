@@ -200,6 +200,13 @@
                 </label>
                 <small>Send email when disc identification needs review</small>
             </div>
+            <div class="field">
+                <label class="toggle-label">
+                    <input type="checkbox" id="eject-when-done" {% if config.ripping.eject_when_done %}checked{% endif %}>
+                    <span>Eject Disc When Done</span>
+                </label>
+                <small>Automatically eject disc after ripping completes</small>
+            </div>
         </div>
     </section>
 
@@ -580,7 +587,8 @@
                 auto_rip: document.getElementById('auto-rip').checked,
                 auto_rip_delay: parseInt(document.getElementById('auto-rip-delay').value),
                 confidence_threshold: parseInt(document.getElementById('confidence-threshold').value),
-                notify_uncertain: document.getElementById('notify-uncertain').checked
+                notify_uncertain: document.getElementById('notify-uncertain').checked,
+                eject_when_done: document.getElementById('eject-when-done').checked
             },
             paths: {
                 raw_rips: document.getElementById('path-raw').value,

@@ -67,6 +67,8 @@ class RipJob:
     expected_size_bytes: int = 0
     current_size_bytes: int = 0
     rip_output_dir: str = ""  # Track where MakeMKV is writing during rip
+    # Review queue flag - set when identification fails
+    needs_review: bool = False
     # TV-specific fields
     media_type: str = "movie"  # "movie" or "tv"
     series_title: str = ""  # Original series title for TV
@@ -112,6 +114,7 @@ class RipJob:
             "current_track_index": self.current_track_index,
             "episode_mapping": self.episode_mapping,
             "total_tracks": len(self.tracks_to_rip) if self.tracks_to_rip else 0,
+            "needs_review": self.needs_review,
             "steps": {k: {"status": v.status, "detail": v.detail} for k, v in self.steps.items()}
         }
 
@@ -372,6 +375,7 @@ class RipEngine:
         self.raw_path = config.get("paths", {}).get("raw_rips", "/mnt/media/rips/raw")
         self.movies_path = config.get("paths", {}).get("movies", "/mnt/media/movies")
         self.tv_path = config.get("paths", {}).get("tv", "/mnt/media/tv")
+        self.review_path = config.get("paths", {}).get("review", "/mnt/media/rips/review")
 
         # Try to recover job state on startup
         self._recover_job_state()
@@ -552,12 +556,13 @@ class RipEngine:
             activity.log_success(f"=== IDENTIFICATION COMPLETE: {job.identified_title} ({id_result.confidence}% confidence) ===")
             activity.rip_identified(job.disc_label, job.identified_title, id_result.confidence)
         else:
-            # Fall back to disc label
+            # Fall back to disc label - mark for review
             fallback_title = job.disc_label.replace("_", " ").title()
             job.identified_title = fallback_title
-            self._update_step("identify", "complete", f"{job.identified_title} [MANUAL]")
+            job.needs_review = True  # Flag for review queue
+            self._update_step("identify", "complete", f"{job.identified_title} [NEEDS REVIEW]")
             activity.log_warning(f"IDENTIFY: Radarr match failed, falling back to disc label")
-            activity.log_warning(f"=== IDENTIFICATION FALLBACK: '{job.disc_label}' -> '{fallback_title}' ===")
+            activity.log_warning(f"=== IDENTIFICATION FALLBACK: '{job.disc_label}' -> '{fallback_title}' (NEEDS REVIEW) ===")
 
     def _run_post_processing(self):
         """Run the post-rip steps (identify, library, move, plex scan)"""
@@ -952,6 +957,12 @@ class RipEngine:
                 import shutil
                 import glob
 
+                # Check if this needs manual review
+                if job.needs_review:
+                    # Move to review folder instead of movies
+                    self._move_to_review(job)
+                    return
+
                 # Determine destination folder name
                 dest_folder_name = job.identified_title or job.disc_label.replace("_", " ").title()
                 dest_path = os.path.join(self.movies_path, dest_folder_name)
@@ -1079,7 +1090,8 @@ class RipEngine:
                 year=job.year,
                 tmdb_id=job.tmdb_id,
                 poster_url=job.poster_url,
-                runtime_str=job.runtime_str
+                runtime_str=job.runtime_str,
+                content_type=job.media_type
             )
 
             # Add to history
@@ -1087,6 +1099,9 @@ class RipEngine:
 
             # Clear persisted job state
             self._clear_job_state()
+
+            # Eject disc if enabled
+            self.eject_disc(job.device)
 
         except Exception as e:
             if self.current_job:
@@ -1248,6 +1263,20 @@ class RipEngine:
 
             activity.rip_completed(f"{series_name} S{job.season_number:02d} ({len(ripped_files)} episodes)", duration_str)
 
+            # Save to rip history for weekly digest emails
+            total_size = sum(os.path.getsize(f['path']) for f in ripped_files if os.path.exists(f['path'])) / (1024**3)
+            activity.enrich_and_save_rip(
+                title=f"{series_name} - Season {job.season_number}",
+                disc_type=job.disc_type,
+                duration_str=duration_str or "",
+                size_gb=total_size,
+                year=job.year,
+                tmdb_id=job.tmdb_id,
+                poster_url=job.poster_url,
+                runtime_str=f"{len(ripped_files)} episodes",
+                content_type="tv"
+            )
+
             # Add to history
             self.job_history.append(job)
 
@@ -1255,6 +1284,9 @@ class RipEngine:
             self._clear_job_state()
 
             activity.log_success(f"=== TV RIP PIPELINE COMPLETE ===")
+
+            # Eject disc if enabled
+            self.eject_disc(job.device)
 
         except Exception as e:
             if self.current_job:
@@ -1325,6 +1357,145 @@ class RipEngine:
         except Exception as e:
             activity.log_error(f"Failed to organize TV files: {e}")
             return None
+
+    def _move_to_review(self, job: RipJob):
+        """Move files to review folder for manual identification.
+
+        Creates a uniquely named folder with the video file and a metadata JSON
+        containing disc info and video runtime for the review UI.
+        """
+        import shutil
+        import glob
+
+        source_path = job.output_path
+        activity.log_info(f"=== MOVING TO REVIEW QUEUE ===")
+        activity.log_info(f"REVIEW: Source: {source_path}")
+
+        # Create unique folder name using timestamp and disc label
+        folder_name = f"{job.id}_{job.disc_label}"
+        dest_path = os.path.join(self.review_path, folder_name)
+
+        activity.log_info(f"REVIEW: Destination: {dest_path}")
+
+        try:
+            Path(dest_path).mkdir(parents=True, exist_ok=True)
+
+            # Find MKV files
+            mkv_files = glob.glob(os.path.join(source_path, "*.mkv"))
+            if not mkv_files:
+                activity.log_error(f"REVIEW: No MKV files found in {source_path}")
+                self._update_step("move", "error", "No MKV files found")
+                job.status = RipStatus.ERROR
+                job.error_message = "No MKV files found for review"
+                return
+
+            # Move MKV files
+            moved_files = []
+            for mkv_file in mkv_files:
+                dest_file = os.path.join(dest_path, os.path.basename(mkv_file))
+                activity.log_info(f"REVIEW: Moving: {os.path.basename(mkv_file)}")
+                shutil.move(mkv_file, dest_file)
+                moved_files.append(dest_file)
+
+            # Get video runtime using ffprobe
+            runtime_seconds = 0
+            if moved_files:
+                from .identify import SmartIdentifier
+                identifier = SmartIdentifier(self.config)
+                runtime_seconds = identifier.get_video_runtime(dest_path) or 0
+
+            # Calculate file size
+            total_size = sum(os.path.getsize(f) for f in moved_files)
+            size_gb = total_size / (1024**3)
+
+            # Create metadata JSON for review UI
+            metadata = {
+                "job_id": job.id,
+                "disc_label": job.disc_label,
+                "disc_type": job.disc_type,
+                "fallback_title": job.identified_title,
+                "runtime_seconds": runtime_seconds,
+                "runtime_str": f"{runtime_seconds // 60}m {runtime_seconds % 60}s" if runtime_seconds else "",
+                "size_gb": round(size_gb, 2),
+                "files": [os.path.basename(f) for f in moved_files],
+                "created_at": datetime.now().isoformat(),
+                "media_type": job.media_type
+            }
+
+            metadata_file = os.path.join(dest_path, "review_metadata.json")
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
+
+            activity.log_info(f"REVIEW: Saved metadata to {metadata_file}")
+
+            # Clean up source folder
+            try:
+                os.rmdir(source_path)
+                activity.log_info(f"REVIEW: Removed empty source folder: {source_path}")
+            except OSError:
+                activity.log_info(f"REVIEW: Source folder not empty, keeping: {source_path}")
+
+            # Update job
+            job.output_path = dest_path
+            self._update_step("move", "complete", f"Moved to review/")
+            activity.log_warning(f"=== MOVED TO REVIEW QUEUE: {folder_name} ===")
+
+            # Skip Plex scan for review items
+            self._update_step("scan-plex", "complete", "Skipped (needs review)")
+
+            # Mark job complete (but needs review)
+            job.status = RipStatus.COMPLETE
+            job.completed_at = datetime.now().isoformat()
+
+            # Calculate duration
+            if job.started_at:
+                start = datetime.fromisoformat(job.started_at)
+                duration = datetime.now() - start
+                duration_str = str(duration).split('.')[0]
+            else:
+                duration_str = None
+
+            activity.log_warning(f"Rip completed but needs manual identification: {job.disc_label}")
+
+            # Add to history
+            self.job_history.append(job)
+
+            # Clear persisted job state
+            self._clear_job_state()
+
+            # Eject disc if enabled
+            self.eject_disc(job.device)
+
+        except Exception as e:
+            activity.log_error(f"=== REVIEW MOVE FAILED: {str(e)} ===")
+            self._update_step("move", "error", f"Review move failed: {str(e)}")
+            job.status = RipStatus.ERROR
+            job.error_message = f"Failed to move to review: {str(e)}"
+
+    def eject_disc(self, device: str = "/dev/sr0") -> bool:
+        """Eject the disc if eject_when_done is enabled"""
+        try:
+            from . import config as cfg_module
+            cfg = cfg_module.load_config()
+            if not cfg.get('ripping', {}).get('eject_when_done', False):
+                return False
+
+            activity.log_info(f"Ejecting disc from {device}")
+            result = subprocess.run(
+                ["eject", device],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            if result.returncode == 0:
+                activity.log_success("Disc ejected")
+                return True
+            else:
+                activity.log_warning(f"Eject failed: {result.stderr}")
+                return False
+        except Exception as e:
+            activity.log_error(f"Error ejecting disc: {e}")
+            return False
 
     def check_disc(self, device: str = "/dev/sr0") -> dict:
         """Check if a disc is present and get basic info"""

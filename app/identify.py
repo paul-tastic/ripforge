@@ -21,6 +21,8 @@ class IdentificationResult:
     title: str = ""
     year: int = 0
     tmdb_id: int = 0
+    imdb_id: str = ""
+    tvdb_id: int = 0
     runtime_minutes: int = 0
     confidence: int = 0
     media_type: str = "movie"  # movie or tv
@@ -372,7 +374,41 @@ class SmartIdentifier:
         if verbose:
             activity.log_info(f"RADARR: Searching for '{title}' (runtime: {runtime_str})")
 
-        # Retry logic: try up to 3 times on timeout/connection errors
+        # Build list of search terms to try
+        search_terms = [title]
+
+        # For titles ending with a number (sequels like "Under Siege 2"), try with "movie" appended
+        # This helps filter out TV shows/wrestling with similar names
+        if re.search(r'\s+\d+$', title):
+            search_terms.append(f"{title} movie")
+            # Also try base title without the number to find franchise
+            base_title = re.sub(r'\s+\d+$', '', title)
+            search_terms.append(base_title)
+
+        all_results = []
+        seen_tmdb_ids = set()
+
+        for search_term in search_terms:
+            results = self._search_radarr_single(search_term, verbose=(verbose and search_term == title))
+            if results:
+                for movie in results:
+                    tmdb_id = movie.get('tmdbId', 0)
+                    if tmdb_id not in seen_tmdb_ids:
+                        seen_tmdb_ids.add(tmdb_id)
+                        all_results.append(movie)
+
+        if not all_results:
+            if verbose:
+                activity.log_info(f"RADARR: No results found for any search term")
+            return None
+
+        if verbose:
+            activity.log_info(f"RADARR: Found {len(all_results)} unique result(s) from {len(search_terms)} search(es)")
+
+        return self._score_radarr_results(title, all_results, runtime_seconds, verbose)
+
+    def _search_radarr_single(self, term: str, verbose: bool = False) -> Optional[List[dict]]:
+        """Execute a single Radarr search"""
         max_retries = 3
         response = None
         last_error = None
@@ -381,167 +417,236 @@ class SmartIdentifier:
             try:
                 response = requests.get(
                     f"{self.radarr_url}/api/v3/movie/lookup",
-                    params={'term': title},
+                    params={'term': term},
                     headers={'X-Api-Key': self.radarr_api},
                     timeout=10
                 )
-                break  # Success, exit retry loop
+                break
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
                 last_error = e
                 if attempt < max_retries - 1:
-                    if verbose:
-                        activity.log_warning(f"RADARR: Attempt {attempt + 1}/{max_retries} failed ({type(e).__name__}), retrying...")
-                    time.sleep(1)  # Brief pause before retry
+                    time.sleep(1)
                 continue
             except Exception as e:
-                # Non-retryable error
-                if verbose:
-                    activity.log_error(f"RADARR: Search error: {e}")
                 return None
 
         if response is None:
-            if verbose:
-                activity.log_error(f"RADARR: All {max_retries} attempts failed: {last_error}")
             return None
 
         try:
             if response.status_code != 200:
-                if verbose:
-                    activity.log_warning(f"RADARR: API returned status {response.status_code}")
                 return None
-
             results = response.json()
-            if not results:
-                if verbose:
-                    activity.log_info(f"RADARR: No results found for '{title}'")
+            return results if results else None
+        except Exception:
+            return None
+
+    def _score_radarr_results(self, title: str, results: List[dict], runtime_seconds: Optional[int], verbose: bool = True) -> Optional[IdentificationResult]:
+        """Score and select best match from Radarr results"""
+        if not results:
+            return None
+
+        best_match = None
+        best_score = 0
+        candidates = []
+
+        # Normalize search title for comparison
+        search_title_lower = title.lower().strip()
+        # Also extract any number suffix for sequel matching (e.g., "2" from "Under Siege 2")
+        sequel_num_match = re.search(r'\s+(\d+)$', title)
+        sequel_num = sequel_num_match.group(1) if sequel_num_match else None
+
+        for movie in results[:15]:  # Check more results for sequels
+            score = 0
+            score_breakdown = []
+            movie_runtime = movie.get('runtime', 0) * 60
+            movie_title = movie.get('title', 'Unknown')
+            movie_year = movie.get('year', 0)
+            movie_title_lower = movie_title.lower().strip()
+
+            # Title match scoring
+            if movie_title_lower == search_title_lower:
+                score += 50
+                score_breakdown.append("title exact +50")
+            elif (movie_title_lower.startswith(search_title_lower + " ") or
+                  movie_title_lower.startswith(search_title_lower + ":")):
+                len_ratio = len(search_title_lower) / len(movie_title_lower)
+                if len_ratio > 0.7:
+                    score += 25
+                    score_breakdown.append("title prefix +25")
+                else:
+                    score += 10
+                    score_breakdown.append(f"title prefix +10 (ratio {len_ratio:.0%})")
+            elif search_title_lower in movie_title_lower:
+                score += 5
+                score_breakdown.append("title contains +5")
+
+            # Sequel number matching - boost if movie title contains the sequel number
+            # e.g., "Under Siege 2" should match "Under Siege 2: Dark Territory"
+            if sequel_num:
+                base_title = re.sub(r'\s+\d+$', '', search_title_lower)
+                if movie_title_lower.startswith(base_title) and sequel_num in movie_title_lower:
+                    score += 40
+                    score_breakdown.append(f"sequel #{sequel_num} match +40")
+
+            # Runtime match scoring
+            if runtime_seconds and movie_runtime > 0:
+                diff = abs(runtime_seconds - movie_runtime)
+                if diff <= self.runtime_tolerance:
+                    runtime_score = 100 - (diff / self.runtime_tolerance * 50)
+                    score += runtime_score
+                    score_breakdown.append(f"runtime +{runtime_score:.0f} (diff {diff // 60}m)")
+                elif diff <= self.runtime_tolerance * 2:
+                    score += 25
+                    score_breakdown.append(f"runtime +25 (diff {diff // 60}m, partial)")
+                else:
+                    score_breakdown.append(f"runtime +0 (diff {diff // 60}m, too far)")
+            else:
+                score_breakdown.append("runtime N/A")
+
+            # Popularity bonus
+            popularity = movie.get('popularity', 0)
+            pop_score = min(popularity / 10, 20)
+            score += pop_score
+            if pop_score > 0:
+                score_breakdown.append(f"popularity +{pop_score:.0f}")
+
+            # Year recency bonus
+            if movie_year >= 2020:
+                score += 10
+                score_breakdown.append("recent +10")
+            elif movie_year >= 2015:
+                score += 5
+                score_breakdown.append("recent +5")
+
+            candidates.append({
+                'title': movie_title,
+                'year': movie_year,
+                'runtime': movie_runtime // 60,
+                'score': score,
+                'breakdown': score_breakdown,
+                'movie': movie
+            })
+
+            if score > best_score:
+                best_score = score
+                best_match = movie
+
+        # Log top 3 candidates
+        if verbose and candidates:
+            candidates.sort(key=lambda x: x['score'], reverse=True)
+            activity.log_info(f"RADARR: Top candidates:")
+            for i, c in enumerate(candidates[:3]):
+                breakdown = ', '.join(c['breakdown'])
+                activity.log_info(f"RADARR:   {i+1}. {c['title']} ({c['year']}) [{c['runtime']}m] = {c['score']:.0f} pts ({breakdown})")
+
+        if best_match and best_score >= 50:
+            # Get poster URL from images array or remotePoster
+            poster_url = ""
+            images = best_match.get('images', [])
+            for img in images:
+                if img.get('coverType') == 'poster':
+                    poster_url = img.get('remoteUrl', '')
+                    break
+            if not poster_url:
+                poster_url = best_match.get('remotePoster', '')
+            # Fallback to TMDB direct URL
+            if not poster_url and best_match.get('tmdbId'):
+                tmdb_id = best_match.get('tmdbId')
+                poster_url = f"https://image.tmdb.org/t/p/w500/{tmdb_id}"
+
+            result = IdentificationResult(
+                title=best_match.get('title', ''),
+                year=best_match.get('year', 0),
+                tmdb_id=best_match.get('tmdbId', 0),
+                imdb_id=best_match.get('imdbId', ''),
+                runtime_minutes=best_match.get('runtime', 0),
+                confidence=int(best_score),
+                media_type='movie',
+                poster_url=poster_url
+            )
+            if verbose:
+                activity.log_success(f"RADARR: Selected '{result.title}' ({result.year}) with {int(best_score)} pts")
+            return result
+        else:
+            if verbose:
+                if best_match:
+                    activity.log_warning(f"RADARR: Best match score {best_score:.0f} < 50, rejected")
+                else:
+                    activity.log_warning(f"RADARR: No suitable match found")
+            return None
+
+    def search_radarr_by_runtime(self, runtime_seconds: int, verbose: bool = True) -> Optional[IdentificationResult]:
+        """Search Radarr library by runtime only - fallback for generic disc labels"""
+        if not self.radarr_api or not runtime_seconds:
+            return None
+
+        try:
+            runtime_str = f"{runtime_seconds // 60}m"
+            if verbose:
+                activity.log_info(f"RADARR: Runtime-only search ({runtime_str})")
+
+            # Get all movies in library
+            response = requests.get(
+                f"{self.radarr_url}/api/v3/movie",
+                headers={'X-Api-Key': self.radarr_api},
+                timeout=15
+            )
+
+            if response.status_code != 200:
                 return None
 
-            if verbose:
-                activity.log_info(f"RADARR: Found {len(results)} result(s)")
+            movies = response.json()
+            if not movies:
+                return None
 
-            best_match = None
-            best_score = 0
-            candidates = []  # Track top candidates for logging
-
-            # Normalize search title for comparison
-            search_title_lower = title.lower().strip()
-
-            for movie in results[:10]:
-                score = 0
-                score_breakdown = []
+            # Find movies with matching runtime
+            matches = []
+            for movie in movies:
                 movie_runtime = movie.get('runtime', 0) * 60  # Radarr returns minutes
-                movie_title = movie.get('title', 'Unknown')
-                movie_year = movie.get('year', 0)
-                movie_title_lower = movie_title.lower().strip()
+                if movie_runtime <= 0:
+                    continue
 
-                # Title match scoring - most important signal!
-                if movie_title_lower == search_title_lower:
-                    # Exact match - should pass threshold on its own
-                    score += 50
-                    score_breakdown.append("title exact +50")
-                elif (movie_title_lower.startswith(search_title_lower + " ") or
-                      movie_title_lower.startswith(search_title_lower + ":")):
-                    # Movie title starts with our search followed by space/colon
-                    # (e.g., "The Transporter" matches "The Transporter Refueled" but not "The Transporters")
-                    len_ratio = len(search_title_lower) / len(movie_title_lower)
-                    if len_ratio > 0.7:
-                        score += 25
-                        score_breakdown.append("title prefix +25")
-                    else:
-                        score += 10
-                        score_breakdown.append(f"title prefix +10 (ratio {len_ratio:.0%})")
-                elif search_title_lower in movie_title_lower:
-                    score += 5
-                    score_breakdown.append("title contains +5")
+                diff = abs(runtime_seconds - movie_runtime)
+                if diff <= self.runtime_tolerance:
+                    score = 100 - (diff / self.runtime_tolerance * 50)
+                    matches.append((movie, score, diff))
 
-                # Runtime match scoring
-                if runtime_seconds and movie_runtime > 0:
-                    diff = abs(runtime_seconds - movie_runtime)
-                    if diff <= self.runtime_tolerance:
-                        runtime_score = 100 - (diff / self.runtime_tolerance * 50)
-                        score += runtime_score
-                        score_breakdown.append(f"runtime +{runtime_score:.0f} (diff {diff // 60}m)")
-                    elif diff <= self.runtime_tolerance * 2:
-                        score += 25
-                        score_breakdown.append(f"runtime +25 (diff {diff // 60}m, partial)")
-                    else:
-                        score_breakdown.append(f"runtime +0 (diff {diff // 60}m, too far)")
-                else:
-                    score_breakdown.append("runtime N/A")
+            if not matches:
+                if verbose:
+                    activity.log_info(f"RADARR: No runtime matches in library")
+                return None
 
-                # Popularity bonus
-                popularity = movie.get('popularity', 0)
-                pop_score = min(popularity / 10, 20)
-                score += pop_score
-                if pop_score > 0:
-                    score_breakdown.append(f"popularity +{pop_score:.0f}")
+            # Sort by score (best match first)
+            matches.sort(key=lambda x: x[1], reverse=True)
 
-                # Year recency bonus
-                if movie_year >= 2020:
-                    score += 10
-                    score_breakdown.append("recent +10")
-                elif movie_year >= 2015:
-                    score += 5
-                    score_breakdown.append("recent +5")
+            if len(matches) == 1:
+                # Single match - high confidence
+                movie, score, diff = matches[0]
+                if verbose:
+                    activity.log_success(f"RADARR: Runtime match: '{movie['title']}' ({movie.get('year', 0)}) - diff {diff // 60}m")
 
-                candidates.append({
-                    'title': movie_title,
-                    'year': movie_year,
-                    'runtime': movie_runtime // 60,
-                    'score': score,
-                    'breakdown': score_breakdown
-                })
-
-                if score > best_score:
-                    best_score = score
-                    best_match = movie
-
-            # Log top 3 candidates
-            if verbose and candidates:
-                candidates.sort(key=lambda x: x['score'], reverse=True)
-                activity.log_info(f"RADARR: Top candidates:")
-                for i, c in enumerate(candidates[:3]):
-                    breakdown = ', '.join(c['breakdown'])
-                    activity.log_info(f"RADARR:   {i+1}. {c['title']} ({c['year']}) [{c['runtime']}m] = {c['score']:.0f} pts ({breakdown})")
-
-            if best_match and best_score >= 50:
-                # Get poster URL from images array or remotePoster
-                poster_url = ""
-                images = best_match.get('images', [])
-                for img in images:
-                    if img.get('coverType') == 'poster':
-                        poster_url = img.get('remoteUrl', '')
-                        break
-                if not poster_url:
-                    poster_url = best_match.get('remotePoster', '')
-                # Fallback to TMDB direct URL
-                if not poster_url and best_match.get('tmdbId'):
-                    tmdb_id = best_match.get('tmdbId')
-                    poster_url = f"https://image.tmdb.org/t/p/w500/{tmdb_id}"
-
-                result = IdentificationResult(
-                    title=best_match.get('title', ''),
-                    year=best_match.get('year', 0),
-                    tmdb_id=best_match.get('tmdbId', 0),
-                    runtime_minutes=best_match.get('runtime', 0),
-                    confidence=int(best_score),
-                    media_type='movie',
-                    poster_url=poster_url
+                return IdentificationResult(
+                    title=movie['title'],
+                    year=movie.get('year', 0),
+                    tmdb_id=movie.get('tmdbId', 0),
+                    runtime_minutes=movie.get('runtime', 0),
+                    confidence=min(85, int(score)),  # Cap at 85% for runtime-only match
+                    folder_name=f"{movie['title']} ({movie.get('year', 0)})",
+                    poster_url=next((img['remoteUrl'] for img in movie.get('images', []) if img.get('coverType') == 'poster'), ''),
+                    media_type='movie'
                 )
-                if verbose:
-                    activity.log_success(f"RADARR: Selected '{result.title}' ({result.year}) with {int(best_score)} pts")
-                return result
             else:
+                # Multiple matches - lower confidence, log options
                 if verbose:
-                    if best_match:
-                        activity.log_warning(f"RADARR: Best match score {best_score:.0f} < 50, rejected")
-                    else:
-                        activity.log_warning(f"RADARR: No suitable match found")
+                    activity.log_warning(f"RADARR: {len(matches)} runtime matches - review needed")
+                    for movie, score, diff in matches[:3]:
+                        activity.log_info(f"  - '{movie['title']}' ({movie.get('year', 0)}) diff {diff // 60}m")
                 return None
 
         except Exception as e:
             if verbose:
-                activity.log_error(f"RADARR: Search error: {e}")
+                activity.log_error(f"RADARR: Runtime search error: {e}")
 
         return None
 
@@ -892,6 +997,15 @@ class SmartIdentifier:
 
         # Try Sonarr if movie search failed
         result = self.search_sonarr(search_term)
+
+        if result and result.confidence >= 50:
+            return result
+
+        # Fallback: search Radarr library by runtime only
+        # This helps when disc label is generic (e.g., "LOGICAL_VOLUME_ID")
+        if runtime and not result:
+            activity.log_info(f"IDENTIFY: Title search failed, trying runtime-only match...")
+            result = self.search_radarr_by_runtime(runtime)
 
         return result
 

@@ -303,10 +303,13 @@ def send_weekly_recap(recipients: list) -> bool:
 <body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a1a; color: #eee; padding: 20px;">
 <div style="max-width: 600px; margin: 0 auto; background: #252525; padding: 30px; border-radius: 12px;">
     <div style="text-align: center; margin-bottom: 24px;">
-        <h1 style="color: #e5a00d; margin: 0 0 8px; font-size: 26px;">📺 {from_name}</h1>
+        <h1 style="color: #e5a00d; margin: 0 0 8px; font-size: 26px;">{from_name}</h1>
         <p style="color: #888; margin: 0; font-size: 14px;">{(datetime.now() - timedelta(days=7)).strftime('%b %d')} - {datetime.now().strftime('%b %d, %Y')}</p>
     </div>
 
+    <div style="text-align: center; margin-bottom: 8px;">
+        <span style="font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 1px;">This Week</span>
+    </div>
     <div style="display: flex; gap: 16px; margin-bottom: 24px;">
         <div style="flex: 1; background: #1a1a1a; padding: 16px; border-radius: 8px; text-align: center;">
             <div style="font-size: 32px; font-weight: bold; color: #e5a00d;">{len(rips_this_week)}</div>
@@ -336,7 +339,7 @@ def send_weekly_recap(recipients: list) -> bool:
 <html>
 <body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a1a; color: #eee; padding: 20px;">
 <div style="max-width: 600px; margin: 0 auto; background: #252525; padding: 30px; border-radius: 12px;">
-    <h1 style="color: #e5a00d; margin: 0 0 10px;">📺 {from_name}</h1>
+    <h1 style="color: #e5a00d; margin: 0 0 10px;">{from_name}</h1>
     <p style="color: #888; margin-bottom: 20px;">Week of {(datetime.now() - timedelta(days=7)).strftime('%b %d')} - {datetime.now().strftime('%b %d, %Y')}</p>
     <p style="color: #fff; text-align: center; padding: 40px 0;">No new titles this week</p>
     <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #333; text-align: center;">
