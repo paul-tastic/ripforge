@@ -437,9 +437,8 @@
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    showToast('Update installed! Restarting...', 'success');
-                    updateBtn.textContent = 'Restarting...';
-                    setTimeout(() => window.location.reload(), 5000);
+                    showToast('Update installed!', 'success');
+                    countdownReload(updateBtn, 5);
                 } else {
                     showToast('Update failed: ' + (data.error || 'Unknown error'), 'error');
                     updateBtn.disabled = false;
@@ -447,9 +446,24 @@
                 }
             })
             .catch(err => {
-                showToast('Service restarting...', 'success');
-                setTimeout(() => window.location.reload(), 5000);
+                // Connection lost likely means service restarted
+                countdownReload(updateBtn, 5);
             });
+    }
+
+    function countdownReload(btn, seconds) {
+        let remaining = seconds;
+        btn.textContent = `Restarting ${remaining}...`;
+        const interval = setInterval(() => {
+            remaining--;
+            if (remaining > 0) {
+                btn.textContent = `Restarting ${remaining}...`;
+            } else {
+                clearInterval(interval);
+                btn.textContent = 'Reloading...';
+                window.location.reload();
+            }
+        }, 1000);
     }
 
     // Load cached data on page load (no API call)
