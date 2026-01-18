@@ -477,7 +477,8 @@ body {
 }
 
 .hw-services {
-    padding-top: 4px;
+    padding-top: 12px;
+    margin-top: 4px;
 }
 
 .hw-services-header {
