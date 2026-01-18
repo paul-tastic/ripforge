@@ -31,7 +31,8 @@
 - **Auto-Reset on Eject** - UI resets to ready state when disc is ejected
 
 ## Dashboard
-<img width="1663" height="1114" alt="image" src="https://github.com/user-attachments/assets/8258c12f-05ef-48e4-8f82-b0f576f859e8" />
+<img width="1427" height="727" alt="image" src="https://github.com/user-attachments/assets/5e3ed33e-1dde-4e25-b382-7af044f42e6c" />
+
 
 
 ## Requirements
