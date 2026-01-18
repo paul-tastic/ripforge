@@ -40,7 +40,8 @@
 - **Ned Integration** - Auto-detects Ned monitoring agent if installed
 
 ## Dashboard
-<img width="1427" height="727" alt="image" src="https://github.com/user-attachments/assets/5e3ed33e-1dde-4e25-b382-7af044f42e6c" />
+<img width="1167" height="738" alt="image" src="https://github.com/user-attachments/assets/844ac471-8001-46ee-b618-a72995967e22" />
+
 
 
 
