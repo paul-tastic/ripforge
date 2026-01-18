@@ -110,8 +110,11 @@ def rip_failed(title: str, error: str):
     log_error(f"Rip failed: {title} - {error}")
 
 
-def rip_cancelled(title: str):
-    log_warning(f"Rip cancelled: {title}")
+def rip_cancelled(title: str, reason: str = None):
+    if reason:
+        log_warning(f"Rip cancelled: {title} - {reason}")
+    else:
+        log_warning(f"Rip cancelled: {title}")
 
 
 def file_moved(filename: str, destination: str):
@@ -168,9 +171,13 @@ def save_rip_to_history(
     rt_rating: int = 0,
     imdb_rating: float = 0.0,
     status: str = "complete",
-    content_type: str = "movie"
+    content_type: str = "movie",
+    rip_method: str = "direct"
 ):
-    """Save completed rip to history for weekly digest"""
+    """Save completed rip to history for weekly digest
+
+    rip_method can be: "direct", "backup", or "recovery"
+    """
     history = load_rip_history()
 
     entry = {
@@ -187,6 +194,7 @@ def save_rip_to_history(
         "rt_rating": rt_rating,
         "imdb_rating": imdb_rating,
         "status": status,
+        "rip_method": rip_method,
         "completed_at": datetime.now().isoformat()
     }
 
@@ -378,7 +386,8 @@ def enrich_and_save_rip(
     overview: str = "",
     rt_rating: int = 0,
     imdb_rating: float = 0.0,
-    content_type: str = "movie"
+    content_type: str = "movie",
+    rip_method: str = "direct"
 ):
     """
     Save rip to history, enriching missing metadata from Radarr if needed.
@@ -431,5 +440,6 @@ def enrich_and_save_rip(
         rt_rating=rt_rating,
         imdb_rating=imdb_rating,
         status="complete",
-        content_type=content_type
+        content_type=content_type,
+        rip_method=rip_method
     )

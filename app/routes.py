@@ -98,6 +98,9 @@ def api_rip_start():
     episode_mapping = data.get('episode_mapping', {})  # track_idx -> episode info
     series_title = data.get('series_title', '')
 
+    # Smart track selection - TMDB runtime for handling fake playlists
+    tmdb_runtime_seconds = data.get('tmdb_runtime_seconds', 0)
+
     # Convert episode_mapping keys from strings to ints (JSON serialization)
     if episode_mapping:
         episode_mapping = {int(k): v for k, v in episode_mapping.items()}
@@ -109,7 +112,8 @@ def api_rip_start():
         season_number=season_number,
         selected_tracks=selected_tracks,
         episode_mapping=episode_mapping,
-        series_title=series_title
+        series_title=series_title,
+        tmdb_runtime_seconds=tmdb_runtime_seconds
     )
     if success:
         title = custom_title or series_title or "Unknown disc"
@@ -164,6 +168,18 @@ def api_rip_reset():
 
     engine.reset_job()
     return jsonify({'success': True, 'message': 'Job reset'})
+
+
+@main.route('/api/drive/stop', methods=['POST'])
+def api_drive_stop():
+    """Stop drive - kill MakeMKV, reset job, and eject disc"""
+    engine = ripper.get_engine()
+    if not engine:
+        return jsonify({'success': False, 'error': 'Engine not initialized'}), 500
+
+    # Stop the drive (kills MakeMKV, resets job, ejects)
+    result = engine.stop_drive()
+    return jsonify(result)
 
 
 @main.route('/api/disc/check')
@@ -300,12 +316,32 @@ def api_disc_scan_identify():
         size_gb_rounded = math.ceil(size_gb * 10) / 10
         expected_size_str = f"{size_gb_rounded:.1f} GB"
 
+    # Smart track selection: check for fake playlists if we have TMDB runtime
+    suggested_track = main_feature
+    fake_playlist_detected = False
+    tmdb_runtime_seconds = 0
+
+    if result and result.runtime_minutes and media_type == 'movie':
+        tmdb_runtime_seconds = result.runtime_minutes * 60
+        # Use smart track selection to detect fake playlists and suggest best track
+        smart_track, fake_playlist_detected = engine.makemkv.select_best_track(
+            info.get('tracks', []),
+            tmdb_runtime_seconds
+        )
+        if smart_track is not None:
+            suggested_track = smart_track
+            if fake_playlist_detected:
+                activity.log_warning(f"SCAN: Fake playlists detected - suggesting track {suggested_track}")
+
     # Build response
     response = {
         'disc_label': info['disc_label'],
         'disc_type': info.get('disc_type', 'unknown'),
         'tracks': info.get('tracks', []),
         'main_feature': main_feature,
+        'suggested_track': suggested_track,  # May differ from main_feature for fake playlists
+        'fake_playlist_detected': fake_playlist_detected,
+        'tmdb_runtime_seconds': tmdb_runtime_seconds,  # For smart track selection during rip
         'runtime_seconds': runtime_seconds,
         'runtime_str': runtime_str,
         'expected_size_bytes': expected_size_bytes,
@@ -622,11 +658,20 @@ def api_newsletter_settings():
     })
 
     # Update recipients in notifications.email (single source of truth)
+    # Normalize to plain strings - handle both string and object formats
+    raw_recipients = data.get('recipients', [])
+    normalized_recipients = []
+    for r in raw_recipients:
+        if isinstance(r, str):
+            normalized_recipients.append(r)
+        elif isinstance(r, dict) and r.get('email'):
+            normalized_recipients.append(r['email'])
+
     if 'notifications' not in cfg:
         cfg['notifications'] = {}
     if 'email' not in cfg['notifications']:
         cfg['notifications']['email'] = {}
-    cfg['notifications']['email']['recipients'] = data.get('recipients', [])
+    cfg['notifications']['email']['recipients'] = normalized_recipients
 
     config.save_config(cfg)
     return jsonify({'success': True})
@@ -954,7 +999,8 @@ def api_review_apply():
             tmdb_id=tmdb_id,
             poster_url=poster_url,
             runtime_str=metadata.get('runtime_str', ''),
-            content_type=media_type
+            content_type=media_type,
+            rip_method="review"
         )
 
         # Trigger Plex scan

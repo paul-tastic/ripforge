@@ -78,9 +78,94 @@
         </div>
     </section>
 
-    <!-- Newsletter Settings -->
+    <!-- Email Recipients -->
     <section class="card">
-        <h2>Newsletter Settings</h2>
+        <h2>Email Recipients</h2>
+        <p class="card-description">Select who receives email notifications</p>
+
+        <div class="newsletter-settings">
+            <!-- Plex Users -->
+            <div class="field">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <label style="margin-bottom: 0;">Plex Users</label>
+                    <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;" onclick="syncSuppressions()" id="btn-sync-suppressions">
+                        Sync Opt-outs
+                    </button>
+                </div>
+                <div class="recipients-list" id="plex-users-list" style="max-height: 200px; overflow-y: auto; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; padding: 8px;">
+                    <div style="color: var(--text-muted); padding: 8px; text-align: center;">Loading Plex users...</div>
+                </div>
+            </div>
+
+            <!-- Additional Recipients -->
+            <div class="field" style="margin-top: 16px;">
+                <label>Additional Recipients</label>
+                <div class="recipients-list" id="additional-recipients-list" style="max-height: 150px; overflow-y: auto; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 12px;">
+                    <!-- Manual recipients will be loaded here -->
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <input type="email" id="new-recipient" placeholder="Add email address" style="flex: 1;">
+                    <button class="btn btn-secondary" onclick="addManualRecipient()">Add</button>
+                </div>
+                <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+                    Add recipients who aren't Plex users
+                </small>
+            </div>
+        </div>
+    </section>
+
+    <!-- Notification Events -->
+    <section class="card">
+        <h2>Notification Events</h2>
+        <p class="card-description">Choose when to send email notifications</p>
+
+        <div class="newsletter-settings">
+            <div class="settings-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px;">
+                <div class="field">
+                    <label class="toggle-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="notify-complete">
+                        <span>Email on Rip Complete</span>
+                    </label>
+                    <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+                        Send email when a disc finishes ripping
+                    </small>
+                </div>
+                <div class="field">
+                    <label class="toggle-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="notify-error">
+                        <span>Email on Error</span>
+                    </label>
+                    <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+                        Send email if ripping fails
+                    </small>
+                </div>
+                <div class="field">
+                    <label class="toggle-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="notify-weekly">
+                        <span>Weekly Digest</span>
+                    </label>
+                    <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+                        Send weekly summary of ripping activity
+                    </small>
+                </div>
+                <div class="field">
+                    <label class="toggle-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="notify-uncertain">
+                        <span>Email on Uncertain ID</span>
+                    </label>
+                    <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+                        Send email when disc identification needs review
+                    </small>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Newsletter Schedule -->
+    <section class="card">
+        <h2>Weekly Digest Schedule</h2>
+        <p class="card-description">Configure when to send the weekly digest email</p>
+
         <div class="newsletter-settings">
             <div class="settings-row">
                 <div class="field">
@@ -116,26 +201,22 @@
                     </select>
                 </div>
             </div>
-            <div class="field">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                    <label style="margin-bottom: 0;">Recipients</label>
-                    <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;" onclick="syncSuppressions()" id="btn-sync-suppressions">
-                        Sync Opt-outs
-                    </button>
-                </div>
-                <div class="recipients-list" id="recipients-list" style="max-height: 200px; overflow-y: auto; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 12px;">
-                    <!-- Recipients will be loaded here -->
-                </div>
-                <div style="display: flex; gap: 8px;">
-                    <input type="email" id="new-recipient" placeholder="Add email address" style="flex: 1;">
-                    <button class="btn btn-secondary" onclick="addRecipient()">Add</button>
-                </div>
+        </div>
+    </section>
+
+    <!-- Test & Save -->
+    <section class="card">
+        <h2>Save & Test</h2>
+        <div class="newsletter-settings">
+            <div class="settings-actions" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+                <button class="btn btn-primary" id="btn-save-all">Save All Settings</button>
+                <button class="btn btn-secondary" id="btn-test-email">Send Test Email</button>
+                <button class="btn btn-secondary" id="btn-send-recap">Send Weekly Digest Now</button>
+                <span class="email-test-status" id="save-status"></span>
             </div>
-            <div class="settings-actions">
-                <button class="btn btn-primary" id="btn-save-newsletter">Save Settings</button>
-                <button class="btn btn-secondary" id="btn-send-test">Send Test Email</button>
-                <small style="color: var(--text-muted); margin-left: 8px;">Test sends to first enabled recipient only</small>
-            </div>
+            <small style="color: var(--text-muted); display: block; margin-top: 8px;">
+                Test email sends to the first enabled recipient only
+            </small>
         </div>
     </section>
 
@@ -153,10 +234,15 @@
 
 {% block scripts %}
 <script>
+    // State management
+    let plexUsers = [];
+    let manualRecipients = [];
+    let configuredRecipients = [];
+
     document.addEventListener('DOMContentLoaded', function() {
         loadEmailProvider();
         loadEmailBranding();
-        loadNewsletterSettings();
+        loadAllSettings();
         loadQueue();
     });
 
@@ -187,7 +273,6 @@
         fetch('/api/settings')
             .then(r => r.json())
             .then(currentSettings => {
-                // Merge with existing settings
                 if (!currentSettings.notifications) currentSettings.notifications = {};
                 if (!currentSettings.notifications.email) currentSettings.notifications.email = {};
 
@@ -295,86 +380,164 @@
         el.className = 'email-test-status ' + type;
     }
 
-    // Recipient list management
-    let recipientsList = [];
+    // Load all settings (recipients, event toggles, schedule)
+    function loadAllSettings() {
+        // Load general settings for event toggles
+        fetch('/api/settings')
+            .then(r => r.json())
+            .then(data => {
+                const emailCfg = data.notifications?.email || {};
+                const rippingCfg = data.ripping || {};
 
-    function loadNewsletterSettings() {
+                // Event toggles
+                document.getElementById('notify-complete').checked = emailCfg.on_complete || false;
+                document.getElementById('notify-error').checked = emailCfg.on_error || false;
+                document.getElementById('notify-weekly').checked = emailCfg.weekly_recap || false;
+                document.getElementById('notify-uncertain').checked = rippingCfg.notify_uncertain !== false;
+
+                // Store configured recipients (normalize to strings)
+                const rawRecipients = emailCfg.recipients || [];
+                configuredRecipients = rawRecipients.map(r => typeof r === 'string' ? r : (r.email || r));
+            });
+
+        // Load newsletter schedule
         fetch('/api/newsletter/settings')
             .then(r => r.json())
             .then(data => {
                 document.getElementById('newsletter-frequency').value = data.frequency || 'weekly';
                 document.getElementById('newsletter-day').value = data.day || 'thursday';
                 document.getElementById('newsletter-hour').value = data.hour || 9;
+            });
 
-                // Load recipients as objects with enabled flag
-                if (data.recipients) {
-                    // If recipients are strings, convert to objects
-                    recipientsList = data.recipients.map(r => {
-                        if (typeof r === 'string') {
-                            return { email: r, enabled: true };
-                        }
-                        return r;
-                    });
-                    renderRecipients();
-                }
+        // Load Plex users
+        loadPlexUsers();
+    }
+
+    // Load Plex users from API
+    function loadPlexUsers() {
+        fetch('/api/plex/users')
+            .then(r => r.json())
+            .then(data => {
+                plexUsers = data.users || [];
+                renderPlexUsers();
+                renderManualRecipients();
+            })
+            .catch(err => {
+                console.error('Error loading Plex users:', err);
+                document.getElementById('plex-users-list').innerHTML =
+                    '<div style="color: var(--text-muted); padding: 8px; text-align: center;">Could not load Plex users. Check Plex integration settings.</div>';
+                renderManualRecipients();
             });
     }
 
-    function renderRecipients() {
-        const container = document.getElementById('recipients-list');
-        if (recipientsList.length === 0) {
-            container.innerHTML = '<div style="color: var(--text-muted); padding: 8px; text-align: center;">No recipients added</div>';
+    // Render Plex users with checkboxes
+    function renderPlexUsers() {
+        const container = document.getElementById('plex-users-list');
+
+        if (plexUsers.length === 0) {
+            container.innerHTML = '<div style="color: var(--text-muted); padding: 8px; text-align: center;">No Plex users found. Configure Plex in Settings.</div>';
             return;
         }
 
-        container.innerHTML = recipientsList.map((r, i) => {
-            const suppressedBadge = r.suppressed
-                ? '<span style="background: #dc2626; color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; margin-left: 8px;">OPTED OUT</span>'
-                : '';
-            const isDisabled = r.suppressed ? 'disabled' : '';
-            const textStyle = r.suppressed
-                ? 'color: var(--text-muted); text-decoration: line-through;'
-                : (r.enabled ? 'color: var(--text);' : 'color: var(--text-muted); text-decoration: line-through;');
+        const plexEmails = plexUsers.map(u => u.email);
+
+        container.innerHTML = plexUsers.map((user, idx) => {
+            const isEnabled = configuredRecipients.includes(user.email);
+            const typeLabel = user.type === 'owner' ? 'Owner' : (user.type === 'home' ? 'Home' : 'Friend');
+            const typeBadgeColor = user.type === 'owner' ? '#22c55e' : (user.type === 'home' ? '#3b82f6' : '#a855f7');
+
             return `
                 <div class="recipient-item" style="display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border);">
-                    <input type="checkbox" ${r.enabled ? 'checked' : ''} ${isDisabled} onchange="toggleRecipient(${i})" style="cursor: ${r.suppressed ? 'not-allowed' : 'pointer'};">
-                    <span style="flex: 1; ${textStyle}">${r.email}${suppressedBadge}</span>
-                    <button onclick="removeRecipient(${i})" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px;" title="Remove">&times;</button>
+                    <input type="checkbox" class="plex-user-checkbox" data-email="${user.email}" ${isEnabled ? 'checked' : ''} style="cursor: pointer;">
+                    <span style="flex: 1; color: var(--text);">
+                        <span>${user.email}</span>
+                        <span style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">${user.username}</span>
+                    </span>
+                    <span style="background: ${typeBadgeColor}; color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px;">${typeLabel}</span>
+                </div>
+            `;
+        }).join('');
+
+        // After rendering Plex users, identify manual recipients (not in Plex)
+        manualRecipients = configuredRecipients.filter(email => !plexEmails.includes(email));
+    }
+
+    // Render manual (non-Plex) recipients
+    function renderManualRecipients() {
+        const container = document.getElementById('additional-recipients-list');
+        const plexEmails = plexUsers.map(u => u.email);
+
+        // Filter out Plex emails from manual list
+        manualRecipients = manualRecipients.filter(email => !plexEmails.includes(email));
+
+        if (manualRecipients.length === 0) {
+            container.innerHTML = '<div style="color: var(--text-muted); padding: 8px; text-align: center;">No additional recipients</div>';
+            return;
+        }
+
+        container.innerHTML = manualRecipients.map((email, i) => {
+            return `
+                <div class="recipient-item" style="display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border);">
+                    <input type="checkbox" class="manual-recipient-checkbox" data-email="${email}" checked style="cursor: pointer;">
+                    <span style="flex: 1; color: var(--text);">${email}</span>
+                    <button onclick="removeManualRecipient(${i})" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px;" title="Remove">&times;</button>
                 </div>
             `;
         }).join('');
     }
 
-    function toggleRecipient(index) {
-        recipientsList[index].enabled = !recipientsList[index].enabled;
-        renderRecipients();
-    }
-
-    function addRecipient() {
+    // Add manual recipient
+    function addManualRecipient() {
         const input = document.getElementById('new-recipient');
         const email = input.value.trim();
+
         if (!email || !email.includes('@')) {
             showToast('Please enter a valid email address', 'error');
             return;
         }
-        if (recipientsList.some(r => r.email === email)) {
+
+        // Check if already exists in Plex users or manual list
+        const plexEmails = plexUsers.map(u => u.email);
+        if (plexEmails.includes(email)) {
+            showToast('This email is already a Plex user', 'info');
+            return;
+        }
+        if (manualRecipients.includes(email)) {
             showToast('This email is already in the list', 'info');
             return;
         }
-        recipientsList.push({ email: email, enabled: true });
+
+        manualRecipients.push(email);
         input.value = '';
-        renderRecipients();
+        renderManualRecipients();
     }
 
-    function removeRecipient(index) {
-        recipientsList.splice(index, 1);
-        renderRecipients();
+    // Remove manual recipient
+    function removeManualRecipient(index) {
+        manualRecipients.splice(index, 1);
+        renderManualRecipients();
     }
 
-    function getEnabledRecipients() {
-        return recipientsList.filter(r => r.enabled).map(r => r.email);
+    // Get all selected recipients
+    function getSelectedRecipients() {
+        const recipients = [];
+
+        // Get enabled Plex users
+        document.querySelectorAll('.plex-user-checkbox:checked').forEach(cb => {
+            recipients.push(cb.dataset.email);
+        });
+
+        // Get enabled manual recipients
+        document.querySelectorAll('.manual-recipient-checkbox:checked').forEach(cb => {
+            if (!recipients.includes(cb.dataset.email)) {
+                recipients.push(cb.dataset.email);
+            }
+        });
+
+        return recipients;
     }
 
+    // Sync suppressions from SendGrid
     function syncSuppressions() {
         const btn = document.getElementById('btn-sync-suppressions');
         btn.disabled = true;
@@ -386,7 +549,7 @@
                 if (data.success) {
                     if (data.updated > 0) {
                         showToast(`${data.updated} recipient(s) marked as opted out`, 'info');
-                        loadNewsletterSettings(); // Reload to show badges
+                        loadAllSettings();
                     } else {
                         showToast('All recipients are valid', 'success');
                     }
@@ -401,6 +564,7 @@
             });
     }
 
+    // Load newsletter preview
     function loadQueue() {
         const container = document.getElementById('newsletter-preview');
         const dateRangeEl = document.getElementById('newsletter-date-range');
@@ -408,7 +572,6 @@
         fetch('/api/newsletter/preview')
             .then(r => r.json())
             .then(data => {
-                // Update date range display
                 if (data.start_date && data.end_date) {
                     dateRangeEl.textContent = `Content from ${data.start_date} to ${data.end_date} that will be included in the next digest`;
                 }
@@ -442,44 +605,162 @@
             });
     }
 
-    document.getElementById('btn-save-newsletter').addEventListener('click', function() {
-        const settings = {
+    // Show save status
+    function showSaveStatus(message, type) {
+        const el = document.getElementById('save-status');
+        el.textContent = message;
+        el.className = 'email-test-status ' + type;
+    }
+
+    // Save all notification settings
+    document.getElementById('btn-save-all').addEventListener('click', function() {
+        const btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+        showSaveStatus('', '');
+
+        // Get all selected recipients
+        const recipients = getSelectedRecipients();
+
+        // Save newsletter schedule
+        const newsletterSettings = {
             frequency: document.getElementById('newsletter-frequency').value,
             day: document.getElementById('newsletter-day').value,
             hour: parseInt(document.getElementById('newsletter-hour').value),
-            recipients: recipientsList  // Send full list with enabled flags
+            recipients: recipients
         };
 
-        fetch('/api/newsletter/settings', {
+        // Save event toggles via /api/settings
+        fetch('/api/settings')
+            .then(r => r.json())
+            .then(currentSettings => {
+                if (!currentSettings.notifications) currentSettings.notifications = {};
+                if (!currentSettings.notifications.email) currentSettings.notifications.email = {};
+                if (!currentSettings.ripping) currentSettings.ripping = {};
+
+                // Update email event flags
+                currentSettings.notifications.email.on_complete = document.getElementById('notify-complete').checked;
+                currentSettings.notifications.email.on_error = document.getElementById('notify-error').checked;
+                currentSettings.notifications.email.weekly_recap = document.getElementById('notify-weekly').checked;
+                currentSettings.notifications.email.recipients = recipients;
+
+                // Update ripping notify_uncertain flag
+                currentSettings.ripping.notify_uncertain = document.getElementById('notify-uncertain').checked;
+
+                return fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentSettings)
+                });
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) throw new Error('Failed to save settings');
+
+                // Also save newsletter schedule
+                return fetch('/api/newsletter/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newsletterSettings)
+                });
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showSaveStatus('Saved!', 'success');
+                    showToast('All notification settings saved!', 'success');
+                } else {
+                    throw new Error('Failed to save newsletter settings');
+                }
+            })
+            .catch(err => {
+                showSaveStatus('Error', 'error');
+                showToast('Error saving: ' + err, 'error');
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = 'Save All Settings';
+            });
+    });
+
+    // Test email button
+    document.getElementById('btn-test-email').addEventListener('click', function() {
+        const btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Sending...';
+        showSaveStatus('', '');
+
+        const recipients = getSelectedRecipients();
+        if (recipients.length === 0) {
+            showSaveStatus('No recipients selected', 'error');
+            btn.disabled = false;
+            btn.textContent = 'Send Test Email';
+            return;
+        }
+
+        fetch('/api/email/test', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(settings)
+            body: JSON.stringify({ recipients: [recipients[0]] })
         })
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                showToast('Newsletter settings saved!', 'success');
+                showSaveStatus('Test sent!', 'success');
+                showToast('Test email sent to ' + recipients[0], 'success');
+            } else {
+                showSaveStatus('Failed', 'error');
+                showToast(data.error || 'Failed to send', 'error');
             }
+        })
+        .catch(err => {
+            showSaveStatus('Error', 'error');
+            showToast('Error: ' + err, 'error');
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = 'Send Test Email';
         });
     });
 
-    document.getElementById('btn-send-test').addEventListener('click', function() {
-        this.disabled = true;
-        this.textContent = 'Sending...';
+    // Weekly digest button
+    document.getElementById('btn-send-recap').addEventListener('click', function() {
+        const btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Sending...';
+        showSaveStatus('', '');
 
-        fetch('/api/newsletter/send-test', { method: 'POST' })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    showToast('Test email sent to your address only!', 'success');
-                } else {
-                    showToast(data.error || 'Unknown error', 'error');
-                }
-            })
-            .finally(() => {
-                this.disabled = false;
-                this.textContent = 'Send Test Email';
-            });
+        const recipients = getSelectedRecipients();
+        if (recipients.length === 0) {
+            showSaveStatus('No recipients selected', 'error');
+            btn.disabled = false;
+            btn.textContent = 'Send Weekly Digest Now';
+            return;
+        }
+
+        fetch('/api/email/weekly-recap', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipients })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showSaveStatus('Sent!', 'success');
+                showToast('Weekly digest sent to ' + recipients.length + ' recipient(s)', 'success');
+            } else {
+                showSaveStatus('Failed', 'error');
+                showToast(data.error || 'Failed to send', 'error');
+            }
+        })
+        .catch(err => {
+            showSaveStatus('Error', 'error');
+            showToast('Error: ' + err, 'error');
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = 'Send Weekly Digest Now';
+        });
     });
 
 </script>

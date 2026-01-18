@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 import json
+import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, List, Callable
@@ -16,6 +17,7 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 
 from . import activity
+from . import email as email_utils
 
 
 def sanitize_folder_name(name: str) -> str:
@@ -83,6 +85,8 @@ class RipJob:
     rip_output_dir: str = ""  # Track where MakeMKV is writing during rip
     # Review queue flag - set when identification fails
     needs_review: bool = False
+    # Smart track selection - TMDB runtime for fake playlist detection
+    tmdb_runtime_seconds: int = 0
     # TV-specific fields
     media_type: str = "movie"  # "movie" or "tv"
     series_title: str = ""  # Original series title for TV
@@ -91,6 +95,7 @@ class RipJob:
     current_track_index: int = 0  # Current track being ripped (for progress)
     episode_mapping: Dict[int, dict] = field(default_factory=dict)  # track_idx -> episode info
     ripped_files: List[str] = field(default_factory=list)  # Paths of ripped episode files
+    rip_method: str = "direct"  # "direct", "backup", or "recovery"
     steps: Dict[str, RipStep] = field(default_factory=lambda: {
         "insert": RipStep(),
         "detect": RipStep(),
@@ -271,6 +276,73 @@ class MakeMKV:
 
         return info
 
+    def select_best_track(self, tracks: list, official_runtime_seconds: int, tolerance: int = 30) -> tuple:
+        """Select track closest to official runtime (handles fake playlist protection).
+
+        Disney and other studios use fake playlists with dozens of tracks at nearly
+        identical runtimes. This method uses the official TMDB runtime to find the
+        real track.
+
+        Args:
+            tracks: List of track dicts with 'index' and 'duration' keys
+            official_runtime_seconds: Expected runtime from TMDB
+            tolerance: Seconds tolerance for matching (default 30s)
+
+        Returns:
+            Tuple of (track_index, detected_fake_playlists: bool)
+        """
+        if not tracks or not official_runtime_seconds:
+            return (None, False)
+
+        # First, check if we have a fake playlist situation:
+        # Multiple tracks with durations within 60 seconds of each other
+        long_tracks = [t for t in tracks if t.get('duration', 0) > 2700]  # > 45 min
+        fake_playlist_detected = False
+
+        if len(long_tracks) >= 3:
+            # Check if multiple tracks have similar durations
+            durations = sorted([t['duration'] for t in long_tracks])
+            # If 3+ tracks are within 120 seconds of each other, it's likely fake playlists
+            for i in range(len(durations) - 2):
+                if durations[i + 2] - durations[i] <= 120:
+                    fake_playlist_detected = True
+                    activity.log_warning(f"TRACK SELECT: Fake playlist detected - {len(long_tracks)} tracks with similar runtimes")
+                    break
+
+        # Find tracks within tolerance of official runtime
+        candidates = []
+        for track in tracks:
+            duration = track.get('duration', 0)
+            if duration < 2700:  # Skip short tracks
+                continue
+            diff = abs(duration - official_runtime_seconds)
+            candidates.append((track['index'], diff, duration))
+
+        if not candidates:
+            activity.log_warning("TRACK SELECT: No suitable tracks found")
+            return (None, fake_playlist_detected)
+
+        # Sort by difference from official runtime
+        candidates.sort(key=lambda x: x[1])
+
+        best_track = candidates[0][0]
+        best_diff = candidates[0][1]
+        best_duration = candidates[0][2]
+
+        # Log selection reasoning
+        official_mins = official_runtime_seconds // 60
+        best_mins = best_duration // 60
+        diff_secs = best_diff
+
+        if fake_playlist_detected:
+            activity.log_info(f"TRACK SELECT: Official runtime {official_mins}m, selected track {best_track} ({best_mins}m, {diff_secs}s diff)")
+            if len(candidates) > 1:
+                activity.log_info(f"TRACK SELECT: Rejected {len(candidates) - 1} other tracks with similar durations")
+        else:
+            activity.log_info(f"TRACK SELECT: Selected track {best_track} ({best_mins}m)")
+
+        return (best_track, fake_playlist_detected)
+
     def rip_track(self, device: str, track: int, output_dir: str,
                   progress_callback: Optional[Callable] = None,
                   message_callback: Optional[Callable] = None) -> tuple:
@@ -372,6 +444,162 @@ class MakeMKV:
                 error_desc = f"{error_desc}: {last_error}"
             return (False, error_desc, actual_output_path)
 
+    def backup_disc(self, device: str, output_dir: str,
+                    progress_callback: Optional[Callable] = None,
+                    message_callback: Optional[Callable] = None) -> tuple:
+        """Backup entire disc to folder (decrypted).
+
+        This is used as a fallback when direct ripping fails due to copy protection.
+        MakeMKV decrypts and copies the entire disc structure to a folder, which can
+        then be ripped without the protection issues.
+
+        Args:
+            device: Optical drive device path (e.g., /dev/sr0)
+            output_dir: Directory to store the backup
+            progress_callback: Function called with progress percentage
+            message_callback: Function called with status messages
+
+        Returns:
+            Tuple of (success: bool, error_message: str, backup_path: str)
+        """
+        disc_num = 0
+        if device.startswith("/dev/sr"):
+            disc_num = int(device.replace("/dev/sr", ""))
+
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        args = ["-r", "backup", f"disc:{disc_num}", output_dir]
+
+        activity.log_info(f"BACKUP: Running: makemkvcon {' '.join(args)}")
+
+        process = self._run_cmd(args)
+        last_error = ""
+
+        line_count = 0
+        prgv_count = 0
+        for line in process.stdout:
+            line = line.strip()
+            line_count += 1
+
+            # Log first few lines for debugging
+            if line_count <= 5:
+                activity.log_info(f"BACKUP MakeMKV[{line_count}]: {line[:100]}")
+
+            # Parse progress: PRGV:current,total,max
+            if line.startswith("PRGV:"):
+                prgv_count += 1
+                match = re.search(r'PRGV:(\d+),(\d+),(\d+)', line)
+                if match and progress_callback:
+                    current = int(match.group(1))
+                    max_val = int(match.group(3))
+                    if max_val > 0:
+                        percent = int((current / max_val) * 100)
+                        progress_callback(percent)
+                        if prgv_count == 1 or prgv_count % 100 == 0:
+                            activity.log_info(f"BACKUP: Progress {percent}%")
+
+            # Parse messages for errors/status
+            if line.startswith("MSG:"):
+                match = re.search(r'MSG:\d+,\d+,\d+,"([^"]*)"', line)
+                if match:
+                    msg = match.group(1)
+                    if message_callback:
+                        message_callback(msg)
+                    if "error" in msg.lower() or "fail" in msg.lower():
+                        last_error = msg
+
+        return_code = process.wait()
+        activity.log_info(f"BACKUP: Finished. Lines: {line_count}, PRGV: {prgv_count}, Return: {return_code}")
+
+        if return_code == 0:
+            if prgv_count == 0:
+                activity.log_warning("BACKUP: MakeMKV reported success but no progress")
+                return (False, "Backup reported success but no progress was made", output_dir)
+            activity.log_success(f"BACKUP: Complete - {output_dir}")
+            return (True, "", output_dir)
+        else:
+            error_desc = f"Backup failed (code {return_code})"
+            if last_error:
+                error_desc = f"{error_desc}: {last_error}"
+            activity.log_error(f"BACKUP: {error_desc}")
+            return (False, error_desc, output_dir)
+
+    def rip_from_backup(self, backup_path: str, track: int, output_dir: str,
+                        progress_callback: Optional[Callable] = None,
+                        message_callback: Optional[Callable] = None) -> tuple:
+        """Rip track from backup folder instead of disc.
+
+        After a disc has been backed up with backup_disc(), this method extracts
+        a specific track from the backup folder.
+
+        Args:
+            backup_path: Path to the backup folder
+            track: Track index to rip
+            output_dir: Directory to save the MKV file
+            progress_callback: Function called with progress percentage
+            message_callback: Function called with status messages
+
+        Returns:
+            Tuple of (success: bool, error_message: str, output_path: str)
+        """
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        args = ["-r", "mkv", f"file:{backup_path}", str(track), output_dir]
+
+        activity.log_info(f"RIP FROM BACKUP: Running: makemkvcon {' '.join(args)}")
+
+        process = self._run_cmd(args)
+        last_error = ""
+        actual_output_path = None
+
+        line_count = 0
+        prgv_count = 0
+        for line in process.stdout:
+            line = line.strip()
+            line_count += 1
+
+            if line_count <= 5:
+                activity.log_info(f"RIP FROM BACKUP MakeMKV[{line_count}]: {line[:100]}")
+
+            if line.startswith("PRGV:"):
+                prgv_count += 1
+                match = re.search(r'PRGV:(\d+),(\d+),(\d+)', line)
+                if match and progress_callback:
+                    current = int(match.group(1))
+                    max_val = int(match.group(3))
+                    if max_val > 0:
+                        percent = int((current / max_val) * 100)
+                        progress_callback(percent)
+                        if prgv_count == 1 or prgv_count % 100 == 0:
+                            activity.log_info(f"RIP FROM BACKUP: Progress {percent}%")
+
+            if line.startswith("MSG:"):
+                match = re.search(r'MSG:\d+,\d+,\d+,"([^"]*)"', line)
+                if match:
+                    msg = match.group(1)
+                    if message_callback:
+                        message_callback(msg)
+                    if "error" in msg.lower() or "fail" in msg.lower():
+                        last_error = msg
+                    if "saving" in msg.lower() and "directory" in msg.lower():
+                        path_match = re.search(r'file://(/[^\s]+)', msg)
+                        if path_match:
+                            actual_output_path = path_match.group(1)
+
+        return_code = process.wait()
+        activity.log_info(f"RIP FROM BACKUP: Finished. Lines: {line_count}, PRGV: {prgv_count}, Return: {return_code}")
+
+        if return_code == 0:
+            if prgv_count == 0:
+                return (False, "Rip from backup reported success but no progress was made", actual_output_path)
+            activity.log_success(f"RIP FROM BACKUP: Complete")
+            return (True, "", actual_output_path)
+        else:
+            error_desc = f"Rip from backup failed (code {return_code})"
+            if last_error:
+                error_desc = f"{error_desc}: {last_error}"
+            return (False, error_desc, actual_output_path)
+
 
 class RipEngine:
     """Main ripping engine - manages jobs and coordinates the rip pipeline"""
@@ -385,6 +613,7 @@ class RipEngine:
         self.job_history: List[RipJob] = []
         self._lock = threading.Lock()
         self._rip_thread: Optional[threading.Thread] = None
+        self._cancelled = False  # Flag to track manual cancellation
 
         # Initialize MakeMKV wrapper - use host installation
         self.makemkv = MakeMKV(use_docker=False)
@@ -394,6 +623,7 @@ class RipEngine:
         self.movies_path = config.get("paths", {}).get("movies", "/mnt/media/movies")
         self.tv_path = config.get("paths", {}).get("tv", "/mnt/media/tv")
         self.review_path = config.get("paths", {}).get("review", "/mnt/media/rips/review")
+        self.backup_path = config.get("paths", {}).get("backup", "/mnt/media/rips/backup")
 
         # Try to recover job state on startup
         self._recover_job_state()
@@ -564,7 +794,7 @@ class RipEngine:
         id_result = identifier.search_radarr(search_term, actual_runtime)
 
         if id_result and id_result.confidence >= 50:
-            job.identified_title = f"{id_result.title} ({id_result.year})"
+            job.identified_title = id_result.title  # Year stored separately in job.year
             job.year = id_result.year
             job.tmdb_id = id_result.tmdb_id
             job.poster_url = id_result.poster_url
@@ -641,8 +871,33 @@ class RipEngine:
             job.completed_at = datetime.now().isoformat()
             activity.rip_completed(job.identified_title or job.disc_label, "recovered")
 
+            # Calculate file size for history
+            import glob
+            mkv_files = glob.glob(os.path.join(job.output_path, "*.mkv"))
+            total_size = sum(os.path.getsize(f) for f in mkv_files) / (1024**3) if mkv_files else 0
+
+            # Save to rip history (was missing for recovered rips)
+            activity.enrich_and_save_rip(
+                title=job.identified_title or job.disc_label,
+                disc_type=job.disc_type,
+                duration_str="",
+                size_gb=total_size,
+                year=job.year,
+                tmdb_id=job.tmdb_id,
+                poster_url=job.poster_url,
+                runtime_str=job.runtime_str,
+                content_type=job.media_type,
+                rip_method="recovery"
+            )
+
+            # Add to in-memory history
+            self.job_history.append(job)
+
             # Clear job state file
             self._clear_job_state()
+
+            # Eject disc if enabled
+            self.eject_disc(job.device)
 
         except Exception as e:
             if self.current_job:
@@ -717,6 +972,15 @@ class RipEngine:
                     if self.current_job.expected_size_bytes > 0:
                         size_progress = int((self.current_job.current_size_bytes / self.current_job.expected_size_bytes) * 100)
                         self.current_job.progress = min(size_progress, 99)  # Cap at 99% until actually done
+                        # Update step detail with dynamic status (for when MakeMKV doesn't report PRGV)
+                        pct = self.current_job.progress
+                        if pct < 3:
+                            status_msg = f"Starting rip... {pct}%"
+                        elif pct > 90:
+                            status_msg = f"Finishing rip... {pct}%"
+                        else:
+                            status_msg = f"Ripping... {pct}%"
+                        self._update_step("rip", "active", status_msg)
 
                     # Check if MakeMKV finished (process gone but we're still in ripping state)
                     if not self._is_makemkv_running():
@@ -757,7 +1021,7 @@ class RipEngine:
                     self.job_history.append(self.current_job)
                 # Log cancellation if rip was in progress
                 if self.current_job.status in [RipStatus.RIPPING, RipStatus.SCANNING, RipStatus.DETECTING]:
-                    activity.rip_cancelled(self.current_job.identified_title or self.current_job.disc_label or "Unknown")
+                    activity.rip_cancelled(self.current_job.identified_title or self.current_job.disc_label or "Unknown", "Job reset")
                 self.current_job = None
             # Clear persisted job state
             self._clear_job_state()
@@ -778,6 +1042,38 @@ class RipEngine:
             activity.log_error(f"Failed to kill MakeMKV: {e}")
             return False
 
+    def stop_drive(self, device: str = "/dev/sr0") -> dict:
+        """Stop the drive - kill MakeMKV, reset job, eject disc"""
+        activity.log_info("Stop drive requested")
+
+        # Set cancelled flag BEFORE killing so rip thread knows it was intentional
+        self._cancelled = True
+
+        # Kill MakeMKV regardless of current status
+        killed = self._kill_makemkv()
+
+        # Reset job state (rip thread will log the cancellation)
+        with self._lock:
+            if self.current_job:
+                self.current_job = None
+            self._clear_job_state()
+
+        # Eject disc (unconditionally)
+        try:
+            subprocess.run(["eject", device], capture_output=True, timeout=10)
+            activity.log_success("Disc ejected")
+            ejected = True
+        except Exception as e:
+            activity.log_error(f"Error ejecting disc: {e}")
+            ejected = False
+
+        return {
+            'success': True,
+            'killed': killed,
+            'ejected': ejected,
+            'message': 'Drive stopped'
+        }
+
     def _update_step(self, step: str, status: str, detail: str = ""):
         """Update a step's status"""
         if self.current_job and step in self.current_job.steps:
@@ -793,7 +1089,7 @@ class RipEngine:
     def start_rip(self, device: str = "/dev/sr0", custom_title: str = None,
                   media_type: str = "movie", season_number: int = 0,
                   selected_tracks: List[int] = None, episode_mapping: Dict[int, dict] = None,
-                  series_title: str = "") -> bool:
+                  series_title: str = "", tmdb_runtime_seconds: int = 0) -> bool:
         """Start a new rip job
 
         Args:
@@ -805,10 +1101,14 @@ class RipEngine:
             selected_tracks: List of track indices to rip (for TV multi-episode)
             episode_mapping: Dict mapping track index to episode info
             series_title: Original series title (for TV)
+            tmdb_runtime_seconds: Official TMDB runtime (for smart track selection)
         """
         with self._lock:
             if self.current_job and self.current_job.status not in [RipStatus.IDLE, RipStatus.COMPLETE, RipStatus.ERROR]:
                 return False  # Already ripping
+
+            # Reset cancelled flag for new rip
+            self._cancelled = False
 
             # Create new job
             self.current_job = RipJob(
@@ -820,7 +1120,8 @@ class RipEngine:
                 season_number=season_number,
                 tracks_to_rip=selected_tracks or [],
                 episode_mapping=episode_mapping or {},
-                series_title=series_title
+                series_title=series_title,
+                tmdb_runtime_seconds=tmdb_runtime_seconds
             )
             # Store custom title if provided
             if custom_title:
@@ -862,6 +1163,20 @@ class RipEngine:
             job.status = RipStatus.SCANNING
 
             main_feature = disc_info.get("main_feature")
+            fake_playlist_detected = False
+
+            # Smart track selection: if we have TMDB runtime, use it to find the best track
+            # This handles Disney-style fake playlists with many similar-length tracks
+            if job.tmdb_runtime_seconds > 0 and disc_info.get("tracks"):
+                smart_track, fake_playlist_detected = self.makemkv.select_best_track(
+                    disc_info["tracks"],
+                    job.tmdb_runtime_seconds
+                )
+                if smart_track is not None:
+                    if smart_track != main_feature:
+                        activity.log_info(f"SMART SELECT: Using track {smart_track} instead of {main_feature} based on TMDB runtime")
+                    main_feature = smart_track
+
             if main_feature is None:
                 self._update_step("scan", "error", "No main feature found")
                 job.status = RipStatus.ERROR
@@ -874,12 +1189,17 @@ class RipEngine:
             # Get expected file size for this track (round up to avoid underestimate)
             import math
             track_sizes = disc_info.get("track_sizes", {})
+            scan_detail = f"Track {main_feature} ({duration_str}"
+            if fake_playlist_detected:
+                scan_detail += ", fake playlists detected"
             if main_feature in track_sizes:
                 job.expected_size_bytes = track_sizes[main_feature]
                 size_gb = math.ceil(job.expected_size_bytes / (1024**3) * 10) / 10
-                self._update_step("scan", "complete", f"Track {main_feature} ({duration_str}, {size_gb:.1f} GB)")
+                scan_detail += f", {size_gb:.1f} GB)"
+                self._update_step("scan", "complete", scan_detail)
             else:
-                self._update_step("scan", "complete", f"Track {main_feature} ({duration_str})")
+                scan_detail += ")"
+                self._update_step("scan", "complete", scan_detail)
 
             # Step 4: Rip main feature
             self._update_step("rip", "active", "Starting rip...")
@@ -925,11 +1245,87 @@ class RipEngine:
                 message_callback=message_cb
             )
 
+            # If direct rip failed, try backup fallback if enabled (unless cancelled)
+            if not success and not self._cancelled:
+                # Load fresh config to check backup_fallback setting
+                from . import config as cfg_module
+                cfg = cfg_module.load_config()
+                backup_fallback_enabled = cfg.get('ripping', {}).get('backup_fallback', True)
+
+                if backup_fallback_enabled:
+                    activity.log_warning(f"Direct rip failed: {error_msg}")
+                    activity.log_info("Retrying via backup method...")
+                    self._update_step("rip", "active", "Retrying via backup...")
+
+                    # Create backup directory
+                    backup_dir = os.path.join(self.backup_path, sanitize_folder_name(job.disc_label))
+
+                    # Reset progress for backup phase
+                    def backup_progress_cb(percent):
+                        # Backup is first half (0-50%), rip from backup is second half (50-100%)
+                        self._set_progress(percent // 2, "Backing up disc...")
+                        self._update_step("rip", "active", f"Backup... {percent}%")
+
+                    # Backup the disc first
+                    backup_success, backup_error, _ = self.makemkv.backup_disc(
+                        job.device,
+                        backup_dir,
+                        progress_callback=backup_progress_cb,
+                        message_callback=message_cb
+                    )
+
+                    if backup_success:
+                        activity.log_success("Backup complete, ripping from backup...")
+                        self._update_step("rip", "active", "Ripping from backup...")
+
+                        def backup_rip_progress_cb(percent):
+                            # Second half of progress (50-100%)
+                            self._set_progress(50 + percent // 2, "Ripping from backup...")
+                            self._update_step("rip", "active", f"Ripping from backup... {percent}%")
+
+                        # Rip from backup
+                        success, error_msg, actual_path = self.makemkv.rip_from_backup(
+                            backup_dir,
+                            main_feature,
+                            output_dir,
+                            progress_callback=backup_rip_progress_cb,
+                            message_callback=message_cb
+                        )
+
+                        # Clean up backup folder on success
+                        if success:
+                            job.rip_method = "backup"
+                            activity.log_info(f"Cleaning up backup folder: {backup_dir}")
+                            try:
+                                shutil.rmtree(backup_dir, ignore_errors=True)
+                            except Exception as e:
+                                activity.log_warning(f"Could not clean up backup: {e}")
+                    else:
+                        error_msg = f"Both direct and backup methods failed. Direct: {error_msg}. Backup: {backup_error}"
+
             if not success:
-                self._update_step("rip", "error", error_msg or "Rip failed")
-                job.status = RipStatus.ERROR
-                job.error_message = error_msg or "MakeMKV rip failed"
-                activity.rip_failed(job.identified_title or job.disc_label, error_msg or "MakeMKV rip failed")
+                # Check if this was a manual cancellation
+                if self._cancelled:
+                    self._update_step("rip", "error", "Cancelled by user")
+                    job.status = RipStatus.ERROR
+                    job.error_message = "Cancelled by user"
+                    activity.rip_cancelled(job.identified_title or job.disc_label, "User stopped the drive")
+                else:
+                    self._update_step("rip", "error", error_msg or "Rip failed")
+                    job.status = RipStatus.ERROR
+                    job.error_message = error_msg or "MakeMKV rip failed"
+                    title = job.identified_title or job.disc_label
+                    activity.rip_failed(title, error_msg or "MakeMKV rip failed")
+
+                    # Send error email if enabled
+                    from . import config as cfg_module
+                    cfg = cfg_module.load_config()
+                    email_cfg = cfg.get('notifications', {}).get('email', {})
+                    if email_cfg.get('on_error'):
+                        recipients = email_cfg.get('recipients', [])
+                        if recipients:
+                            email_utils.send_rip_error(title, error_msg or "MakeMKV rip failed", recipients)
+                            activity.log_info(f"Error notification sent to {len(recipients)} recipient(s)")
                 return
 
             self._update_step("rip", "complete", "Rip finished")
@@ -1007,7 +1403,12 @@ class RipEngine:
                     return
 
                 # Determine destination folder name (sanitize for filesystem safety)
-                dest_folder_name = sanitize_folder_name(job.identified_title or job.disc_label.replace("_", " ").title())
+                # Include year in folder name for Plex compatibility: "Movie Title (YYYY)"
+                title = job.identified_title or job.disc_label.replace("_", " ").title()
+                if job.year:
+                    dest_folder_name = sanitize_folder_name(f"{title} ({job.year})")
+                else:
+                    dest_folder_name = sanitize_folder_name(title)
                 dest_path = os.path.join(self.movies_path, dest_folder_name)
                 source_path = job.output_path
 
@@ -1134,7 +1535,8 @@ class RipEngine:
                 tmdb_id=job.tmdb_id,
                 poster_url=job.poster_url,
                 runtime_str=job.runtime_str,
-                content_type=job.media_type
+                content_type=job.media_type,
+                rip_method=job.rip_method
             )
 
             # Add to history
@@ -1150,7 +1552,18 @@ class RipEngine:
             if self.current_job:
                 self.current_job.status = RipStatus.ERROR
                 self.current_job.error_message = str(e)
-                activity.rip_failed(self.current_job.identified_title or self.current_job.disc_label, str(e))
+                title = self.current_job.identified_title or self.current_job.disc_label
+                activity.rip_failed(title, str(e))
+
+                # Send error email if enabled
+                if not self._cancelled:
+                    from . import config as cfg_module
+                    cfg = cfg_module.load_config()
+                    email_cfg = cfg.get('notifications', {}).get('email', {})
+                    if email_cfg.get('on_error'):
+                        recipients = email_cfg.get('recipients', [])
+                        if recipients:
+                            email_utils.send_rip_error(title, str(e), recipients)
 
     def _run_tv_rip_pipeline(self):
         """Execute the TV show rip pipeline - handles multiple episode tracks"""
@@ -1325,7 +1738,8 @@ class RipEngine:
                 tmdb_id=job.tmdb_id,
                 poster_url=job.poster_url,
                 runtime_str=f"{len(ripped_files)} episodes",
-                content_type="tv"
+                content_type="tv",
+                rip_method=job.rip_method
             )
 
             # Add to history
@@ -1343,8 +1757,19 @@ class RipEngine:
             if self.current_job:
                 self.current_job.status = RipStatus.ERROR
                 self.current_job.error_message = str(e)
-                activity.rip_failed(self.current_job.series_title or self.current_job.disc_label, str(e))
+                title = self.current_job.series_title or self.current_job.disc_label
+                activity.rip_failed(title, str(e))
                 activity.log_error(f"TV rip pipeline failed: {e}")
+
+                # Send error email if enabled
+                if not self._cancelled:
+                    from . import config as cfg_module
+                    cfg = cfg_module.load_config()
+                    email_cfg = cfg.get('notifications', {}).get('email', {})
+                    if email_cfg.get('on_error'):
+                        recipients = email_cfg.get('recipients', [])
+                        if recipients:
+                            email_utils.send_rip_error(title, str(e), recipients)
 
     def _organize_tv_files(self, job: RipJob, ripped_files: List[dict]) -> Optional[str]:
         """Organize ripped TV episode files into proper folder structure.

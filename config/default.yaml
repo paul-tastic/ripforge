@@ -12,6 +12,7 @@ paths:
   movies: "/mnt/media/movies"
   tv: "/mnt/media/tv"
   logs: "./logs"
+  backup: "/mnt/media/rips/backup"  # Temp storage for backup-first ripping
 
 drive:
   device: "/dev/sr0"
@@ -24,6 +25,8 @@ ripping:
   auto_rip: true                # Auto-start after scan countdown
   auto_rip_delay: 20            # Seconds before auto-rip starts
   hands_free: false             # Skip confirmations, identify after rip
+  # Copy protection handling
+  backup_fallback: true         # Auto-retry via backup method if direct rip fails
   # TV episode detection settings
   tv_min_episode_length: 1200   # 20 minutes minimum for episode detection
   tv_max_episode_length: 3600   # 60 minutes maximum for episode detection

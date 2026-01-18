@@ -155,7 +155,7 @@
 
             <!-- Actions for rip in progress -->
             <div class="rip-actions" id="rip-actions" style="display: none; margin-top: 1rem; text-align: center;">
-                <button class="btn btn-danger" id="btn-stop-rip" onclick="stopRip()">Stop Rip</button>
+                <button class="btn btn-danger" id="btn-stop-rip" onclick="confirmStopDrive()">Stop Drive</button>
             </div>
         </div>
     </section>
@@ -1090,7 +1090,7 @@
             document.getElementById('rip-progress').style.display = 'none';
         }
 
-        // Show reset button on error or complete
+        // Show stop button during rip, reset button on error/complete
         const resetBtn = document.getElementById('btn-reset-rip');
         const ripActions = document.getElementById('rip-actions');
         if (ripData.status === 'error' || ripData.status === 'complete') {
@@ -1098,6 +1098,10 @@
             ripActions.style.display = 'block';
             document.getElementById('btn-start-rip').disabled = false;
             document.getElementById('btn-start-rip').textContent = 'Start Rip';
+        } else if (ripData.status === 'ripping' || ripData.status === 'moving' || ripData.status === 'scanning') {
+            // Show stop button during active operations
+            resetBtn.style.display = 'none';
+            ripActions.style.display = 'block';
         } else {
             resetBtn.style.display = 'none';
             ripActions.style.display = 'none';
@@ -1253,19 +1257,29 @@
             });
     }
 
-    function stopRip() {
+    function confirmStopDrive() {
+        showConfirm(
+            'This will stop any scanning or ripping in progress and eject the disc. Continue?',
+            stopDrive,
+            'Stop Drive',
+            'Stop'
+        );
+    }
+
+    function stopDrive() {
         const btn = document.getElementById('btn-stop-rip');
         btn.disabled = true;
         btn.textContent = 'Stopping...';
 
-        fetch('/api/rip/reset', {
+        fetch('/api/drive/stop', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         })
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    showToast('Rip stopped', 'info');
+                    const msg = data.ejected ? 'Drive stopped and disc ejected' : 'Drive stopped';
+                    showToast(msg, 'info');
                     // Reset UI
                     document.getElementById('btn-start-rip').disabled = false;
                     document.getElementById('btn-start-rip').textContent = 'Start Rip';
@@ -1279,15 +1293,15 @@
                         updateStep(step, 'pending', '');
                     });
                 } else {
-                    showToast('Failed to stop rip', 'error');
+                    showToast('Failed to stop drive', 'error');
                 }
             })
             .catch(err => {
-                showToast('Error stopping rip', 'error');
+                showToast('Error stopping drive', 'error');
             })
             .finally(() => {
                 btn.disabled = false;
-                btn.textContent = 'Stop Rip';
+                btn.textContent = 'Stop Drive';
             });
     }
 

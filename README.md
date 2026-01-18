@@ -5,6 +5,8 @@
 ## Features
 
 - **Smart Disc Identification** - Parses disc labels + matches runtime against Radarr/TMDB
+- **Fake Playlist Detection** - Detects Disney-style protection with dozens of similar-length tracks, uses TMDB runtime to find the real movie
+- **Auto-Retry Backup Mode** - If direct rip fails (copy protection), auto-retries by decrypting full disc first
 - **Filename Sanitization** - Handles colons and special characters in titles (Star Wars: → Star Wars -)
 - **TV Show Auto-Detection** - Detects episode-length tracks and rips all episodes automatically
 - **Hands-Free Mode** - Insert disc, walk away - auto-detects movies vs TV, rips everything
@@ -21,7 +23,9 @@
 - **Real-time Progress** - Checklist UI shows each step with spinner animations
 - **Hardware Dashboard** - CPU, RAM, storage (SSD/HDD/Pool detection), optical drive
 - **Email Notifications** - Rip complete, errors, and weekly recap with movie posters and disc type badges
+- **Plex User Import** - Auto-import Plex users as email recipients with one click
 - **SendGrid Support** - Optional SendGrid integration for better Gmail deliverability, with opt-out sync
+- **Cancellation Detection** - Distinguishes manual stops from actual failures in activity log
 - **Activity Logging** - Detailed activity log with identification method tracking
 - **Rip Statistics** - Average rip times by disc type, weekly/daily counts in sidebar
 - **IMDB/TMDB Links** - Quick verification links when identification is uncertain
@@ -29,6 +33,7 @@
 - **Toast Notifications** - Non-intrusive notifications for all actions
 - **Systemd Service** - Runs on boot, survives reboots
 - **Auto-Reset on Eject** - UI resets to ready state when disc is ejected
+- **Stop Drive Button** - Cancel any operation, kill MakeMKV, and eject disc
 
 ## Dashboard
 <img width="1427" height="727" alt="image" src="https://github.com/user-attachments/assets/5e3ed33e-1dde-4e25-b382-7af044f42e6c" />
@@ -41,7 +46,7 @@
 - Python 3.10+
 - MakeMKV
 - Optical drive (Blu-ray or DVD)
-- msmtp (for email notifications)
+- msmtp or SendGrid API key (optional, for email notifications)
 
 ## Copy Protection & Decryption
 
@@ -78,6 +83,27 @@ makemkvcon info disc:0 2>&1 | grep -i "libredrive"
 ```
 
 If you see `Using LibreDrive mode`, your drive has native disc access bypassing firmware restrictions.
+
+### Advanced Copy Protection Handling
+
+RipForge includes two features for handling problematic discs:
+
+**Fake Playlist Detection** - Disney and other studios use discs with dozens of nearly identical-length tracks to confuse ripping software:
+- Track 0: 2:05:32
+- Track 1: 2:05:31 ← Real movie
+- Track 2: 2:05:33
+- ...dozens more fake playlists
+
+RipForge compares track durations against the official TMDB runtime (from Radarr identification) and selects the track closest to the actual movie length. You'll see "fake playlists detected" in the scan results when this happens.
+
+**Auto-Retry via Backup** - When direct ripping fails (copy protection, read errors, silent failures), RipForge can automatically retry using a backup-first approach:
+
+1. **Direct rip fails** → Logs "Retrying via backup method..."
+2. **Backup disc** → MakeMKV decrypts the entire disc to a temp folder
+3. **Rip from backup** → Extracts the movie from the decrypted backup
+4. **Cleanup** → Backup folder deleted after successful rip
+
+This is enabled by default (`backup_fallback: true`) and handles most problematic discs automatically. The backup approach is slower but more reliable for protected content.
 
 ## Quick Start
 
@@ -160,6 +186,7 @@ ripping:
   min_length: 2700              # 45 min - skip short tracks
   main_feature_only: true       # Only rip longest track (movies)
   skip_transcode: true          # Keep original quality
+  backup_fallback: true         # Auto-retry via backup if direct rip fails (copy protection)
   auto_scan_on_insert: true     # Auto-scan when disc inserted
   auto_rip: true                # Auto-start after countdown
   auto_rip_delay: 20            # Countdown seconds
@@ -193,10 +220,13 @@ notifications:
 3. Choose "Restricted Access" and enable only "Mail Send"
 4. Copy the key (starts with `SG.`) to RipForge's Notifications page
 
+**Plex User Import:**
+The Notifications page automatically imports Plex users with their emails. Check the users you want to receive notifications - they're labeled as Owner, Home, or Friend based on their Plex account type.
+
 **Suppression Sync:**
 Recipients who unsubscribe, bounce, or report spam are automatically tracked by SendGrid. Click "Sync Opt-outs" on the Notifications page to mark these recipients as opted out locally - they'll show a red "OPTED OUT" badge and be skipped when sending.
 
-Configure from the Notifications page. Weekly recap includes movie posters from TMDB, disc type badges (Blu-ray blue / DVD orange), and rip statistics.
+Configure all email settings from the **Notifications page** - recipients, event toggles, weekly digest schedule, and email branding. Weekly recap includes movie posters from TMDB, disc type badges (Blu-ray blue / DVD orange), and rip statistics.
 
 ### Integrations
 
@@ -216,6 +246,7 @@ Configure from the Notifications page. Weekly recap includes movie posters from 
 | `/api/rip/start` | POST | Start rip (with optional custom_title) |
 | `/api/rip/status` | GET | Current rip progress |
 | `/api/rip/reset` | POST | Cancel current job |
+| `/api/drive/stop` | POST | Stop drive (kill MakeMKV, reset job, eject) |
 | `/api/review/queue` | GET | List items in review queue |
 | `/api/review/search` | POST | Search for title match |
 | `/api/review/apply` | POST | Apply identification and move to library |
@@ -227,6 +258,8 @@ Configure from the Notifications page. Weekly recap includes movie posters from 
 | `/api/rip-stats` | GET | Rip statistics (avg time by disc type, counts) |
 | `/api/settings` | GET/POST | Configuration |
 | `/api/auto-detect` | POST | Scan for services |
+| `/api/plex/users` | GET | Get Plex users with emails |
+| `/api/newsletter/settings` | GET/POST | Newsletter schedule and recipients |
 
 ## Project Structure
 
@@ -248,9 +281,10 @@ ripforge/
 ├── static/css/
 │   └── style.css
 ├── templates/
-│   ├── index.html     # Dashboard
-│   ├── settings.html  # Configuration
-│   └── history.html   # Rip history
+│   ├── index.html         # Dashboard
+│   ├── settings.html      # Configuration (integrations, paths, ripping)
+│   ├── notifications.html # Email recipients, events, weekly digest
+│   └── history.html       # Rip history
 ├── scripts/
 │   ├── setup.sh
 │   └── setup-udev.sh
