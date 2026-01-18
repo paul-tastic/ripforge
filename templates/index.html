@@ -155,7 +155,7 @@
 
             <!-- Actions for rip in progress -->
             <div class="rip-actions" id="rip-actions" style="display: none; margin-top: 1rem; text-align: center;">
-                <button class="btn btn-danger" onclick="resetRip()">Reset</button>
+                <button class="btn btn-danger" id="btn-stop-rip" onclick="stopRip()">Stop Rip</button>
             </div>
         </div>
     </section>
@@ -1250,6 +1250,44 @@
                         updateStep(step, 'pending', '');
                     });
                 }
+            });
+    }
+
+    function stopRip() {
+        const btn = document.getElementById('btn-stop-rip');
+        btn.disabled = true;
+        btn.textContent = 'Stopping...';
+
+        fetch('/api/rip/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('Rip stopped', 'info');
+                    // Reset UI
+                    document.getElementById('btn-start-rip').disabled = false;
+                    document.getElementById('btn-start-rip').textContent = 'Start Rip';
+                    document.getElementById('rip-actions').style.display = 'none';
+                    document.getElementById('rip-checklist').style.display = 'none';
+                    document.getElementById('rip-progress').style.display = 'none';
+                    document.getElementById('status-idle').style.display = 'block';
+                    showingScanResults = false;
+                    // Reset all steps
+                    ['insert', 'detect', 'scan', 'rip', 'identify', 'library', 'move', 'scan-plex'].forEach(step => {
+                        updateStep(step, 'pending', '');
+                    });
+                } else {
+                    showToast('Failed to stop rip', 'error');
+                }
+            })
+            .catch(err => {
+                showToast('Error stopping rip', 'error');
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = 'Stop Rip';
             });
     }
 

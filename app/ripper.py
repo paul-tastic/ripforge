@@ -749,6 +749,9 @@ class RipEngine:
         """Reset/cancel the current job - clears state so a new rip can start"""
         with self._lock:
             if self.current_job:
+                # Kill MakeMKV if rip is in progress
+                if self.current_job.status == RipStatus.RIPPING:
+                    self._kill_makemkv()
                 # Add to history if it had meaningful progress
                 if self.current_job.status not in [RipStatus.IDLE]:
                     self.job_history.append(self.current_job)
@@ -759,6 +762,21 @@ class RipEngine:
             # Clear persisted job state
             self._clear_job_state()
             return True
+
+    def _kill_makemkv(self):
+        """Kill any running MakeMKV process"""
+        try:
+            result = subprocess.run(
+                ["pkill", "-f", "makemkvcon"],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                activity.log_info("MakeMKV process killed")
+            return result.returncode == 0
+        except Exception as e:
+            activity.log_error(f"Failed to kill MakeMKV: {e}")
+            return False
 
     def _update_step(self, step: str, status: str, detail: str = ""):
         """Update a step's status"""
