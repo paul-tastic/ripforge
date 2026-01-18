@@ -378,9 +378,11 @@
             .then(data => {
                 document.getElementById('current-version').textContent = 'v' + data.current_version;
 
-                // Store check time
+                // Store check time and result for dashboard
                 const now = new Date();
                 localStorage.setItem('ripforge_last_update_check', now.toISOString());
+                localStorage.setItem('ripforge_update_available', data.update_available ? 'true' : 'false');
+                localStorage.setItem('ripforge_latest_version', data.latest_version || '');
                 document.getElementById('last-check-time').textContent = now.toLocaleString();
 
                 if (data.error) {
