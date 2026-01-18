@@ -542,6 +542,17 @@ body {
     color: var(--text-dim);
 }
 
+/* Ned integration link */
+.ned-link {
+    color: var(--text-muted);
+    text-decoration: none;
+}
+
+.ned-link:hover {
+    color: var(--text);
+    text-decoration: underline;
+}
+
 /* Drive Info */
 .drive-row {
     display: flex;
