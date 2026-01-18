@@ -82,22 +82,25 @@ def sync_suppressions_to_config() -> int:
     return count
 
 
-def send_via_sendgrid(to: list, subject: str, body: str, api_key: str, from_name: str = "RipForge") -> bool:
+def send_via_sendgrid(to: list, subject: str, body: str, api_key: str, from_name: str = "RipForge", include_unsubscribe: bool = True) -> bool:
     """Send email via SendGrid API"""
     try:
         data = {
             "personalizations": [{"to": [{"email": r} for r in to]}],
             "from": {"email": "paul@dotvector.com", "name": from_name},
             "subject": subject,
-            "content": [{"type": "text/html", "value": body}],
-            "tracking_settings": {
+            "content": [{"type": "text/html", "value": body}]
+        }
+
+        # Add unsubscribe tracking if enabled
+        if include_unsubscribe:
+            data["tracking_settings"] = {
                 "subscription_tracking": {
                     "enable": True,
                     "text": "Unsubscribe from these emails",
                     "html": '<p style="text-align: center; margin-top: 20px;"><a href="{{{unsubscribe}}}" style="color: #888; font-size: 11px;">Unsubscribe</a></p>'
                 }
             }
-        }
 
         response = requests.post(
             "https://api.sendgrid.com/v3/mail/send",
@@ -174,7 +177,8 @@ def send_email(to: list, subject: str, body: str, html: bool = False, from_name:
 
     if provider == 'sendgrid':
         if api_key:
-            return send_via_sendgrid(to, subject, body, api_key, from_name)
+            include_unsubscribe = email_cfg.get('sendgrid_unsubscribe_footer', True)
+            return send_via_sendgrid(to, subject, body, api_key, from_name, include_unsubscribe)
         else:
             print("SendGrid selected but no API key configured, falling back to msmtp")
 

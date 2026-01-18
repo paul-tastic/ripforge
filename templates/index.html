@@ -732,15 +732,19 @@
             .then(data => {
                 document.getElementById('hw-hostname').textContent = data.hostname || '-';
                 document.getElementById('hw-cpu').textContent = data.cpu + (data.cpu_cores ? ' (' + data.cpu_cores + ' cores)' : '');
-                document.getElementById('hw-ram').textContent = data.ram_used_gb + ' / ' + data.ram_gb + ' GB';
+                document.getElementById('hw-ram').textContent = data.ram_used_gb + ' GB used / ' + data.ram_gb + ' GB';
+
                 document.getElementById('hw-os').textContent = data.os || '-';
                 document.getElementById('hw-ip').textContent = data.ip_address || '-';
                 document.getElementById('hw-uptime').textContent = data.uptime || '-';
                 document.getElementById('hw-docker').textContent = data.docker_version || '-';
 
-                // GPU (only show if present)
+                // GPU - prefer discrete, fall back to integrated
                 if (data.gpu) {
                     document.getElementById('hw-gpu').textContent = data.gpu;
+                    document.getElementById('hw-gpu-row').style.display = 'flex';
+                } else if (data.integrated_gpu) {
+                    document.getElementById('hw-gpu').textContent = data.integrated_gpu + ' (integrated)';
                     document.getElementById('hw-gpu-row').style.display = 'flex';
                 }
 
@@ -1093,18 +1097,23 @@
         // Show stop button during rip, reset button on error/complete
         const resetBtn = document.getElementById('btn-reset-rip');
         const ripActions = document.getElementById('rip-actions');
+        const stopBtn = document.getElementById('btn-stop-rip');
         if (ripData.status === 'error' || ripData.status === 'complete') {
+            // Rip finished - show Reset, hide Stop Drive
             resetBtn.style.display = 'inline-block';
-            ripActions.style.display = 'block';
+            ripActions.style.display = 'none';
+            stopBtn.style.display = 'none';
             document.getElementById('btn-start-rip').disabled = false;
             document.getElementById('btn-start-rip').textContent = 'Start Rip';
         } else if (ripData.status === 'ripping' || ripData.status === 'moving' || ripData.status === 'scanning') {
-            // Show stop button during active operations
+            // Rip in progress - show Stop Drive, hide Reset
             resetBtn.style.display = 'none';
             ripActions.style.display = 'block';
+            stopBtn.style.display = 'inline-block';
         } else {
             resetBtn.style.display = 'none';
             ripActions.style.display = 'none';
+            stopBtn.style.display = 'inline-block';
         }
     }
 

@@ -237,7 +237,14 @@ def detect_hardware() -> dict:
         if result.returncode == 0:
             for line in result.stdout.split('\n'):
                 if 'Model name:' in line:
-                    hardware['cpu'] = line.split(':')[1].strip()
+                    cpu_full = line.split(':')[1].strip()
+                    # Split integrated GPU from CPU name (e.g., "AMD Ryzen 7 5700G with Radeon Graphics")
+                    if ' with ' in cpu_full:
+                        cpu_name, gpu_name = cpu_full.split(' with ', 1)
+                        hardware['cpu'] = cpu_name.strip()
+                        hardware['integrated_gpu'] = gpu_name.strip()
+                    else:
+                        hardware['cpu'] = cpu_full
                 elif line.startswith('CPU(s):'):
                     hardware['cpu_cores'] = int(line.split(':')[1].strip())
 
