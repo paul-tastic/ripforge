@@ -96,6 +96,8 @@ class RipJob:
     episode_mapping: Dict[int, dict] = field(default_factory=dict)  # track_idx -> episode info
     ripped_files: List[str] = field(default_factory=list)  # Paths of ripped episode files
     rip_method: str = "direct"  # "direct", "backup", or "recovery"
+    rip_mode: str = "smart"  # "smart", "always_backup", "direct_only" - from config
+    direct_failed: bool = False  # True if direct rip was attempted and failed
     steps: Dict[str, RipStep] = field(default_factory=lambda: {
         "insert": RipStep(),
         "detect": RipStep(),
@@ -134,6 +136,9 @@ class RipJob:
             "episode_mapping": self.episode_mapping,
             "total_tracks": len(self.tracks_to_rip) if self.tracks_to_rip else 0,
             "needs_review": self.needs_review,
+            "rip_method": self.rip_method,
+            "rip_mode": self.rip_mode,
+            "direct_failed": self.direct_failed,
             "steps": {k: {"status": v.status, "detail": v.detail} for k, v in self.steps.items()}
         }
 
@@ -1238,71 +1243,98 @@ class RipEngine:
                 # Ignore raw MakeMKV messages - we show clean progress instead
                 pass
 
-            success, error_msg, actual_path = self.makemkv.rip_track(
-                job.device,
-                main_feature,
-                output_dir,
-                progress_callback=progress_cb,
-                message_callback=message_cb
-            )
+            # Load rip mode setting
+            from . import config as cfg_module
+            cfg = cfg_module.load_config()
+            rip_mode = cfg.get('ripping', {}).get('rip_mode', 'smart')
 
-            # If direct rip failed, try backup fallback if enabled (unless cancelled)
-            if not success and not self._cancelled:
-                # Load fresh config to check backup_fallback setting
-                from . import config as cfg_module
-                cfg = cfg_module.load_config()
-                backup_fallback_enabled = cfg.get('ripping', {}).get('backup_fallback', True)
+            # For backwards compatibility, convert old backup_fallback setting
+            if 'rip_mode' not in cfg.get('ripping', {}):
+                backup_fallback = cfg.get('ripping', {}).get('backup_fallback', True)
+                rip_mode = 'smart' if backup_fallback else 'direct_only'
 
-                if backup_fallback_enabled:
+            # Store rip mode in job for UI
+            job.rip_mode = rip_mode
+            job.rip_method = "direct"
+            job.direct_failed = False
+
+            success = False
+            error_msg = ""
+            actual_path = None
+
+            if rip_mode == 'always_backup':
+                # Skip direct, go straight to backup method
+                job.rip_method = "backup"
+                activity.log_info("Using backup method (always_backup mode)")
+                self._update_step("rip", "active", "Backup mode...")
+            else:
+                # Try direct rip first (smart or direct_only mode)
+                success, error_msg, actual_path = self.makemkv.rip_track(
+                    job.device,
+                    main_feature,
+                    output_dir,
+                    progress_callback=progress_cb,
+                    message_callback=message_cb
+                )
+
+            # Handle backup fallback for smart mode, or always_backup mode
+            if not success and not self._cancelled and rip_mode != 'direct_only':
+                if rip_mode == 'smart' and error_msg:
+                    job.direct_failed = True
                     activity.log_warning(f"Direct rip failed: {error_msg}")
-                    activity.log_info("Retrying via backup method...")
-                    self._update_step("rip", "active", "Retrying via backup...")
+                    activity.log_info("Switching to backup method (copy protection bypass)")
+                    self._update_step("rip", "active", "Direct failed → Backup...")
 
-                    # Create backup directory
-                    backup_dir = os.path.join(self.backup_path, sanitize_folder_name(job.disc_label))
+                job.rip_method = "backup"
 
-                    # Reset progress for backup phase
-                    def backup_progress_cb(percent):
-                        # Backup is first half (0-50%), rip from backup is second half (50-100%)
-                        self._set_progress(percent // 2, "Backing up disc...")
-                        self._update_step("rip", "active", f"Backup... {percent}%")
+                # Create backup directory
+                backup_dir = os.path.join(self.backup_path, sanitize_folder_name(job.disc_label))
 
-                    # Backup the disc first
-                    backup_success, backup_error, _ = self.makemkv.backup_disc(
-                        job.device,
+                # Reset progress for backup phase
+                def backup_progress_cb(percent):
+                    # Backup is first half (0-50%), rip from backup is second half (50-100%)
+                    self._set_progress(percent // 2, "Backing up disc...")
+                    self._update_step("rip", "active", f"Backup... {percent}%")
+
+                # Backup the disc first
+                backup_success, backup_error, _ = self.makemkv.backup_disc(
+                    job.device,
+                    backup_dir,
+                    progress_callback=backup_progress_cb,
+                    message_callback=message_cb
+                )
+
+                if backup_success:
+                    activity.log_success("Backup complete, ripping from backup...")
+                    self._update_step("rip", "active", "Ripping from backup...")
+
+                    def backup_rip_progress_cb(percent):
+                        # Second half of progress (50-100%)
+                        self._set_progress(50 + percent // 2, "Ripping from backup...")
+                        self._update_step("rip", "active", f"Ripping from backup... {percent}%")
+
+                    # Rip from backup
+                    success, error_msg, actual_path = self.makemkv.rip_from_backup(
                         backup_dir,
-                        progress_callback=backup_progress_cb,
+                        main_feature,
+                        output_dir,
+                        progress_callback=backup_rip_progress_cb,
                         message_callback=message_cb
                     )
 
-                    if backup_success:
-                        activity.log_success("Backup complete, ripping from backup...")
-                        self._update_step("rip", "active", "Ripping from backup...")
-
-                        def backup_rip_progress_cb(percent):
-                            # Second half of progress (50-100%)
-                            self._set_progress(50 + percent // 2, "Ripping from backup...")
-                            self._update_step("rip", "active", f"Ripping from backup... {percent}%")
-
-                        # Rip from backup
-                        success, error_msg, actual_path = self.makemkv.rip_from_backup(
-                            backup_dir,
-                            main_feature,
-                            output_dir,
-                            progress_callback=backup_rip_progress_cb,
-                            message_callback=message_cb
-                        )
-
-                        # Clean up backup folder on success
-                        if success:
-                            job.rip_method = "backup"
-                            activity.log_info(f"Cleaning up backup folder: {backup_dir}")
-                            try:
-                                shutil.rmtree(backup_dir, ignore_errors=True)
-                            except Exception as e:
-                                activity.log_warning(f"Could not clean up backup: {e}")
-                    else:
+                    # Clean up backup folder on success
+                    if success:
+                        job.rip_method = "backup"
+                        activity.log_info(f"Cleaning up backup folder: {backup_dir}")
+                        try:
+                            shutil.rmtree(backup_dir, ignore_errors=True)
+                        except Exception as e:
+                            activity.log_warning(f"Could not clean up backup: {e}")
+                else:
+                    if rip_mode == 'smart':
                         error_msg = f"Both direct and backup methods failed. Direct: {error_msg}. Backup: {backup_error}"
+                    else:
+                        error_msg = f"Backup method failed: {backup_error}"
 
             if not success:
                 # Check if this was a manual cancellation

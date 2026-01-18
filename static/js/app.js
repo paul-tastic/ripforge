@@ -126,13 +126,27 @@ function loadIntegrationStatus() {
         .catch(err => console.error('Error loading status:', err));
 }
 
+// Load version for sidebar
+function loadSidebarVersion() {
+    fetch('/api/version')
+        .then(r => r.json())
+        .then(data => {
+            const el = document.getElementById('sidebar-version');
+            if (el) {
+                el.textContent = 'v' + data.current_version;
+            }
+        })
+        .catch(err => console.error('Error loading version:', err));
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
     console.log('RipForge loaded');
 
-    // Load sidebar stats on all pages
+    // Load sidebar stats and version on all pages
     loadRipStats();
     loadIntegrationStatus();
+    loadSidebarVersion();
 
     // Refresh stats every 30 seconds
     setInterval(loadRipStats, 30000);

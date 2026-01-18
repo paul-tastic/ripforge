@@ -161,12 +161,25 @@
                 </label>
                 <small>Keep original MakeMKV quality</small>
             </div>
-            <div class="field">
-                <label class="toggle-label">
-                    <input type="checkbox" id="backup-fallback" {% if config.ripping.backup_fallback != false %}checked{% endif %}>
-                    <span>Auto-Retry via Backup</span>
-                </label>
-                <small>If direct rip fails, auto-retry by decrypting full disc first (handles copy protection)</small>
+            <div class="field rip-mode-field">
+                <label>Rip Mode</label>
+                <select id="rip-mode">
+                    <option value="smart" {% if config.ripping.rip_mode == 'smart' or not config.ripping.rip_mode %}selected{% endif %}>Smart (Recommended)</option>
+                    <option value="always_backup" {% if config.ripping.rip_mode == 'always_backup' %}selected{% endif %}>Always Backup</option>
+                    <option value="direct_only" {% if config.ripping.rip_mode == 'direct_only' %}selected{% endif %}>Direct Only</option>
+                </select>
+                <small id="rip-mode-desc">Try direct first, auto-fallback to backup if copy protection detected</small>
+            </div>
+        </div>
+        <div class="rip-mode-info" id="rip-mode-info">
+            <div class="mode-details" id="mode-smart">
+                <strong>Smart:</strong> Tries direct rip first (fastest). If copy protection is detected, automatically retries via backup method.
+            </div>
+            <div class="mode-details" id="mode-always_backup" style="display:none;">
+                <strong>Always Backup:</strong> Decrypts full disc first (~50GB temp space), then extracts. Best for Blu-ray, Star Wars, Disney, and copy-protected discs. More accurate track identification.
+            </div>
+            <div class="mode-details" id="mode-direct_only" style="display:none;">
+                <strong>Direct Only:</strong> Fastest method, no fallback. Best for DVDs and unprotected discs.
             </div>
         </div>
     </section>
@@ -480,6 +493,15 @@
     document.getElementById('btn-check-updates').addEventListener('click', () => checkForUpdates(true));
     document.getElementById('btn-settings-update').addEventListener('click', performUpdate);
 
+    // Rip mode selector
+    function updateRipModeInfo() {
+        const mode = document.getElementById('rip-mode').value;
+        document.querySelectorAll('.mode-details').forEach(el => el.style.display = 'none');
+        document.getElementById('mode-' + mode).style.display = 'block';
+    }
+    document.getElementById('rip-mode').addEventListener('change', updateRipModeInfo);
+    updateRipModeInfo(); // Set initial state
+
     // Save settings
     document.getElementById('btn-save').addEventListener('click', function() {
         const settings = {
@@ -514,7 +536,7 @@
                 min_length: parseInt(document.getElementById('min-length').value),
                 main_feature_only: document.getElementById('main-feature-only').checked,
                 skip_transcode: document.getElementById('skip-transcode').checked,
-                backup_fallback: document.getElementById('backup-fallback').checked,
+                rip_mode: document.getElementById('rip-mode').value,
                 auto_scan_on_insert: document.getElementById('auto-scan-on-insert').checked,
                 auto_rip: document.getElementById('auto-rip').checked,
                 auto_rip_delay: parseInt(document.getElementById('auto-rip-delay').value),

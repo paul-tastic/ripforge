@@ -116,7 +116,8 @@
                 </div>
                 <div class="checklist-item" id="step-rip" data-status="pending">
                     <span class="check-icon">○</span>
-                    <span class="check-text">Ripping main feature</span>
+                    <span class="check-text">Ripping</span>
+                    <span class="rip-substeps" id="rip-substeps"></span>
                     <span class="check-detail"></span>
                 </div>
                 <div class="checklist-item" id="step-identify" data-status="pending">
@@ -1206,6 +1207,9 @@
             }
         });
 
+        // Update rip substeps for compact single-line display
+        updateRipSubsteps(ripData);
+
         // Show current step or completion status
         const currentStepEl = document.getElementById('current-step');
         if (ripData.status === 'complete') {
@@ -1315,7 +1319,88 @@
         }
 
         // Update detail text (always set, even if empty, to clear old values)
-        detailEl.textContent = detail || '';
+        // But skip for rip step - we use substeps display instead
+        if (stepId !== 'step-rip') {
+            detailEl.textContent = detail || '';
+        }
+    }
+
+    // Update rip substeps compact display
+    function updateRipSubsteps(ripData) {
+        const substepsEl = document.getElementById('rip-substeps');
+        const ripStep = ripData.steps ? ripData.steps.rip : null;
+        if (!substepsEl || !ripStep) {
+            if (substepsEl) substepsEl.innerHTML = '';
+            return;
+        }
+
+        // Only show substeps when rip step is active or has been active
+        if (ripStep.status === 'pending') {
+            substepsEl.innerHTML = '';
+            return;
+        }
+
+        const mode = ripData.rip_mode || 'smart';
+        const method = ripData.rip_method || 'direct';
+        const directFailed = ripData.direct_failed || false;
+        const progress = ripData.progress || 0;
+        const detail = ripStep.detail || '';
+
+        // Parse current phase from detail text
+        const isBackingUp = detail.toLowerCase().includes('backup') && !detail.toLowerCase().includes('from backup');
+        const isExtractingFromBackup = detail.toLowerCase().includes('from backup');
+        const isDirect = !isBackingUp && !isExtractingFromBackup && method === 'direct';
+
+        let html = '';
+
+        if (mode === 'always_backup') {
+            // Always backup: ◐ Backup 6% → ○ Extract
+            if (isBackingUp) {
+                html = `<span class="substep active">◐ Backup ${progress}%</span>`;
+                html += `<span class="substep-arrow">→</span>`;
+                html += `<span class="substep pending">○ Extract</span>`;
+            } else if (isExtractingFromBackup) {
+                html = `<span class="substep complete">✓ Backup</span>`;
+                html += `<span class="substep-arrow">→</span>`;
+                html += `<span class="substep active">◐ Extract ${progress}%</span>`;
+            } else if (ripStep.status === 'complete') {
+                html = `<span class="substep complete">✓ Backup</span>`;
+                html += `<span class="substep-arrow">→</span>`;
+                html += `<span class="substep complete">✓ Extract</span>`;
+            } else if (ripStep.status === 'error') {
+                html = `<span class="substep error">✗ Failed</span>`;
+            }
+        } else if (mode === 'smart' && directFailed) {
+            // Smart with fallback: ✗ Direct → ◐ Backup 6% → ○ Extract
+            html = `<span class="substep error">✗ Direct</span>`;
+            html += `<span class="substep-arrow">→</span>`;
+            if (isBackingUp) {
+                html += `<span class="substep active">◐ Backup ${progress}%</span>`;
+                html += `<span class="substep-arrow">→</span>`;
+                html += `<span class="substep pending">○ Extract</span>`;
+            } else if (isExtractingFromBackup) {
+                html += `<span class="substep complete">✓ Backup</span>`;
+                html += `<span class="substep-arrow">→</span>`;
+                html += `<span class="substep active">◐ Extract ${progress}%</span>`;
+            } else if (ripStep.status === 'complete') {
+                html += `<span class="substep complete">✓ Backup</span>`;
+                html += `<span class="substep-arrow">→</span>`;
+                html += `<span class="substep complete">✓ Extract</span>`;
+            } else if (ripStep.status === 'error') {
+                html += `<span class="substep error">✗ Backup failed</span>`;
+            }
+        } else {
+            // Direct only or smart (direct working): ◐ Direct 45%
+            if (ripStep.status === 'active') {
+                html = `<span class="substep active">◐ Direct ${progress}%</span>`;
+            } else if (ripStep.status === 'complete') {
+                html = `<span class="substep complete">✓ Direct</span>`;
+            } else if (ripStep.status === 'error') {
+                html = `<span class="substep error">✗ Direct failed</span>`;
+            }
+        }
+
+        substepsEl.innerHTML = html;
     }
 
     // Start a real rip
