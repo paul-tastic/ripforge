@@ -1148,6 +1148,17 @@ select option {
     background: var(--bg-card-hover);
 }
 
+.btn-outline {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+}
+
+.btn-outline:hover {
+    background: var(--bg-dark);
+    border-color: var(--text-muted);
+}
+
 .btn-danger {
     background: rgba(248, 113, 113, 0.2);
     color: var(--error);

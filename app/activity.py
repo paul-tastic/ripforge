@@ -219,14 +219,39 @@ def load_rip_history() -> list:
     return []
 
 
-def get_recent_rips(days: int = 7) -> list:
-    """Get rips from the last N days"""
+def get_recent_rips(days: int = 7, respect_digest_reset: bool = True) -> list:
+    """Get rips from the last N days, optionally filtered by digest reset timestamp"""
     from datetime import timedelta
+    from . import config
 
     history = load_rip_history()
     cutoff = (datetime.now() - timedelta(days=days)).isoformat()
 
-    return [rip for rip in history if rip.get('completed_at', '') >= cutoff]
+    rips = [rip for rip in history if rip.get('completed_at', '') >= cutoff]
+
+    # Also filter by digest reset time if set
+    if respect_digest_reset:
+        cfg = config.load_config()
+        digest_reset = cfg.get('notifications', {}).get('email', {}).get('digest_reset_at')
+        if digest_reset:
+            rips = [rip for rip in rips if rip.get('completed_at', '') > digest_reset]
+
+    return rips
+
+
+def reset_digest_list():
+    """Mark current time as digest reset - clears the "recently added" list for next digest"""
+    from . import config
+
+    cfg = config.load_config()
+    if 'notifications' not in cfg:
+        cfg['notifications'] = {}
+    if 'email' not in cfg['notifications']:
+        cfg['notifications']['email'] = {}
+
+    cfg['notifications']['email']['digest_reset_at'] = datetime.now().isoformat()
+    config.save_config(cfg)
+    log_info("Digest list reset - recently added cleared")
 
 
 def fetch_metadata_by_tmdb_id(tmdb_id: int) -> Dict:

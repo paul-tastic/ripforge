@@ -230,6 +230,7 @@
                 <button class="btn btn-primary" id="btn-save-all">Save All Settings</button>
                 <button class="btn btn-secondary" id="btn-test-email" title="Send a test email to verify your email configuration is working">Send Test Email</button>
                 <button class="btn btn-secondary" id="btn-send-recap" title="Send the weekly digest to all recipients now (does not reset the recently added list)">Send Weekly Digest Now</button>
+                <button class="btn btn-outline" id="btn-reset-digest" title="Clear the recently added list so the next digest starts fresh">Reset Digest List</button>
                 <span class="email-test-status" id="save-status"></span>
             </div>
         </div>
@@ -783,6 +784,40 @@
         .finally(() => {
             btn.disabled = false;
             btn.textContent = 'Send Weekly Digest Now';
+        });
+    });
+
+    // Reset Digest List button
+    document.getElementById('btn-reset-digest').addEventListener('click', function() {
+        if (!confirm('This will clear the "recently added" list. The next digest will only include content added after this point. Continue?')) {
+            return;
+        }
+
+        const btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Resetting...';
+
+        fetch('/api/email/reset-digest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showToast('Digest list cleared', 'success');
+                showSaveStatus('Digest list cleared', 'success');
+                // Refresh the preview to show empty list
+                loadNewsletterPreview();
+            } else {
+                showToast('Error: ' + (data.error || 'Unknown error'), 'error');
+            }
+        })
+        .catch(err => {
+            showToast('Error: ' + err, 'error');
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = 'Reset Digest List';
         });
     });
 

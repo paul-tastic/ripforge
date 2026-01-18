@@ -828,6 +828,13 @@ def api_email_weekly_recap():
     return jsonify({'success': success})
 
 
+@main.route('/api/email/reset-digest', methods=['POST'])
+def api_reset_digest():
+    """Reset the digest list - clears recently added content for next digest"""
+    activity.reset_digest_list()
+    return jsonify({'success': True, 'message': 'Digest list cleared'})
+
+
 @main.route('/api/email/sync-suppressions', methods=['POST'])
 def api_sync_suppressions():
     """Sync SendGrid suppressions to local recipients list"""
