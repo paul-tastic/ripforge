@@ -228,11 +228,11 @@ def send_rip_error(title: str, error: str, recipients: list) -> bool:
     <h1 style="color: #f87171; margin: 0 0 20px;">Rip Failed</h1>
     <table style="width: 100%; border-collapse: collapse;">
         <tr>
-            <td style="padding: 10px 0; color: #888;">Title</td>
+            <td style="padding: 10px 20px 10px 0; color: #888; vertical-align: top; width: 80px;">Title</td>
             <td style="padding: 10px 0; color: #fff; font-weight: bold;">{title}</td>
         </tr>
         <tr>
-            <td style="padding: 10px 0; color: #888;">Error</td>
+            <td style="padding: 10px 20px 10px 0; color: #888; vertical-align: top; width: 80px;">Error</td>
             <td style="padding: 10px 0; color: #f87171;">{error}</td>
         </tr>
     </table>
