@@ -543,6 +543,29 @@ body {
     color: var(--text-dim);
 }
 
+/* Update button */
+.btn-update {
+    background: var(--warning);
+    color: #000;
+    border: none;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.btn-update:hover {
+    background: #f59e0b;
+}
+
+.btn-update:disabled {
+    opacity: 0.7;
+    cursor: wait;
+}
+
 /* Ned integration */
 .ned-footer {
     font-size: 11px;

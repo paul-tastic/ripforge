@@ -2,6 +2,10 @@
 RipForge Web Routes
 """
 
+import os
+import subprocess
+import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -517,6 +521,66 @@ def api_hardware():
 def api_version():
     """Get version info and check for updates"""
     return jsonify(config.check_for_updates())
+
+
+@main.route('/api/update', methods=['POST'])
+def api_update():
+    """Pull latest code from GitHub and restart service"""
+    repo_dir = Path(__file__).parent.parent
+    venv_pip = repo_dir / 'venv' / 'bin' / 'pip'
+
+    result = {
+        'success': False,
+        'git_output': '',
+        'pip_output': '',
+        'error': None
+    }
+
+    try:
+        # Git pull
+        git_result = subprocess.run(
+            ['git', 'pull', 'origin', 'main'],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        result['git_output'] = git_result.stdout + git_result.stderr
+
+        if git_result.returncode != 0:
+            result['error'] = f'Git pull failed: {git_result.stderr}'
+            return jsonify(result)
+
+        # Check if requirements.txt changed or just always update deps
+        pip_result = subprocess.run(
+            [str(venv_pip), 'install', '-r', 'requirements.txt', '--quiet'],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        result['pip_output'] = pip_result.stdout + pip_result.stderr
+
+        if pip_result.returncode != 0:
+            result['error'] = f'Pip install failed: {pip_result.stderr}'
+            return jsonify(result)
+
+        result['success'] = True
+
+        # Schedule restart after response is sent
+        def delayed_exit():
+            import time
+            time.sleep(2)
+            os._exit(0)  # Hard exit, systemd will restart us
+
+        threading.Thread(target=delayed_exit, daemon=True).start()
+
+    except subprocess.TimeoutExpired:
+        result['error'] = 'Command timed out'
+    except Exception as e:
+        result['error'] = str(e)
+
+    return jsonify(result)
 
 
 @main.route('/api/rip-stats')

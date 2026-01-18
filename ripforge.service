@@ -8,7 +8,7 @@ User=paul
 Group=paul
 WorkingDirectory=/home/paul/ripforge
 ExecStart=/home/paul/ripforge/venv/bin/python /home/paul/ripforge/run.py
-Restart=on-failure
+Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 
