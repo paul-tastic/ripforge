@@ -439,14 +439,42 @@
             });
     }
 
-    // Load last check time
-    const lastCheck = localStorage.getItem('ripforge_last_update_check');
-    if (lastCheck) {
-        document.getElementById('last-check-time').textContent = new Date(lastCheck).toLocaleString();
+    // Load cached data on page load (no API call)
+    function loadCachedVersion() {
+        const lastCheck = localStorage.getItem('ripforge_last_update_check');
+        const cachedUpdate = localStorage.getItem('ripforge_update_available');
+        const cachedLatest = localStorage.getItem('ripforge_latest_version');
+        const dotEl = document.getElementById('settings-version-dot');
+
+        if (lastCheck) {
+            document.getElementById('last-check-time').textContent = new Date(lastCheck).toLocaleString();
+        }
+
+        // Get current version from a quick API call (no GitHub check)
+        fetch('/api/version')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('current-version').textContent = 'v' + data.current_version;
+
+                // Use cached update status, but verify it's still valid
+                const updateAvailable = cachedUpdate === 'true' && cachedLatest && cachedLatest !== data.current_version;
+
+                if (updateAvailable) {
+                    dotEl.className = 'version-dot update-available';
+                    dotEl.title = 'Update available: v' + cachedLatest;
+                    document.getElementById('latest-version-row').style.display = 'flex';
+                    document.getElementById('latest-version').textContent = 'v' + cachedLatest;
+                    document.getElementById('btn-settings-update').style.display = 'inline-block';
+                } else {
+                    dotEl.className = 'version-dot up-to-date';
+                    dotEl.title = 'Up to date';
+                    document.getElementById('latest-version-row').style.display = 'none';
+                    document.getElementById('btn-settings-update').style.display = 'none';
+                }
+            });
     }
 
-    // Check version on page load
-    checkForUpdates(false);
+    loadCachedVersion();
 
     // Button handlers
     document.getElementById('btn-check-updates').addEventListener('click', () => checkForUpdates(true));
