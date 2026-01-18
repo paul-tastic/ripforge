@@ -637,3 +637,51 @@ def run_auto_setup() -> dict:
         'keys': keys,
         'applied': True
     }
+
+
+def check_for_updates() -> dict:
+    """Check GitHub for the latest release version"""
+    from . import __version__
+
+    result = {
+        'current_version': __version__,
+        'latest_version': None,
+        'update_available': False,
+        'release_url': None,
+        'error': None
+    }
+
+    try:
+        # Try GitHub releases API first
+        r = requests.get(
+            'https://api.github.com/repos/paul-tastic/ripforge/releases/latest',
+            timeout=5,
+            headers={'Accept': 'application/vnd.github.v3+json'}
+        )
+
+        if r.status_code == 200:
+            data = r.json()
+            latest = data.get('tag_name', '').lstrip('v')
+            result['latest_version'] = latest
+            result['release_url'] = data.get('html_url')
+
+            # Simple version comparison (assumes semver x.y.z)
+            if latest and latest != __version__:
+                try:
+                    current_parts = [int(x) for x in __version__.split('.')]
+                    latest_parts = [int(x) for x in latest.split('.')]
+                    result['update_available'] = latest_parts > current_parts
+                except ValueError:
+                    # Version parsing failed, assume update available if different
+                    result['update_available'] = True
+        elif r.status_code == 404:
+            # No releases yet, this is fine
+            result['latest_version'] = __version__
+            result['update_available'] = False
+        else:
+            result['error'] = f'GitHub API returned {r.status_code}'
+
+    except requests.exceptions.RequestException as e:
+        result['error'] = str(e)
+
+    return result

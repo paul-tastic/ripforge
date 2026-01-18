@@ -205,6 +205,10 @@
                 <span class="hw-label">Docker</span>
                 <span class="hw-value" id="hw-docker">-</span>
             </div>
+            <div class="hw-row">
+                <span class="hw-label">RipForge <span class="version-dot" id="version-dot" title="Checking...">●</span></span>
+                <span class="hw-value" id="version-number">v...</span>
+            </div>
             <div class="hw-divider"></div>
             <div class="hw-services">
                 <div class="hw-services-header">Detected Services</div>
@@ -841,6 +845,30 @@
                 }
             })
             .catch(err => console.error('Error loading hardware:', err));
+
+        // Load version info separately
+        fetch('/api/version')
+            .then(r => r.json())
+            .then(data => {
+                const versionEl = document.getElementById('version-number');
+                const dotEl = document.getElementById('version-dot');
+                versionEl.textContent = 'v' + data.current_version;
+
+                if (data.error) {
+                    dotEl.className = 'version-dot unknown';
+                    dotEl.title = 'Unable to check for updates';
+                } else if (data.update_available) {
+                    dotEl.className = 'version-dot update-available';
+                    dotEl.title = 'Update available: v' + data.latest_version;
+                    if (data.release_url) {
+                        versionEl.innerHTML = `<a href="${data.release_url}" target="_blank" title="Click to view update">v${data.current_version}</a>`;
+                    }
+                } else {
+                    dotEl.className = 'version-dot up-to-date';
+                    dotEl.title = 'Up to date';
+                }
+            })
+            .catch(err => console.error('Error loading version:', err));
     }
 
     function loadStatus() {

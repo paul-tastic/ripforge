@@ -522,6 +522,26 @@ body {
     color: var(--text-dim);
 }
 
+/* Version indicator */
+.version-dot {
+    font-size: 8px;
+    color: var(--text-muted);
+    margin-left: 4px;
+    cursor: help;
+}
+
+.version-dot.up-to-date {
+    color: var(--success);
+}
+
+.version-dot.update-available {
+    color: var(--warning);
+}
+
+.version-dot.unknown {
+    color: var(--text-dim);
+}
+
 /* Drive Info */
 .drive-row {
     display: flex;

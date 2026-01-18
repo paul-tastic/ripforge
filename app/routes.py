@@ -488,6 +488,12 @@ def api_hardware():
     return jsonify(hardware)
 
 
+@main.route('/api/version')
+def api_version():
+    """Get version info and check for updates"""
+    return jsonify(config.check_for_updates())
+
+
 @main.route('/api/rip-stats')
 def api_rip_stats():
     """Get rip statistics from activity log"""
