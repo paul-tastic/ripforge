@@ -691,7 +691,8 @@ class RipEngine:
 
             if mkv_info:
                 # MakeMKV is running - restore job state
-                activity.log_info(f"Recovering rip job: {state.get('identified_title', state.get('disc_label'))}")
+                job_title = state.get('identified_title') or state.get('disc_label') or 'Unknown'
+                activity.log_info(f"Recovering rip job: {job_title} (MakeMKV still running)")
 
                 self.current_job = RipJob(
                     id=state.get("id", ""),
