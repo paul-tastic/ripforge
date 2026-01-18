@@ -34,7 +34,10 @@
 - **Systemd Service** - Runs on boot, survives reboots
 - **Auto-Reset on Eject** - UI resets to ready state when disc is ejected
 - **Stop Drive Button** - Cancel any operation, kill MakeMKV, and eject disc
-- **Version Check** - Auto-check for updates with green/orange indicator
+- **Version Check** - Auto-check for updates with green/yellow/orange status dot
+- **One-Click Update** - Pull latest from GitHub, install dependencies, restart service with countdown
+- **Rip Mode Settings** - Smart (tries direct, falls back to backup), Always Backup, or Direct Only
+- **Compact Progress UI** - Rip step shows substeps inline: `◐ Direct 45%` or `✗ Direct → ◐ Backup 6%`
 - **Digest Reset** - Clear the "recently added" list for testing weekly digests
 - **Library Export** - Generate PDF of your movie/TV library with optional posters, email to admin
 - **Ned Integration** - Auto-detects Ned monitoring agent if installed
@@ -191,7 +194,7 @@ ripping:
   min_length: 2700              # 45 min - skip short tracks
   main_feature_only: true       # Only rip longest track (movies)
   skip_transcode: true          # Keep original quality
-  backup_fallback: true         # Auto-retry via backup if direct rip fails (copy protection)
+  rip_mode: smart               # smart, always_backup, or direct_only
   auto_scan_on_insert: true     # Auto-scan when disc inserted
   auto_rip: true                # Auto-start after countdown
   auto_rip_delay: 20            # Countdown seconds
@@ -200,6 +203,11 @@ ripping:
   notify_uncertain: true        # Email when ID confidence is low
   tv_min_episode_length: 1200   # 20 min - minimum track length for TV detection
 ```
+
+**Rip Modes:**
+- **Smart** (recommended) - Tries direct rip first; if it fails, automatically retries with backup method
+- **Always Backup** - Always decrypts full disc first, then extracts. Slower but most reliable for protected content
+- **Direct Only** - Only attempts direct rip; no fallback if copy protection blocks it
 
 ### Email Notifications
 
@@ -267,6 +275,7 @@ Configure all email settings from the **Notifications page** - recipients, event
 | `/api/plex/users` | GET | Get Plex users with emails |
 | `/api/newsletter/settings` | GET/POST | Newsletter schedule and recipients |
 | `/api/version` | GET | Current version and update check |
+| `/api/update` | POST | Pull latest code, install deps, restart service |
 | `/api/library/export` | POST | Generate library PDF (movies/shows) |
 | `/api/library/exports` | GET | List available export files |
 | `/exports/<filename>` | GET | Download export file |
@@ -300,9 +309,34 @@ ripforge/
 ├── scripts/
 │   ├── setup.sh
 │   └── setup-udev.sh
+├── tests/
+│   ├── conftest.py        # Pytest fixtures
+│   ├── test_identify.py   # Identification tests
+│   ├── test_ripper.py     # Ripper tests
+│   └── test_routes.py     # API route tests
 ├── ripforge.service
 └── run.py
 ```
+
+## Running Tests
+
+RipForge includes a comprehensive test suite using pytest:
+
+```bash
+# Install test dependencies
+pip install pytest pytest-cov
+
+# Run all tests
+pytest tests/ -v
+
+# Run with coverage
+pytest tests/ --cov=app --cov-report=term-missing
+```
+
+The test suite covers:
+- **Identification** - Disc label parsing, media type detection, Radarr/Sonarr search mocking
+- **Ripper** - Folder sanitization, job state management, status enums
+- **Routes** - API endpoints, Flask app functionality
 
 ## Storage Support
 
