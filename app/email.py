@@ -448,3 +448,106 @@ def send_weekly_recap(recipients: list) -> bool:
 """
 
     return send_email(recipients, subject, body, html=True, from_name=from_name)
+
+
+def send_via_sendgrid_with_attachment(to: list, subject: str, body: str, api_key: str, attachment_path: str, from_name: str = "RipForge") -> bool:
+    """Send email via SendGrid API with file attachment"""
+    import base64
+    from pathlib import Path
+
+    attachment_file = Path(attachment_path)
+    if not attachment_file.exists():
+        print(f"Attachment not found: {attachment_path}")
+        return False
+
+    try:
+        # Read and encode attachment
+        with open(attachment_file, 'rb') as f:
+            content = base64.b64encode(f.read()).decode('utf-8')
+
+        data = {
+            "personalizations": [{"to": [{"email": r} for r in to]}],
+            "from": {"email": "paul@dotvector.com", "name": from_name},
+            "subject": subject,
+            "content": [{"type": "text/html", "value": body}],
+            "attachments": [{
+                "content": content,
+                "filename": attachment_file.name,
+                "type": "application/pdf",
+                "disposition": "attachment"
+            }]
+        }
+
+        response = requests.post(
+            "https://api.sendgrid.com/v3/mail/send",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json=data,
+            timeout=60
+        )
+
+        if response.status_code == 202:
+            return True
+        else:
+            print(f"SendGrid error: {response.status_code} - {response.text}")
+            return False
+
+    except Exception as e:
+        print(f"Error sending email with attachment via SendGrid: {e}")
+        return False
+
+
+def send_via_msmtp_with_attachment(to: list, subject: str, body: str, attachment_path: str) -> bool:
+    """Send email via msmtp with file attachment"""
+    import base64
+    from pathlib import Path
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders
+
+    attachment_file = Path(attachment_path)
+    if not attachment_file.exists():
+        print(f"Attachment not found: {attachment_path}")
+        return False
+
+    try:
+        # Create message
+        msg = MIMEMultipart()
+        msg['Subject'] = subject
+        msg['To'] = ', '.join(to)
+
+        # Add body
+        msg.attach(MIMEText(body, 'html'))
+
+        # Add attachment
+        with open(attachment_file, 'rb') as f:
+            part = MIMEBase('application', 'pdf')
+            part.set_payload(f.read())
+            encoders.encode_base64(part)
+            part.add_header(
+                'Content-Disposition',
+                f'attachment; filename="{attachment_file.name}"'
+            )
+            msg.attach(part)
+
+        # Send via msmtp
+        for recipient in to:
+            result = subprocess.run(
+                ["msmtp", recipient],
+                input=msg.as_string(),
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            if result.returncode != 0:
+                print(f"msmtp error for {recipient}: {result.stderr}")
+                return False
+
+        return True
+
+    except Exception as e:
+        print(f"Error sending email with attachment via msmtp: {e}")
+        return False

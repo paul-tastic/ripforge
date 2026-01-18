@@ -2,6 +2,9 @@
 RipForge Web Routes
 """
 
+from datetime import datetime
+from pathlib import Path
+
 from flask import Blueprint, render_template, jsonify, request
 from . import config
 from . import ripper
@@ -848,6 +851,86 @@ def api_plex_users():
     """Get Plex users with their emails"""
     users = config.get_plex_users()
     return jsonify({'users': users})
+
+
+# ============================================================================
+# Library Export API
+# ============================================================================
+
+@main.route('/api/library/export', methods=['POST'])
+def api_library_export():
+    """Generate library PDF export"""
+    from . import library_export
+
+    data = request.json or {}
+    include_movies = data.get('include_movies', True)
+    include_shows = data.get('include_shows', True)
+    include_images = data.get('include_images', False)
+    send_email = data.get('send_email', False)
+    recipients = data.get('recipients', [])
+
+    try:
+        # Generate PDF
+        pdf_path = library_export.generate_library_pdf(
+            include_movies=include_movies,
+            include_shows=include_shows,
+            include_images=include_images
+        )
+
+        result = {
+            'success': True,
+            'pdf_path': pdf_path,
+            'filename': Path(pdf_path).name
+        }
+
+        # Optionally send email
+        if send_email and recipients:
+            email_sent = library_export.email_library_pdf(
+                recipients=recipients,
+                pdf_path=pdf_path,
+                include_movies=include_movies,
+                include_shows=include_shows
+            )
+            result['email_sent'] = email_sent
+            result['email_recipients'] = recipients
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@main.route('/api/library/exports')
+def api_library_exports():
+    """List available export files"""
+    from . import library_export
+
+    exports = []
+    for f in library_export.EXPORT_DIR.glob('*.pdf'):
+        exports.append({
+            'filename': f.name,
+            'path': str(f),
+            'size': f.stat().st_size,
+            'created': datetime.fromtimestamp(f.stat().st_mtime).isoformat()
+        })
+
+    # Sort by creation time, newest first
+    exports.sort(key=lambda x: x['created'], reverse=True)
+
+    return jsonify({'exports': exports})
+
+
+@main.route('/exports/<filename>')
+def serve_export(filename):
+    """Serve an export file for download"""
+    from flask import send_file
+    from . import library_export
+
+    filepath = library_export.EXPORT_DIR / filename
+    if filepath.exists() and filepath.suffix == '.pdf':
+        return send_file(filepath, as_attachment=True)
+
+    return jsonify({'error': 'File not found'}), 404
 
 
 # ============================================================================
