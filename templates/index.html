@@ -861,31 +861,61 @@
             })
             .catch(err => console.error('Error loading hardware:', err));
 
-        // Load version info separately
-        fetch('/api/version')
-            .then(r => r.json())
-            .then(data => {
-                const versionEl = document.getElementById('version-number');
-                const dotEl = document.getElementById('version-dot');
-                const updateBtn = document.getElementById('btn-update');
-                versionEl.textContent = 'v' + data.current_version;
+        // Load version info (daily auto-check)
+        const lastCheck = localStorage.getItem('ripforge_last_update_check');
+        const cachedUpdate = localStorage.getItem('ripforge_update_available');
+        const cachedLatest = localStorage.getItem('ripforge_latest_version');
+        const oneDayMs = 24 * 60 * 60 * 1000;
+        const shouldCheck = !lastCheck || (Date.now() - new Date(lastCheck).getTime()) > oneDayMs;
 
-                if (data.error) {
-                    dotEl.className = 'version-dot unknown';
-                    dotEl.title = 'Unable to check for updates';
-                    updateBtn.style.display = 'none';
-                } else if (data.update_available) {
-                    dotEl.className = 'version-dot update-available';
-                    dotEl.title = 'Update available: v' + data.latest_version;
-                    updateBtn.style.display = 'inline-block';
-                    updateBtn.dataset.version = data.latest_version;
-                } else {
-                    dotEl.className = 'version-dot up-to-date';
-                    dotEl.title = 'Up to date';
-                    updateBtn.style.display = 'none';
+        function updateVersionUI(data, isNewCheck) {
+            const versionEl = document.getElementById('version-number');
+            const dotEl = document.getElementById('version-dot');
+            const updateBtn = document.getElementById('btn-update');
+            versionEl.textContent = 'v' + data.current_version;
+
+            if (data.error) {
+                dotEl.className = 'version-dot unknown';
+                dotEl.title = 'Unable to check for updates';
+                updateBtn.style.display = 'none';
+            } else if (data.update_available) {
+                dotEl.className = 'version-dot update-available';
+                dotEl.title = 'Update available: v' + data.latest_version;
+                updateBtn.style.display = 'inline-block';
+                updateBtn.dataset.version = data.latest_version;
+                if (isNewCheck) {
+                    showToast('Update available: v' + data.latest_version, 'success');
                 }
-            })
-            .catch(err => console.error('Error loading version:', err));
+            } else {
+                dotEl.className = 'version-dot up-to-date';
+                dotEl.title = 'Up to date';
+                updateBtn.style.display = 'none';
+            }
+        }
+
+        if (shouldCheck) {
+            fetch('/api/version')
+                .then(r => r.json())
+                .then(data => {
+                    // Store check time and update status
+                    localStorage.setItem('ripforge_last_update_check', new Date().toISOString());
+                    localStorage.setItem('ripforge_update_available', data.update_available ? 'true' : 'false');
+                    localStorage.setItem('ripforge_latest_version', data.latest_version || '');
+                    updateVersionUI(data, true);
+                })
+                .catch(err => console.error('Error loading version:', err));
+        } else {
+            // Use cached status, just get current version
+            fetch('/api/version')
+                .then(r => r.json())
+                .then(data => {
+                    // Override with cached update status
+                    data.update_available = cachedUpdate === 'true';
+                    data.latest_version = cachedLatest || data.latest_version;
+                    updateVersionUI(data, false);
+                })
+                .catch(err => console.error('Error loading version:', err));
+        }
     }
 
     function performUpdate() {

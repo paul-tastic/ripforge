@@ -247,6 +247,30 @@
         </a>
     </section>
 
+    <!-- Updates -->
+    <section class="card">
+        <h2>Updates</h2>
+        <div class="update-status">
+            <div class="update-info">
+                <span class="update-label">Current version:</span>
+                <span id="current-version">Loading...</span>
+                <span class="version-dot" id="settings-version-dot" title="Checking...">●</span>
+            </div>
+            <div class="update-info" id="latest-version-row" style="display: none;">
+                <span class="update-label">Latest version:</span>
+                <span id="latest-version">-</span>
+            </div>
+            <div class="update-info" id="last-check-row">
+                <span class="update-label">Last checked:</span>
+                <span id="last-check-time">Never</span>
+            </div>
+            <div class="update-actions">
+                <button class="btn btn-secondary" id="btn-check-updates">Check Now</button>
+                <button class="btn btn-update" id="btn-settings-update" style="display: none;">Install Update</button>
+            </div>
+        </div>
+    </section>
+
     <!-- Save Button -->
     <div class="settings-actions">
         <button class="btn btn-primary btn-large" id="btn-save">
@@ -341,6 +365,90 @@
             badge.className = 'integration-badge error';
         });
     }
+
+    // Version check
+    function checkForUpdates(showToastOnNoUpdate = false) {
+        const checkBtn = document.getElementById('btn-check-updates');
+        const dotEl = document.getElementById('settings-version-dot');
+        checkBtn.disabled = true;
+        checkBtn.textContent = 'Checking...';
+
+        fetch('/api/version')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('current-version').textContent = 'v' + data.current_version;
+
+                // Store check time
+                const now = new Date();
+                localStorage.setItem('ripforge_last_update_check', now.toISOString());
+                document.getElementById('last-check-time').textContent = now.toLocaleString();
+
+                if (data.error) {
+                    dotEl.className = 'version-dot unknown';
+                    dotEl.title = 'Unable to check for updates';
+                    if (showToastOnNoUpdate) showToast('Unable to check for updates', 'error');
+                } else if (data.update_available) {
+                    dotEl.className = 'version-dot update-available';
+                    dotEl.title = 'Update available: v' + data.latest_version;
+                    document.getElementById('latest-version-row').style.display = 'flex';
+                    document.getElementById('latest-version').textContent = 'v' + data.latest_version;
+                    document.getElementById('btn-settings-update').style.display = 'inline-block';
+                    showToast('Update available: v' + data.latest_version, 'success');
+                } else {
+                    dotEl.className = 'version-dot up-to-date';
+                    dotEl.title = 'Up to date';
+                    document.getElementById('latest-version-row').style.display = 'none';
+                    document.getElementById('btn-settings-update').style.display = 'none';
+                    if (showToastOnNoUpdate) showToast('You are running the latest version', 'success');
+                }
+            })
+            .catch(err => {
+                console.error('Error checking version:', err);
+                if (showToastOnNoUpdate) showToast('Error checking for updates', 'error');
+            })
+            .finally(() => {
+                checkBtn.disabled = false;
+                checkBtn.textContent = 'Check Now';
+            });
+    }
+
+    // Install update
+    function performUpdate() {
+        const updateBtn = document.getElementById('btn-settings-update');
+        updateBtn.disabled = true;
+        updateBtn.textContent = 'Updating...';
+
+        fetch('/api/update', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('Update installed! Restarting...', 'success');
+                    updateBtn.textContent = 'Restarting...';
+                    setTimeout(() => window.location.reload(), 5000);
+                } else {
+                    showToast('Update failed: ' + (data.error || 'Unknown error'), 'error');
+                    updateBtn.disabled = false;
+                    updateBtn.textContent = 'Install Update';
+                }
+            })
+            .catch(err => {
+                showToast('Service restarting...', 'success');
+                setTimeout(() => window.location.reload(), 5000);
+            });
+    }
+
+    // Load last check time
+    const lastCheck = localStorage.getItem('ripforge_last_update_check');
+    if (lastCheck) {
+        document.getElementById('last-check-time').textContent = new Date(lastCheck).toLocaleString();
+    }
+
+    // Check version on page load
+    checkForUpdates(false);
+
+    // Button handlers
+    document.getElementById('btn-check-updates').addEventListener('click', () => checkForUpdates(true));
+    document.getElementById('btn-settings-update').addEventListener('click', performUpdate);
 
     // Save settings
     document.getElementById('btn-save').addEventListener('click', function() {
