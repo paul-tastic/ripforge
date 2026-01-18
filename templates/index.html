@@ -218,6 +218,12 @@
                     <span class="int-item"><span class="int-dot" id="int-overseerr">●</span> Overseerr</span>
                     <span class="int-item"><span class="int-dot" id="int-plex">●</span> Plex</span>
                 </div>
+                <div class="hw-integrations" id="hw-tools" style="display: none; margin-top: 8px;">
+                    <span class="int-item" id="ned-item" style="display: none;">
+                        <span class="int-dot connected" title="Ned monitoring agent installed">●</span>
+                        <a href="https://getneddy.com" target="_blank" id="ned-link" title="Server monitoring by Ned">Ned</a>
+                    </span>
+                </div>
             </div>
         </div>
     </section>
@@ -842,6 +848,17 @@
                 // Optical drive
                 if (data.optical_drives && data.optical_drives.length > 0) {
                     document.getElementById('hw-optical').textContent = data.optical_drives[0].model || data.optical_drives[0].device;
+                }
+
+                // Ned monitoring agent (cross-promotion)
+                if (data.ned && data.ned.installed) {
+                    document.getElementById('hw-tools').style.display = 'flex';
+                    document.getElementById('ned-item').style.display = 'inline';
+                    const nedLink = document.getElementById('ned-link');
+                    if (data.ned.dashboard_url) {
+                        nedLink.href = data.ned.dashboard_url;
+                        nedLink.title = 'View server in Ned dashboard';
+                    }
                 }
             })
             .catch(err => console.error('Error loading hardware:', err));

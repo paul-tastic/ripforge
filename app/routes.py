@@ -506,6 +506,7 @@ def api_hardware():
     hardware = config.detect_hardware()
     drives = config.detect_optical_drives()
     hardware['optical_drives'] = drives
+    hardware['ned'] = config.detect_ned_agent()
     return jsonify(hardware)
 
 

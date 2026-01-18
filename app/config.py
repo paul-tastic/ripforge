@@ -137,6 +137,42 @@ def detect_docker_services() -> dict:
     return services
 
 
+def detect_ned_agent() -> dict:
+    """Detect if Ned monitoring agent is installed"""
+    result = {
+        'installed': False,
+        'config_exists': False,
+        'url': 'https://getneddy.com'
+    }
+
+    try:
+        # Check if ned-agent binary exists
+        if Path('/usr/local/bin/ned-agent').exists():
+            result['installed'] = True
+
+        # Check if config exists
+        if Path('/etc/ned/config').exists():
+            result['config_exists'] = True
+
+            # Try to read the dashboard URL from config
+            try:
+                with open('/etc/ned/config') as f:
+                    for line in f:
+                        if line.startswith('api=') or line.startswith('API='):
+                            api_url = line.split('=', 1)[1].strip().strip('"\'')
+                            # Convert API URL to dashboard URL
+                            if api_url:
+                                result['dashboard_url'] = api_url.replace('/api', '')
+                            break
+            except Exception:
+                pass
+
+    except Exception as e:
+        print(f"Error detecting Ned agent: {e}")
+
+    return result
+
+
 def detect_optical_drives() -> list:
     """Detect optical drives on the system"""
     drives = []
