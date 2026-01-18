@@ -21,7 +21,7 @@
 - **Silent Failure Detection** - Catches MakeMKV "success" with no actual progress (disc read issues)
 - **Media Server Integration** - Radarr, Sonarr, Overseerr, Plex
 - **Real-time Progress** - Checklist UI shows each step with spinner animations
-- **Hardware Dashboard** - CPU, RAM, storage (SSD/HDD/Pool detection), optical drive
+- **Hardware Dashboard** - CPU, RAM (with DDR type/speed), storage (SSD/HDD/Pool + individual drives), optical drive, network interface type, live memory updates
 - **Email Notifications** - Rip complete, errors, and weekly recap with movie posters and disc type badges
 - **Plex User Import** - Auto-import Plex users as email recipients with one click
 - **SendGrid Support** - Optional SendGrid integration for better Gmail deliverability, with opt-out sync
@@ -34,6 +34,10 @@
 - **Systemd Service** - Runs on boot, survives reboots
 - **Auto-Reset on Eject** - UI resets to ready state when disc is ejected
 - **Stop Drive Button** - Cancel any operation, kill MakeMKV, and eject disc
+- **Version Check** - Auto-check for updates with green/orange indicator
+- **Digest Reset** - Clear the "recently added" list for testing weekly digests
+- **Library Export** - Generate PDF of your movie/TV library with optional posters, email to admin
+- **Ned Integration** - Auto-detects Ned monitoring agent if installed
 
 ## Dashboard
 <img width="1427" height="727" alt="image" src="https://github.com/user-attachments/assets/5e3ed33e-1dde-4e25-b382-7af044f42e6c" />
@@ -254,30 +258,37 @@ Configure all email settings from the **Notifications page** - recipients, event
 | `/api/hardware` | GET | System hardware info |
 | `/api/email/test` | POST | Send test email |
 | `/api/email/weekly-recap` | POST | Send weekly recap now |
+| `/api/email/reset-digest` | POST | Reset digest list (clear recently added) |
 | `/api/email/sync-suppressions` | POST | Sync SendGrid opt-outs to local recipients |
 | `/api/rip-stats` | GET | Rip statistics (avg time by disc type, counts) |
 | `/api/settings` | GET/POST | Configuration |
 | `/api/auto-detect` | POST | Scan for services |
 | `/api/plex/users` | GET | Get Plex users with emails |
 | `/api/newsletter/settings` | GET/POST | Newsletter schedule and recipients |
+| `/api/version` | GET | Current version and update check |
+| `/api/library/export` | POST | Generate library PDF (movies/shows) |
+| `/api/library/exports` | GET | List available export files |
+| `/exports/<filename>` | GET | Download export file |
 
 ## Project Structure
 
 ```
 ripforge/
 ├── app/
-│   ├── config.py      # Configuration, hardware detection
-│   ├── routes.py      # Web routes and API
-│   ├── ripper.py      # MakeMKV wrapper, rip pipeline
-│   ├── identify.py    # Smart identification
-│   ├── email.py       # Email notifications (SendGrid + msmtp)
-│   └── activity.py    # Activity logging and rip history
+│   ├── config.py         # Configuration, hardware detection, Ned detection
+│   ├── routes.py         # Web routes and API
+│   ├── ripper.py         # MakeMKV wrapper, rip pipeline
+│   ├── identify.py       # Smart identification
+│   ├── email.py          # Email notifications (SendGrid + msmtp)
+│   ├── activity.py       # Activity logging and rip history
+│   └── library_export.py # PDF export for movies/shows
 ├── config/
-│   ├── settings.yaml    # Configuration
-│   └── current_job.json # Persisted job state (auto-managed)
+│   ├── settings.yaml     # Configuration
+│   └── current_job.json  # Persisted job state (auto-managed)
+├── exports/              # Generated PDF exports
 ├── logs/
-│   ├── activity.log     # Activity log
-│   └── rip_history.json # Rip history for weekly digest
+│   ├── activity.log      # Activity log
+│   └── rip_history.json  # Rip history for weekly digest
 ├── static/css/
 │   └── style.css
 ├── templates/
