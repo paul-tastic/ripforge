@@ -52,4 +52,7 @@ if __name__ == '__main__':
     Starting server on http://{host}:{port}
     """)
 
-    app.run(host=host, port=port, debug=True)
+    # Note: debug=False disables Flask's auto-reloader which was causing service restarts
+    # when log files or job state changed. For development, you can temporarily set debug=True
+    # but remember to restart the service manually after code changes.
+    app.run(host=host, port=port, debug=False)
