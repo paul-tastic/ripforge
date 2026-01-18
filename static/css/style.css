@@ -543,6 +543,14 @@ body {
     color: var(--text-dim);
 }
 
+.update-hint {
+    font-size: 9px;
+    font-style: italic;
+    color: var(--warning);
+    margin-left: 4px;
+    opacity: 0.9;
+}
+
 /* Update button */
 .btn-update {
     background: var(--warning);
@@ -561,9 +569,40 @@ body {
     background: #f59e0b;
 }
 
-.btn-update:disabled {
+.btn-update:disabled,
+.btn-check:disabled {
     opacity: 0.7;
     cursor: wait;
+}
+
+/* Check button (for version check) */
+.btn-check {
+    background: var(--bg-card-hover);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.btn-check:hover {
+    background: var(--bg-dark);
+    border-color: var(--text-muted);
+}
+
+/* Latest version badge (shown when update available) */
+.latest-version-badge {
+    background: var(--warning);
+    color: #000;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-left: 6px;
 }
 
 /* Update status section (settings page) */

@@ -206,7 +206,7 @@
                 <span class="hw-value" id="hw-docker">-</span>
             </div>
             <div class="hw-row">
-                <span class="hw-label">RipForge <span class="version-dot" id="version-dot" title="Checking...">●</span></span>
+                <span class="hw-label">RipForge <span class="version-dot" id="version-dot" title="Checking...">●</span><span id="update-hint" class="update-hint"></span></span>
                 <span class="hw-value">
                     <span id="version-number">v...</span>
                     <button id="btn-update" class="btn-update" style="display: none;" title="Install update">Update</button>
@@ -868,28 +868,28 @@
         const oneDayMs = 24 * 60 * 60 * 1000;
         const shouldCheck = !lastCheck || (Date.now() - new Date(lastCheck).getTime()) > oneDayMs;
 
-        function updateVersionUI(data, isNewCheck) {
+        function updateVersionUI(data) {
             const versionEl = document.getElementById('version-number');
             const dotEl = document.getElementById('version-dot');
             const updateBtn = document.getElementById('btn-update');
+            const updateHint = document.getElementById('update-hint');
             versionEl.textContent = 'v' + data.current_version;
 
             if (data.error) {
                 dotEl.className = 'version-dot unknown';
                 dotEl.title = 'Unable to check for updates';
                 updateBtn.style.display = 'none';
+                updateHint.textContent = '';
             } else if (data.update_available) {
                 dotEl.className = 'version-dot update-available';
                 dotEl.title = 'Update available: v' + data.latest_version;
                 updateBtn.style.display = 'inline-block';
-                updateBtn.dataset.version = data.latest_version;
-                if (isNewCheck) {
-                    showToast('Update available: v' + data.latest_version, 'success');
-                }
+                updateHint.textContent = 'v' + data.latest_version + ' available';
             } else {
                 dotEl.className = 'version-dot up-to-date';
                 dotEl.title = 'Up to date';
                 updateBtn.style.display = 'none';
+                updateHint.textContent = '';
             }
         }
 
@@ -897,22 +897,25 @@
             fetch('/api/version')
                 .then(r => r.json())
                 .then(data => {
-                    // Store check time and update status
                     localStorage.setItem('ripforge_last_update_check', new Date().toISOString());
                     localStorage.setItem('ripforge_update_available', data.update_available ? 'true' : 'false');
                     localStorage.setItem('ripforge_latest_version', data.latest_version || '');
-                    updateVersionUI(data, true);
+                    updateVersionUI(data);
                 })
                 .catch(err => console.error('Error loading version:', err));
         } else {
-            // Use cached status, just get current version
+            // Use cached status, but verify it's still valid
             fetch('/api/version')
                 .then(r => r.json())
                 .then(data => {
-                    // Override with cached update status
-                    data.update_available = cachedUpdate === 'true';
-                    data.latest_version = cachedLatest || data.latest_version;
-                    updateVersionUI(data, false);
+                    // Only show update if cached latest is actually newer than current
+                    if (cachedUpdate === 'true' && cachedLatest && cachedLatest !== data.current_version) {
+                        data.update_available = true;
+                        data.latest_version = cachedLatest;
+                    } else {
+                        data.update_available = false;
+                    }
+                    updateVersionUI(data);
                 })
                 .catch(err => console.error('Error loading version:', err));
         }
@@ -920,9 +923,6 @@
 
     function performUpdate() {
         const updateBtn = document.getElementById('btn-update');
-        const versionEl = document.getElementById('version-number');
-        const originalText = updateBtn.textContent;
-
         updateBtn.disabled = true;
         updateBtn.textContent = 'Updating...';
 
@@ -932,26 +932,19 @@
                 if (data.success) {
                     showToast('Update installed! Restarting...', 'success');
                     updateBtn.textContent = 'Restarting...';
-                    // Wait for service to restart, then reload
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 5000);
+                    setTimeout(() => window.location.reload(), 5000);
                 } else {
                     showToast('Update failed: ' + (data.error || 'Unknown error'), 'error');
                     updateBtn.disabled = false;
-                    updateBtn.textContent = originalText;
+                    updateBtn.textContent = 'Update';
                 }
             })
             .catch(err => {
-                // Connection lost likely means service restarted
                 showToast('Service restarting...', 'success');
-                setTimeout(() => {
-                    window.location.reload();
-                }, 5000);
+                setTimeout(() => window.location.reload(), 5000);
             });
     }
 
-    // Setup update button click handler
     document.getElementById('btn-update').addEventListener('click', performUpdate);
 
     function loadStatus() {
