@@ -89,7 +89,14 @@ def send_via_sendgrid(to: list, subject: str, body: str, api_key: str, from_name
             "personalizations": [{"to": [{"email": r} for r in to]}],
             "from": {"email": "paul@dotvector.com", "name": from_name},
             "subject": subject,
-            "content": [{"type": "text/html", "value": body}]
+            "content": [{"type": "text/html", "value": body}],
+            "tracking_settings": {
+                "subscription_tracking": {
+                    "enable": True,
+                    "text": "Unsubscribe from these emails",
+                    "html": '<p style="text-align: center; margin-top: 20px;"><a href="{{{unsubscribe}}}" style="color: #888; font-size: 11px;">Unsubscribe</a></p>'
+                }
+            }
         }
 
         response = requests.post(
