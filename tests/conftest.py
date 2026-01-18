@@ -6,6 +6,19 @@ import pytest
 import tempfile
 import os
 from pathlib import Path
+from unittest.mock import patch
+
+
+@pytest.fixture(autouse=True)
+def mock_activity_log(tmp_path):
+    """Redirect activity logging to temp directory during tests"""
+    temp_log = tmp_path / "activity.log"
+    temp_history = tmp_path / "rip_history.json"
+
+    with patch('app.activity.ACTIVITY_LOG', temp_log):
+        with patch('app.activity.HISTORY_FILE', temp_history):
+            with patch('app.activity.LOG_DIR', tmp_path):
+                yield
 
 
 @pytest.fixture
