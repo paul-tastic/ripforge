@@ -542,7 +542,14 @@ body {
     color: var(--text-dim);
 }
 
-/* Ned integration link */
+/* Ned integration */
+.ned-footer {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 8px;
+    text-align: center;
+}
+
 .ned-link {
     color: var(--text-muted);
     text-decoration: none;
