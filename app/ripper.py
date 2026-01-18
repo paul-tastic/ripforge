@@ -518,8 +518,21 @@ class MakeMKV:
 
         if return_code == 0:
             if prgv_count == 0:
-                activity.log_warning("BACKUP: MakeMKV reported success but no progress")
-                return (False, "Backup reported success but no progress was made", output_dir)
+                # PRGV messages not received - verify backup succeeded by checking folder
+                activity.log_info("BACKUP: No progress messages received, verifying backup folder...")
+                bdmv_path = Path(output_dir) / "BDMV"
+                if bdmv_path.exists():
+                    # Calculate total size
+                    total_size = sum(f.stat().st_size for f in Path(output_dir).rglob("*") if f.is_file())
+                    if total_size > 1_000_000_000:  # > 1 GB
+                        activity.log_success(f"BACKUP: Verified - {total_size / (1024**3):.1f} GB in {output_dir}")
+                        return (True, "", output_dir)
+                    else:
+                        activity.log_warning(f"BACKUP: Folder exists but only {total_size / (1024**3):.1f} GB")
+                        return (False, f"Backup folder too small ({total_size / (1024**3):.1f} GB)", output_dir)
+                else:
+                    activity.log_warning("BACKUP: MakeMKV reported success but no BDMV folder found")
+                    return (False, "Backup reported success but no valid backup structure found", output_dir)
             activity.log_success(f"BACKUP: Complete - {output_dir}")
             return (True, "", output_dir)
         else:
@@ -1080,6 +1093,80 @@ class RipEngine:
             'message': 'Drive stopped'
         }
 
+
+    def reset_drive_state(self, device: str = "/dev/sr0") -> dict:
+        """Reset drive state for a fresh start - prevents "No disc found" errors.
+        
+        Call this before scans when previous operations may have left the drive
+        in an inconsistent state (killed MakeMKV, failed ejects, etc.).
+        """
+        activity.log_info("Drive state reset initiated")
+        
+        try:
+            # Kill lingering MakeMKV processes
+            killed = self._kill_makemkv()
+            if killed:
+                activity.log_info("Killed lingering MakeMKV process")
+            
+            # Wait for drive to settle
+            time.sleep(2)
+            
+            # Clear stale job state
+            with self._lock:
+                self._clear_job_state()
+                self._cancelled = False
+            
+            # Verify disc is detectable
+            time.sleep(1)
+            disc_info = self.check_disc(device)
+            
+            activity.log_success(f"Drive reset complete - disc present: {disc_info.get('present', False)}")
+            return {
+                "success": True,
+                "killed_process": killed,
+                "disc_present": disc_info.get("present", False),
+                "disc_label": disc_info.get("label", ""),
+                "ready_to_scan": True,
+                "message": "Drive state reset complete"
+            }
+            
+        except Exception as e:
+            activity.log_error(f"Drive reset failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "ready_to_scan": False
+            }
+
+    def force_eject_disc(self, device: str = "/dev/sr0") -> dict:
+        """Eject disc without stopping any jobs."""
+        activity.log_info("Eject disc requested")
+        try:
+            subprocess.run(["eject", device], capture_output=True, timeout=10)
+            activity.log_success("Disc ejected")
+            return {"success": True, "message": "Disc ejected"}
+        except subprocess.TimeoutExpired:
+            activity.log_error("Eject timed out")
+            return {"success": False, "error": "Eject timed out"}
+        except Exception as e:
+            activity.log_error(f"Eject failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    def restart_service(self) -> dict:
+        """Restart the RipForge service via systemctl."""
+        activity.log_info("Service restart requested")
+        try:
+            # Use nohup to ensure restart completes even after this process dies
+            subprocess.Popen(
+                ["sudo", "systemctl", "restart", "ripforge"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
+            return {"success": True, "message": "Service restart initiated"}
+        except Exception as e:
+            activity.log_error(f"Service restart failed: {e}")
+            return {"success": False, "error": str(e)}
     def _update_step(self, step: str, status: str, detail: str = ""):
         """Update a step's status"""
         if self.current_job and step in self.current_job.steps:
