@@ -21,7 +21,7 @@
 - **Real-time Progress** - Checklist UI shows each step with spinner animations
 - **Hardware Dashboard** - CPU, RAM, storage (SSD/HDD/Pool detection), optical drive
 - **Email Notifications** - Rip complete, errors, and weekly recap with movie posters and disc type badges
-- **SendGrid Support** - Optional SendGrid integration for better Gmail deliverability
+- **SendGrid Support** - Optional SendGrid integration for better Gmail deliverability, with opt-out sync
 - **Activity Logging** - Detailed activity log with identification method tracking
 - **Rip Statistics** - Average rip times by disc type, weekly/daily counts in sidebar
 - **IMDB/TMDB Links** - Quick verification links when identification is uncertain
@@ -192,6 +192,9 @@ notifications:
 3. Choose "Restricted Access" and enable only "Mail Send"
 4. Copy the key (starts with `SG.`) to RipForge's Notifications page
 
+**Suppression Sync:**
+Recipients who unsubscribe, bounce, or report spam are automatically tracked by SendGrid. Click "Sync Opt-outs" on the Notifications page to mark these recipients as opted out locally - they'll show a red "OPTED OUT" badge and be skipped when sending.
+
 Configure from the Notifications page. Weekly recap includes movie posters from TMDB, disc type badges (Blu-ray blue / DVD orange), and rip statistics.
 
 ### Integrations
@@ -219,6 +222,7 @@ Configure from the Notifications page. Weekly recap includes movie posters from 
 | `/api/hardware` | GET | System hardware info |
 | `/api/email/test` | POST | Send test email |
 | `/api/email/weekly-recap` | POST | Send weekly recap now |
+| `/api/email/sync-suppressions` | POST | Sync SendGrid opt-outs to local recipients |
 | `/api/rip-stats` | GET | Rip statistics (avg time by disc type, counts) |
 | `/api/settings` | GET/POST | Configuration |
 | `/api/auto-detect` | POST | Scan for services |

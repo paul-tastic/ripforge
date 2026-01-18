@@ -899,7 +899,14 @@ class RipEngine:
 
             def progress_cb(percent):
                 self._set_progress(percent, f"{100-percent}% remaining")
-                self._update_step("rip", "active", f"Ripping... {percent}%")
+                # Dynamic status message based on progress
+                if percent < 3:
+                    status_msg = f"Starting rip... {percent}%"
+                elif percent > 90:
+                    status_msg = f"Finishing rip... {percent}%"
+                else:
+                    status_msg = f"Ripping... {percent}%"
+                self._update_step("rip", "active", status_msg)
                 # Log at 25%, 50%, 75% milestones
                 for milestone in [25, 50, 75]:
                     if percent >= milestone and last_milestone[0] < milestone:
@@ -1217,6 +1224,14 @@ class RipEngine:
                     # Overall progress = (completed tracks + current progress) / total
                     overall = int(((idx + percent / 100) / total_tracks) * 100)
                     self._set_progress(overall, f"Episode {idx + 1}/{total_tracks}")
+                    # Dynamic status message based on progress
+                    if percent < 3:
+                        status_msg = f"Starting E{ep_num:02d}... {percent}%"
+                    elif percent > 90:
+                        status_msg = f"Finishing E{ep_num:02d}... {percent}%"
+                    else:
+                        status_msg = f"Ripping E{ep_num:02d}... {percent}%"
+                    self._update_step("rip", "active", f"Episode {idx + 1}/{total_tracks}: {status_msg}")
 
                 success, error_msg, actual_path = self.makemkv.rip_track(
                     job.device,

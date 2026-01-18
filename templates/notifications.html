@@ -32,6 +32,15 @@
                         Get your free API key at <a href="https://app.sendgrid.com/settings/api_keys" target="_blank" style="color: var(--accent);">sendgrid.com</a> (100 emails/day free)
                     </small>
                 </div>
+                <div class="field" style="margin-top: 16px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="check-suppressions" checked>
+                        <span>Check SendGrid opt-outs before sending</span>
+                    </label>
+                    <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+                        Automatically skip recipients who have unsubscribed, bounced, or reported spam
+                    </small>
+                </div>
             </div>
 
             <div class="settings-actions">
@@ -108,7 +117,12 @@
                 </div>
             </div>
             <div class="field">
-                <label>Recipients</label>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <label style="margin-bottom: 0;">Recipients</label>
+                    <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;" onclick="syncSuppressions()" id="btn-sync-suppressions">
+                        Sync Opt-outs
+                    </button>
+                </div>
                 <div class="recipients-list" id="recipients-list" style="max-height: 200px; overflow-y: auto; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 12px;">
                     <!-- Recipients will be loaded here -->
                 </div>
@@ -160,6 +174,7 @@
                 const emailCfg = data.notifications?.email || {};
                 document.getElementById('email-provider').value = emailCfg.provider || 'msmtp';
                 document.getElementById('sendgrid-api-key').value = emailCfg.sendgrid_api_key || '';
+                document.getElementById('check-suppressions').checked = emailCfg.check_suppressions !== false;
                 toggleSendGridKey();
             });
     }
@@ -167,6 +182,7 @@
     function saveEmailProvider() {
         const provider = document.getElementById('email-provider').value;
         const apiKey = document.getElementById('sendgrid-api-key').value;
+        const checkSuppressions = document.getElementById('check-suppressions').checked;
 
         fetch('/api/settings')
             .then(r => r.json())
@@ -178,6 +194,7 @@
                 currentSettings.notifications.email.provider = provider;
                 if (provider === 'sendgrid') {
                     currentSettings.notifications.email.sendgrid_api_key = apiKey;
+                    currentSettings.notifications.email.check_suppressions = checkSuppressions;
                 }
 
                 return fetch('/api/settings', {
@@ -310,13 +327,22 @@
             return;
         }
 
-        container.innerHTML = recipientsList.map((r, i) => `
-            <div class="recipient-item" style="display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border);">
-                <input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="toggleRecipient(${i})" style="cursor: pointer;">
-                <span style="flex: 1; color: ${r.enabled ? 'var(--text)' : 'var(--text-muted)'}; ${r.enabled ? '' : 'text-decoration: line-through;'}">${r.email}</span>
-                <button onclick="removeRecipient(${i})" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px;" title="Remove">&times;</button>
-            </div>
-        `).join('');
+        container.innerHTML = recipientsList.map((r, i) => {
+            const suppressedBadge = r.suppressed
+                ? '<span style="background: #dc2626; color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; margin-left: 8px;">OPTED OUT</span>'
+                : '';
+            const isDisabled = r.suppressed ? 'disabled' : '';
+            const textStyle = r.suppressed
+                ? 'color: var(--text-muted); text-decoration: line-through;'
+                : (r.enabled ? 'color: var(--text);' : 'color: var(--text-muted); text-decoration: line-through;');
+            return `
+                <div class="recipient-item" style="display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border);">
+                    <input type="checkbox" ${r.enabled ? 'checked' : ''} ${isDisabled} onchange="toggleRecipient(${i})" style="cursor: ${r.suppressed ? 'not-allowed' : 'pointer'};">
+                    <span style="flex: 1; ${textStyle}">${r.email}${suppressedBadge}</span>
+                    <button onclick="removeRecipient(${i})" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px;" title="Remove">&times;</button>
+                </div>
+            `;
+        }).join('');
     }
 
     function toggleRecipient(index) {
@@ -347,6 +373,32 @@
 
     function getEnabledRecipients() {
         return recipientsList.filter(r => r.enabled).map(r => r.email);
+    }
+
+    function syncSuppressions() {
+        const btn = document.getElementById('btn-sync-suppressions');
+        btn.disabled = true;
+        btn.textContent = 'Syncing...';
+
+        fetch('/api/email/sync-suppressions', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    if (data.updated > 0) {
+                        showToast(`${data.updated} recipient(s) marked as opted out`, 'info');
+                        loadNewsletterSettings(); // Reload to show badges
+                    } else {
+                        showToast('All recipients are valid', 'success');
+                    }
+                }
+            })
+            .catch(err => {
+                showToast('Error syncing: ' + err, 'error');
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = 'Sync Opt-outs';
+            });
     }
 
     function loadQueue() {

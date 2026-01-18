@@ -756,6 +756,13 @@ def api_email_weekly_recap():
     return jsonify({'success': success})
 
 
+@main.route('/api/email/sync-suppressions', methods=['POST'])
+def api_sync_suppressions():
+    """Sync SendGrid suppressions to local recipients list"""
+    count = email_utils.sync_suppressions_to_config()
+    return jsonify({'success': True, 'updated': count})
+
+
 @main.route('/api/plex/users')
 def api_plex_users():
     """Get Plex users with their emails"""

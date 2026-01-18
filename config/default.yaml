@@ -60,6 +60,7 @@ notifications:
     enabled: false
     provider: sendgrid           # Options: sendgrid (recommended), msmtp
     sendgrid_api_key: ""         # Get free key at https://app.sendgrid.com/settings/api_keys
+    check_suppressions: true     # Check SendGrid suppression list before sending
     smtp_host: ""
     smtp_port: 587
     from_address: ""

@@ -11,6 +11,77 @@ from typing import Optional
 from . import config
 
 
+def get_sendgrid_suppressions(api_key: str) -> set:
+    """Fetch all suppressed emails from SendGrid (unsubscribes, bounces, spam reports)"""
+    suppressions = set()
+
+    # Check all suppression types
+    for endpoint in ['unsubscribes', 'bounces', 'spam_reports']:
+        try:
+            resp = requests.get(
+                f'https://api.sendgrid.com/v3/suppression/{endpoint}',
+                headers={'Authorization': f'Bearer {api_key}'},
+                timeout=10
+            )
+            if resp.status_code == 200:
+                for item in resp.json():
+                    email = item.get('email', '').lower()
+                    if email:
+                        suppressions.add(email)
+        except Exception as e:
+            print(f"Error fetching {endpoint}: {e}")
+
+    return suppressions
+
+
+def filter_suppressed_recipients(recipients: list, api_key: str) -> list:
+    """Remove suppressed emails from recipient list"""
+    suppressions = get_sendgrid_suppressions(api_key)
+    if not suppressions:
+        return recipients
+
+    valid = []
+    for r in recipients:
+        email = r if isinstance(r, str) else r.get('email', '')
+        if email.lower() not in suppressions:
+            valid.append(r)
+        else:
+            print(f"Skipping suppressed email: {email}")
+
+    return valid
+
+
+def sync_suppressions_to_config() -> int:
+    """Check SendGrid suppressions and disable matching recipients in config.
+    Returns count of newly suppressed recipients."""
+    cfg = config.load_config()
+    email_cfg = cfg.get('notifications', {}).get('email', {})
+    api_key = email_cfg.get('sendgrid_api_key')
+
+    if not api_key:
+        return 0
+
+    suppressions = get_sendgrid_suppressions(api_key)
+    if not suppressions:
+        return 0
+
+    recipients = email_cfg.get('recipients', [])
+    count = 0
+
+    for r in recipients:
+        if isinstance(r, dict):
+            email = r.get('email', '').lower()
+            if email in suppressions and not r.get('suppressed'):
+                r['enabled'] = False
+                r['suppressed'] = True
+                count += 1
+
+    if count > 0:
+        config.save_config(cfg)
+
+    return count
+
+
 def send_via_sendgrid(to: list, subject: str, body: str, api_key: str, from_name: str = "RipForge") -> bool:
     """Send email via SendGrid API"""
     try:
@@ -81,13 +152,20 @@ def send_email(to: list, subject: str, body: str, html: bool = False, from_name:
     email_cfg = cfg.get('notifications', {}).get('email', {})
 
     provider = email_cfg.get('provider', 'msmtp')
+    api_key = email_cfg.get('sendgrid_api_key', '')
+
+    # Filter suppressed recipients if enabled (SendGrid only)
+    if email_cfg.get('check_suppressions', True) and api_key and provider == 'sendgrid':
+        to = filter_suppressed_recipients(to, api_key)
+        if not to:
+            print("All recipients are suppressed, skipping email")
+            return False
 
     # Use provided from_name or fall back to config or default
     if not from_name:
         from_name = email_cfg.get('from_name', 'RipForge')
 
     if provider == 'sendgrid':
-        api_key = email_cfg.get('sendgrid_api_key')
         if api_key:
             return send_via_sendgrid(to, subject, body, api_key, from_name)
         else:
