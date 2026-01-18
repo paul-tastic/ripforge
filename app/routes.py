@@ -68,10 +68,31 @@ def api_status():
     engine = ripper.get_engine()
     rip_status = engine.get_status() if engine else None
 
+    # Quick RAM stats for live updates
+    ram_stats = None
+    try:
+        import subprocess
+        result = subprocess.run(['free', '-b'], capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            if len(lines) > 1:
+                parts = lines[1].split()
+                if len(parts) >= 3:
+                    total = int(parts[1])
+                    used = int(parts[2])
+                    ram_stats = {
+                        'total_gb': round(total / (1024**3), 1),
+                        'used_gb': round(used / (1024**3), 1),
+                        'percent': round(used / total * 100) if total > 0 else 0
+                    }
+    except Exception:
+        pass
+
     return jsonify({
         'integrations': integrations,
         'drives': drives,
-        'ripping': rip_status
+        'ripping': rip_status,
+        'ram': ram_stats
     })
 
 

@@ -889,6 +889,21 @@
                     }
                 }
 
+                // Live RAM update
+                if (data.ram) {
+                    const ramEl = document.getElementById('hw-ram');
+                    if (ramEl) {
+                        // Preserve the existing subtext (type/speed) if present
+                        const existingHtml = ramEl.innerHTML;
+                        const subtextMatch = existingHtml.match(/<br><span class="hw-subtext">([^<]+)<\/span>/);
+                        let ramHtml = data.ram.used_gb + ' GB used / ' + data.ram.total_gb + ' GB';
+                        if (subtextMatch) {
+                            ramHtml += '<br><span class="hw-subtext">' + subtextMatch[1] + '</span>';
+                        }
+                        ramEl.innerHTML = ramHtml;
+                    }
+                }
+
                 // Update rip status
                 if (data.ripping) {
                     showRipProgress(data.ripping);
