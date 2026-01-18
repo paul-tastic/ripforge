@@ -18,6 +18,20 @@ from enum import Enum
 from . import activity
 
 
+def sanitize_folder_name(name: str) -> str:
+    """Sanitize a string for use as a folder name.
+
+    Removes/replaces characters that cause issues with MakeMKV or filesystems.
+    """
+    # Replace colons with dashes (common in movie titles like "Star Wars: The Rise of Skywalker")
+    name = name.replace(':', ' -')
+    # Remove other problematic characters
+    name = re.sub(r'[<>"|?*]', '', name)
+    # Clean up multiple spaces
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name
+
+
 class RipStatus(Enum):
     IDLE = "idle"
     DETECTING = "detecting"
@@ -339,6 +353,10 @@ class MakeMKV:
         activity.log_info(f"DEBUG: MakeMKV finished. Lines: {line_count}, PRGV: {prgv_count}, Return: {return_code}")
 
         if return_code == 0:
+            # Detect silent failures: MakeMKV returned success but never reported progress
+            if prgv_count == 0:
+                activity.log_warning("MakeMKV reported success but no progress - possible disc read failure or copy protection")
+                return (False, "MakeMKV reported success but no progress was made - disc may be unreadable or copy-protected", actual_output_path)
             return (True, "", actual_output_path)
         else:
             # Map common MakeMKV error codes
@@ -585,7 +603,7 @@ class RipEngine:
             import shutil
             import glob
 
-            dest_folder_name = job.identified_title or job.disc_label.replace("_", " ").title()
+            dest_folder_name = sanitize_folder_name(job.identified_title or job.disc_label.replace("_", " ").title())
             dest_path = os.path.join(self.movies_path, dest_folder_name)
             # Use output_path if set, otherwise fall back to rip_output_dir
             source_path = job.output_path or job.rip_output_dir
@@ -849,7 +867,7 @@ class RipEngine:
             self._update_step("rip", "active", "Starting rip...")
             job.status = RipStatus.RIPPING
 
-            output_dir = os.path.join(self.raw_path, job.disc_label)
+            output_dir = os.path.join(self.raw_path, sanitize_folder_name(job.disc_label))
             job.rip_output_dir = output_dir  # Track for file size monitoring
 
             # Persist job state so we can recover if service restarts
@@ -963,8 +981,8 @@ class RipEngine:
                     self._move_to_review(job)
                     return
 
-                # Determine destination folder name
-                dest_folder_name = job.identified_title or job.disc_label.replace("_", " ").title()
+                # Determine destination folder name (sanitize for filesystem safety)
+                dest_folder_name = sanitize_folder_name(job.identified_title or job.disc_label.replace("_", " ").title())
                 dest_path = os.path.join(self.movies_path, dest_folder_name)
                 source_path = job.output_path
 
@@ -1154,7 +1172,7 @@ class RipEngine:
 
             # Create output directory for this series/season
             series_name = job.series_title or job.identified_title or job.disc_label.replace("_", " ").title()
-            output_dir = os.path.join(self.raw_path, f"{series_name}_S{job.season_number:02d}")
+            output_dir = os.path.join(self.raw_path, sanitize_folder_name(f"{series_name}_S{job.season_number:02d}"))
             job.rip_output_dir = output_dir
 
             # Persist job state
@@ -1307,10 +1325,7 @@ class RipEngine:
         """
         import shutil
 
-        series_name = job.series_title or job.identified_title or job.disc_label.replace("_", " ").title()
-        # Sanitize series name for filesystem
-        series_name = re.sub(r'[:]', '-', series_name)
-        series_name = re.sub(r'[?<>"|*]', '', series_name)
+        series_name = sanitize_folder_name(job.series_title or job.identified_title or job.disc_label.replace("_", " ").title())
 
         season_folder = f"Season {job.season_number:02d}"
         dest_dir = os.path.join(self.tv_path, series_name, season_folder)

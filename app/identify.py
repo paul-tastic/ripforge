@@ -45,9 +45,10 @@ class IdentificationResult:
     def folder_name(self) -> str:
         """Generate filesystem-safe folder name"""
         name = f"{self.title} ({self.year})"
-        # Remove invalid characters
-        name = re.sub(r'[:]', '-', name)
-        name = re.sub(r'[?<>"|*]', '', name)
+        # Sanitize: colon -> space-dash, remove other invalid characters
+        name = name.replace(':', ' -')
+        name = re.sub(r'[<>"|?*]', '', name)
+        name = re.sub(r'\s+', ' ', name).strip()
         return name
 
     @property

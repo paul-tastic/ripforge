@@ -437,6 +437,59 @@ body {
     vertical-align: middle;
 }
 
+/* Hardware Card Integrations */
+.hw-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 12px 0;
+}
+
+.hw-services {
+    padding-top: 4px;
+}
+
+.hw-services-header {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+.hw-integrations {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.hw-integrations .int-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.hw-integrations .int-dot {
+    font-size: 10px;
+    color: var(--text-muted);
+    transition: color 0.2s;
+}
+
+.hw-integrations .int-dot.connected {
+    color: var(--success);
+}
+
+.hw-integrations .int-dot.error {
+    color: var(--error);
+}
+
+.hw-integrations .int-dot.disabled {
+    color: var(--text-dim);
+}
+
 /* Drive Info */
 .drive-row {
     display: flex;

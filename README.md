@@ -5,6 +5,7 @@
 ## Features
 
 - **Smart Disc Identification** - Parses disc labels + matches runtime against Radarr/TMDB
+- **Filename Sanitization** - Handles colons and special characters in titles (Star Wars: → Star Wars -)
 - **TV Show Auto-Detection** - Detects episode-length tracks and rips all episodes automatically
 - **Hands-Free Mode** - Insert disc, walk away - auto-detects movies vs TV, rips everything
 - **Review Queue** - Failed identifications go to a review folder for manual matching with IMDB/TMDB verification links
@@ -15,6 +16,7 @@
 - **Resilient Ripping** - Job state persists to disk, survives service restarts mid-rip
 - **Live Progress** - File size display during rip (e.g., "2.1 / 5.0 GB"), progress bar
 - **Smart Recovery** - Detects incomplete rips (<90% complete) and won't auto-process them
+- **Silent Failure Detection** - Catches MakeMKV "success" with no actual progress (disc read issues)
 - **Media Server Integration** - Radarr, Sonarr, Overseerr, Plex
 - **Real-time Progress** - Checklist UI shows each step with spinner animations
 - **Hardware Dashboard** - CPU, RAM, storage (SSD/HDD/Pool detection), optical drive
@@ -39,6 +41,42 @@
 - MakeMKV
 - Optical drive (Blu-ray or DVD)
 - msmtp (for email notifications)
+
+## Copy Protection & Decryption
+
+### DVD (CSS Decryption)
+
+For CSS-protected DVDs, install libdvdcss:
+
+```bash
+sudo apt install libdvd-pkg
+sudo dpkg-reconfigure libdvd-pkg
+```
+
+This downloads, compiles, and installs libdvdcss. Without it, CSS-encrypted DVDs will fail with "Read of scrambled sector without authentication" errors.
+
+### Blu-ray (AACS/BD+ Decryption)
+
+MakeMKV handles Blu-ray decryption natively but requires a license key. A free beta key is available:
+
+1. Get the current key from: https://forum.makemkv.com/forum/viewtopic.php?f=5&t=1053
+2. Register it:
+   ```bash
+   mkdir -p ~/.MakeMKV
+   echo 'app_Key = "T-xxxxx..."' > ~/.MakeMKV/settings.conf
+   ```
+
+> **Note:** The beta key expires monthly. Bookmark the forum link and update when rips start failing.
+
+### LibreDrive Mode
+
+For best Blu-ray compatibility (especially protected discs like Star Wars), use a drive that supports LibreDrive mode. Check with:
+
+```bash
+makemkvcon info disc:0 2>&1 | grep -i "libredrive"
+```
+
+If you see `Using LibreDrive mode`, your drive has native disc access bypassing firmware restrictions.
 
 ## Quick Start
 
@@ -235,6 +273,26 @@ Examples:
 - `MARVEL_STUDIOS_GUARDIANS_3` → "Guardians of the Galaxy Vol 3"
 - `NACHO_LIBRE_PS` → "Nacho Libre"
 - `SCHOOL_OF_ROCK_4X3` → "School of Rock"
+
+## Filename Sanitization
+
+Titles with special characters are automatically sanitized for filesystem safety:
+
+| Character | Replacement |
+|-----------|-------------|
+| `:` (colon) | ` -` (space-dash) |
+| `<>"\|?*` | removed |
+| multiple spaces | single space |
+
+Examples:
+- `Star Wars: The Rise of Skywalker` → `Star Wars - The Rise of Skywalker`
+- `Solo: A Star Wars Story` → `Solo - A Star Wars Story`
+- `Mission: Impossible - Fallout` → `Mission - Impossible - Fallout`
+
+Sanitization is applied to:
+- Raw rip output folders
+- Final movie/TV destination folders
+- Output filenames
 
 ## Smart Title Matching
 
