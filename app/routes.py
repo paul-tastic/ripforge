@@ -210,6 +210,42 @@ def api_drive_stop():
     return jsonify(result)
 
 
+    return jsonify(result)
+
+
+
+@main.route('/api/drive/reset', methods=['POST'])
+def api_drive_reset():
+    """Reset drive state - kills lingering processes, clears stale state"""
+    engine = ripper.get_engine()
+    if not engine:
+        return jsonify({'success': False, 'error': 'Engine not initialized'}), 500
+
+    result = engine.reset_drive_state()
+    return jsonify(result)
+
+
+@main.route('/api/drive/eject', methods=['POST'])
+def api_drive_eject():
+    """Force eject disc"""
+    engine = ripper.get_engine()
+    if not engine:
+        return jsonify({'success': False, 'error': 'Engine not initialized'}), 500
+
+    result = engine.force_eject_disc()
+    return jsonify(result)
+
+
+@main.route('/api/service/restart', methods=['POST'])
+def api_service_restart():
+    """Restart RipForge service"""
+    engine = ripper.get_engine()
+    if not engine:
+        return jsonify({'success': False, 'error': 'Engine not initialized'}), 500
+
+    result = engine.restart_service()
+    return jsonify(result)
+
 @main.route('/api/disc/check')
 def api_disc_check():
     """Check if a disc is present"""

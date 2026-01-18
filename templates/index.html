@@ -85,8 +85,17 @@
                 <button class="btn btn-secondary" id="btn-scan-disc" onclick="scanDisc()">
                     Scan Disc
                 </button>
-                <button class="btn btn-danger" id="btn-reset-rip" onclick="resetRip()" style="display: none;">
+                <button class="btn btn-danger" id="btn-reset-rip" onclick="resetRip()" style="display: none;" title="Clear current job state">
                     Reset
+                </button>
+                <button class="btn btn-secondary" id="btn-reset-drive" onclick="resetDriveState()" style="display: none;" title="Kill lingering MakeMKV processes and clear stale state. Use when scans fail after errors.">
+                    Reset Drive
+                </button>
+                <button class="btn btn-secondary" id="btn-eject-disc" onclick="ejectDisc()" style="display: none;" title="Eject the disc from the drive">
+                    Eject
+                </button>
+                <button class="btn btn-warning" id="btn-restart-service" onclick="restartService()" style="display: none;" title="Restart the RipForge service. Use as last resort if other options fail.">
+                    Restart Service
                 </button>
             </div>
         </div>
@@ -1291,6 +1300,16 @@
         if (ripData.status === 'error' || ripData.status === 'complete') {
             // Rip finished - show Reset, hide Stop Drive
             resetBtn.style.display = 'inline-block';
+            // Show recovery buttons on error
+            if (ripData.status === "error") {
+                document.getElementById("btn-reset-drive").style.display = "inline-block";
+                document.getElementById("btn-eject-disc").style.display = "inline-block";
+                document.getElementById("btn-restart-service").style.display = "inline-block";
+            } else {
+                document.getElementById("btn-reset-drive").style.display = "none";
+                document.getElementById("btn-restart-service").style.display = "none";
+            }
+            document.getElementById("btn-eject-disc").style.display = "inline-block";
             ripActions.style.display = 'none';
             stopBtn.style.display = 'none';
             document.getElementById('btn-start-rip').disabled = false;
@@ -1298,10 +1317,16 @@
         } else if (ripData.status === 'ripping' || ripData.status === 'moving' || ripData.status === 'scanning') {
             // Rip in progress - show Stop Drive, hide Reset
             resetBtn.style.display = 'none';
+            if (document.getElementById("btn-reset-drive")) document.getElementById("btn-reset-drive").style.display = "none";
+            if (document.getElementById("btn-eject-disc")) document.getElementById("btn-eject-disc").style.display = "none";
+            if (document.getElementById("btn-restart-service")) document.getElementById("btn-restart-service").style.display = "none";
             ripActions.style.display = 'block';
             stopBtn.style.display = 'inline-block';
         } else {
             resetBtn.style.display = 'none';
+            if (document.getElementById("btn-reset-drive")) document.getElementById("btn-reset-drive").style.display = "none";
+            if (document.getElementById("btn-eject-disc")) document.getElementById("btn-eject-disc").style.display = "none";
+            if (document.getElementById("btn-restart-service")) document.getElementById("btn-restart-service").style.display = "none";
             ripActions.style.display = 'none';
             stopBtn.style.display = 'inline-block';
         }
@@ -1536,6 +1561,76 @@
                 }
             });
     }
+
+    function resetDriveState() {
+        showToast('Resetting drive state...', 'info');
+        fetch('/api/drive/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('Drive reset complete. Disc present: ' + data.disc_present, 'success');
+                    // Hide recovery buttons
+                    document.getElementById('btn-reset-drive').style.display = 'none';
+                    document.getElementById('btn-restart-service').style.display = 'none';
+                } else {
+                    showToast('Drive reset failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            })
+            .catch(err => {
+                showToast('Drive reset failed: ' + err, 'error');
+            });
+    }
+
+    function ejectDisc() {
+        fetch('/api/drive/eject', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('Disc ejected', 'success');
+                } else {
+                    showToast('Eject failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            })
+            .catch(err => {
+                showToast('Eject failed: ' + err, 'error');
+            });
+    }
+
+    function restartService() {
+        showConfirm(
+            'This will restart the RipForge service. The page will reload automatically. Continue?',
+            function() {
+                showToast('Restarting service...', 'info');
+                fetch('/api/service/restart', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            showToast('Service restarting. Page will reload in 5 seconds...', 'success');
+                            setTimeout(() => window.location.reload(), 5000);
+                        } else {
+                            showToast('Restart failed: ' + (data.error || 'Unknown error'), 'error');
+                        }
+                    })
+                    .catch(err => {
+                        // Service might have restarted, try reloading anyway
+                        showToast('Reloading page...', 'info');
+                        setTimeout(() => window.location.reload(), 3000);
+                    });
+            },
+            'Restart Service',
+            'Restart'
+        );
+    }
+
 
     function confirmStopDrive() {
         showConfirm(
