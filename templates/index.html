@@ -731,11 +731,33 @@
             .then(r => r.json())
             .then(data => {
                 document.getElementById('hw-hostname').textContent = data.hostname || '-';
-                document.getElementById('hw-cpu').textContent = data.cpu + (data.cpu_cores ? ' (' + data.cpu_cores + ' cores)' : '');
-                document.getElementById('hw-ram').textContent = data.ram_used_gb + ' GB used / ' + data.ram_gb + ' GB';
+
+                // CPU - show cores on second line if present
+                let cpuHtml = data.cpu;
+                if (data.cpu_cores) {
+                    cpuHtml += `<br><span class="hw-subtext">${data.cpu_cores} cores</span>`;
+                }
+                document.getElementById('hw-cpu').innerHTML = cpuHtml;
+
+                // Memory - include type and speed if available
+                let ramText = data.ram_used_gb + ' GB used / ' + data.ram_gb + ' GB';
+                if (data.ram_type || data.ram_speed) {
+                    let ramExtra = [];
+                    if (data.ram_type) ramExtra.push(data.ram_type);
+                    if (data.ram_speed) ramExtra.push(data.ram_speed);
+                    ramText += `<br><span class="hw-subtext">${ramExtra.join(' ')}</span>`;
+                }
+                document.getElementById('hw-ram').innerHTML = ramText;
 
                 document.getElementById('hw-os').textContent = data.os || '-';
-                document.getElementById('hw-ip').textContent = data.ip_address || '-';
+
+                // IP Address - show interface type if available
+                let ipText = data.ip_address || '-';
+                if (data.network_interface) {
+                    ipText += ` (${data.network_interface})`;
+                }
+                document.getElementById('hw-ip').textContent = ipText;
+
                 document.getElementById('hw-uptime').textContent = data.uptime || '-';
                 document.getElementById('hw-docker').textContent = data.docker_version || '-';
 
@@ -748,7 +770,7 @@
                     document.getElementById('hw-gpu-row').style.display = 'flex';
                 }
 
-                // Storage drives
+                // Storage drives (mounted)
                 const storageContainer = document.getElementById('hw-storage-rows');
                 storageContainer.innerHTML = '';
                 if (data.storage && data.storage.length > 0) {
@@ -780,6 +802,37 @@
                         <span class="hw-value">${data.disk_used} / ${data.disk_total} (${data.disk_percent}%)</span>
                     `;
                     storageContainer.appendChild(row);
+                }
+
+                // Physical drives (show as expandable details)
+                if (data.drives && data.drives.length > 0) {
+                    const drivesRow = document.createElement('div');
+                    drivesRow.className = 'hw-row hw-drives-toggle';
+                    drivesRow.innerHTML = `
+                        <span class="hw-label">Physical Drives <span class="toggle-arrow">▸</span></span>
+                        <span class="hw-value">${data.drives.length} drives</span>
+                    `;
+                    const drivesList = document.createElement('div');
+                    drivesList.className = 'hw-drives-list';
+                    drivesList.style.display = 'none';
+                    data.drives.forEach(drive => {
+                        const driveRow = document.createElement('div');
+                        driveRow.className = 'hw-row hw-row-nested';
+                        driveRow.innerHTML = `
+                            <span class="hw-label">${drive.name.replace('/dev/', '')} <span class="drive-type">${drive.type}</span></span>
+                            <span class="hw-value">${drive.size}<br><span class="hw-subtext">${drive.model}</span></span>
+                        `;
+                        drivesList.appendChild(driveRow);
+                    });
+                    storageContainer.appendChild(drivesRow);
+                    storageContainer.appendChild(drivesList);
+
+                    // Toggle click handler
+                    drivesRow.onclick = () => {
+                        const isHidden = drivesList.style.display === 'none';
+                        drivesList.style.display = isHidden ? 'block' : 'none';
+                        drivesRow.querySelector('.toggle-arrow').textContent = isHidden ? '▾' : '▸';
+                    };
                 }
 
                 // Optical drive

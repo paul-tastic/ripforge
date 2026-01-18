@@ -4,6 +4,7 @@ Handles loading, saving, and auto-detection of services
 """
 
 import os
+import re
 import yaml
 import subprocess
 import requests
@@ -217,13 +218,17 @@ def detect_hardware() -> dict:
         'cpu_cores': 0,
         'ram_gb': 0,
         'ram_used_gb': 0,
+        'ram_type': None,         # e.g., "DDR4"
+        'ram_speed': None,        # e.g., "2666 MHz"
         'storage': [],
+        'drives': [],             # Individual physical drives
         'disk_total': '',
         'disk_used': '',
         'disk_percent': 0,
         'os': 'Unknown',
         'hostname': 'Unknown',
         'ip_address': 'Unknown',
+        'network_interface': None,  # e.g., "Ethernet" or "Wi-Fi"
         'uptime': 'Unknown',
         'gpu': None,
         'docker_version': None
@@ -260,6 +265,28 @@ def detect_hardware() -> dict:
                     hardware['ram_gb'] = int(parts[1])
                     hardware['ram_used_gb'] = int(parts[2])
 
+        # RAM type and speed (requires sudo, may fail)
+        try:
+            result = subprocess.run(
+                ["sudo", "dmidecode", "-t", "memory"],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    line = line.strip()
+                    if line.startswith('Type:') and 'DDR' in line:
+                        hardware['ram_type'] = line.split(':')[1].strip()
+                    elif line.startswith('Speed:') and 'MT/s' in line:
+                        speed = line.split(':')[1].strip()
+                        # Convert "2666 MT/s" to "2666 MHz"
+                        hardware['ram_speed'] = speed.replace('MT/s', 'MHz')
+                    elif line.startswith('Configured Memory Speed:') and 'MT/s' in line:
+                        # Prefer configured speed if available
+                        speed = line.split(':')[1].strip()
+                        hardware['ram_speed'] = speed.replace('MT/s', 'MHz')
+        except Exception:
+            pass  # dmidecode may require sudo, silently fail
+
         # Get drive types (SSD vs HDD) - ROTA=0 is SSD, ROTA=1 is HDD
         drive_types = {}
         result = subprocess.run(
@@ -271,6 +298,36 @@ def detect_hardware() -> dict:
                 parts = line.split()
                 if len(parts) >= 2:
                     drive_types[parts[0]] = 'SSD' if parts[1] == '0' else 'HDD'
+
+        # Individual physical drives with details (use pipe separator for reliable parsing)
+        result = subprocess.run(
+            ["lsblk", "-d", "-o", "NAME,SIZE,MODEL,TYPE", "-n", "-P"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split('\n'):
+                if not line:
+                    continue
+                # Parse KEY="value" format
+                fields = {}
+                for match in re.finditer(r'(\w+)="([^"]*)"', line):
+                    fields[match.group(1)] = match.group(2)
+                name = fields.get('NAME', '')
+                # Skip loop devices and optical drives
+                if name.startswith('loop') or name.startswith('sr'):
+                    continue
+                dtype = fields.get('TYPE', '')
+                if dtype != 'disk':
+                    continue
+                size = fields.get('SIZE', '')
+                model = fields.get('MODEL', '').strip() or 'Unknown'
+                drive_type = drive_types.get(name, 'Unknown')
+                hardware['drives'].append({
+                    'name': f'/dev/{name}',
+                    'size': size,
+                    'model': model,
+                    'type': drive_type
+                })
 
         # Storage info - get all mounted filesystems with usage
         result = subprocess.run(
@@ -332,7 +389,7 @@ def detect_hardware() -> dict:
                 elif 'Static hostname:' in line:
                     hardware['hostname'] = line.split(':')[1].strip()
 
-        # IP address
+        # IP address and network interface type
         result = subprocess.run(
             ["hostname", "-I"], capture_output=True, text=True, timeout=10
         )
@@ -340,6 +397,32 @@ def detect_hardware() -> dict:
             ips = result.stdout.strip().split()
             if ips:
                 hardware['ip_address'] = ips[0]
+
+        # Detect network interface type (Ethernet vs Wi-Fi)
+        result = subprocess.run(
+            ["ip", "-o", "addr", "show"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                # Skip loopback and virtual interfaces
+                if ' lo ' in line or 'docker' in line or 'br-' in line or 'veth' in line:
+                    continue
+                # Look for interface with our IP (handle subnet mask like /24)
+                ip_with_mask = hardware['ip_address'] + '/'
+                if ip_with_mask in line or hardware['ip_address'] + ' ' in line:
+                    # Extract interface name (second field)
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        iface = parts[1].rstrip(':')
+                        # Determine type from interface name
+                        if iface.startswith('wl') or iface.startswith('wlan'):
+                            hardware['network_interface'] = 'Wi-Fi'
+                        elif iface.startswith('en') or iface.startswith('eth'):
+                            hardware['network_interface'] = 'Ethernet'
+                        else:
+                            hardware['network_interface'] = iface
+                        break
 
         # Uptime
         result = subprocess.run(

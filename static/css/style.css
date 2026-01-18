@@ -426,6 +426,38 @@ body {
     word-break: break-word;
 }
 
+.hw-subtext {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+.hw-drives-toggle {
+    cursor: pointer;
+    user-select: none;
+}
+
+.hw-drives-toggle:hover {
+    background: var(--bg-dark);
+    border-radius: 4px;
+}
+
+.toggle-arrow {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: 4px;
+}
+
+.hw-row-nested {
+    padding-left: 12px;
+    border-left: 2px solid var(--border);
+    margin-left: 4px;
+}
+
+.hw-drives-list {
+    margin-top: 4px;
+}
+
 .drive-type {
     font-size: 10px;
     font-weight: 600;
