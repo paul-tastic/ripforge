@@ -19,6 +19,7 @@
 - **Live Progress** - File size display during rip (e.g., "2.1 / 5.0 GB"), progress bar
 - **Smart Recovery** - Detects incomplete rips (<90% complete) and won't auto-process them
 - **Silent Failure Detection** - Catches MakeMKV "success" with no actual progress (disc read issues)
+- **Failure Tracking** - Dedicated tab logs failed rips with kernel I/O errors for troubleshooting
 - **Media Server Integration** - Radarr, Sonarr, Overseerr, Plex
 - **Real-time Progress** - Checklist UI shows each step with spinner animations
 - **Hardware Dashboard** - CPU, RAM (with DDR type/speed), storage (SSD/HDD/Pool + individual drives), optical drive, network interface type, live memory updates
@@ -214,6 +215,77 @@ ripping:
 - **Always Backup** - Always decrypts full disc first, then extracts. Slower but most reliable for protected content
 - **Direct Only** - Only attempts direct rip; no fallback if copy protection blocks it
 
+### Rip Mode Flowchart
+
+```mermaid
+flowchart TD
+    A[🔵 Disc Inserted] --> B{DVD or Blu-ray?}
+
+    B -->|DVD| C[Direct Extraction Only]
+    C --> D{Success?}
+    D -->|Yes| E[✅ Rip Complete]
+    D -->|No| F[❌ Failed - Check Failures Tab]
+
+    B -->|Blu-ray| G{Rip Mode Setting?}
+
+    G -->|Direct Only| H[Try Direct Rip]
+    H --> I{Success?}
+    I -->|Yes| E
+    I -->|No| F
+
+    G -->|Smart| J[Try Direct Rip]
+    J --> K{Success?}
+    K -->|Yes| E
+    K -->|No| L[Auto-Retry via Backup]
+    L --> M[Decrypt Full Disc]
+    M --> N[Extract from Backup]
+    N --> O{Success?}
+    O -->|Yes| E
+    O -->|No| F
+
+    G -->|Always Backup| P[Decrypt Full Disc]
+    P --> Q[Extract from Backup]
+    Q --> R{Success?}
+    R -->|Yes| E
+    R -->|No| F
+
+    style A fill:#1e40af,color:#fff
+    style E fill:#166534,color:#fff
+    style F fill:#991b1b,color:#fff
+```
+
+### DVD vs Blu-ray Handling
+
+```mermaid
+flowchart LR
+    subgraph DVD["📀 DVD Workflow"]
+        direction TB
+        D1[Insert DVD] --> D2[Detect CSS Protection]
+        D2 --> D3{libdvdcss installed?}
+        D3 -->|Yes| D4[Direct Extraction]
+        D3 -->|No| D5[❌ Decryption Failed]
+        D4 --> D6[✅ MKV Output]
+    end
+
+    subgraph BD["💿 Blu-ray Workflow"]
+        direction TB
+        B1[Insert Blu-ray] --> B2[Detect AACS/BD+]
+        B2 --> B3{MakeMKV Key Valid?}
+        B3 -->|Yes| B4{LibreDrive?}
+        B3 -->|No| B5[❌ Key Expired]
+        B4 -->|Yes| B6[Enhanced Decryption]
+        B4 -->|No| B7[Standard Decryption]
+        B6 --> B8[Apply Rip Mode]
+        B7 --> B8
+        B8 --> B9[✅ MKV Output]
+    end
+
+    style D6 fill:#166534,color:#fff
+    style D5 fill:#991b1b,color:#fff
+    style B9 fill:#166534,color:#fff
+    style B5 fill:#991b1b,color:#fff
+```
+
 ### Email Notifications
 
 ```yaml
@@ -310,7 +382,8 @@ ripforge/
 │   ├── index.html         # Dashboard
 │   ├── settings.html      # Configuration (integrations, paths, ripping)
 │   ├── notifications.html # Email recipients, events, weekly digest
-│   └── history.html       # Rip history
+│   ├── history.html       # Rip history
+│   └── failures.html      # Failed rip tracking with kernel errors
 ├── scripts/
 │   ├── setup.sh
 │   └── setup-udev.sh
