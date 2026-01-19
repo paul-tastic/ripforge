@@ -1099,13 +1099,18 @@ class RipEngine:
             return None
 
     def _get_output_size(self, output_dir: str) -> int:
-        """Get total size of MKV files in output directory"""
-        import glob
+        """Get total size of files in output directory (MKV for rips, all files for backups)"""
         total = 0
         try:
             if os.path.isdir(output_dir):
-                for mkv in glob.glob(os.path.join(output_dir, "*.mkv")):
-                    total += os.path.getsize(mkv)
+                # Check for MKV files (rip output)
+                for f in Path(output_dir).glob("*.mkv"):
+                    total += f.stat().st_size
+                # If no MKVs, count all files recursively (backup output has BDMV structure)
+                if total == 0:
+                    for f in Path(output_dir).rglob("*"):
+                        if f.is_file():
+                            total += f.stat().st_size
         except:
             pass
         return total
