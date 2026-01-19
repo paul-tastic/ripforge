@@ -543,6 +543,26 @@ def api_activity_log():
     return jsonify({'log': lines})
 
 
+@main.route('/api/rip-history')
+def api_rip_history():
+    """Get rip history for the history page"""
+    from pathlib import Path
+    import json
+    
+    logs_dir = Path(__file__).parent.parent / "logs"
+    history_file = logs_dir / "rip_history.json"
+    
+    rips = []
+    try:
+        if history_file.exists():
+            with open(history_file) as f:
+                rips = json.load(f)
+    except Exception:
+        pass
+    
+    return jsonify({'rips': rips})
+
+
 @main.route('/api/hardware')
 def api_hardware():
     """Get system hardware info for the flex card"""

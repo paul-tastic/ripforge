@@ -27,10 +27,10 @@
                 <tr>
                     <th>Date</th>
                     <th>Title</th>
-                    <th>Type</th>
-                    <th>Duration</th>
+                    <th>Disc</th>
+                    <th>Rip Time</th>
                     <th>Status</th>
-                    <th>Actions</th>
+                    <th>Size</th>
                 </tr>
             </thead>
             <tbody id="history-body">
@@ -106,6 +106,75 @@
     .log-line.info {
         color: var(--warning);
     }
+
+    .title-cell {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .poster-thumb {
+        width: 30px;
+        height: 45px;
+        object-fit: cover;
+        border-radius: 4px;
+    }
+
+    .badge {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+    }
+
+    .badge-bluray {
+        background: #1e40af;
+        color: white;
+    }
+
+    .badge-dvd {
+        background: #c2410c;
+        color: white;
+    }
+
+    .status-badge {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+    }
+
+    .status-badge.success {
+        background: rgba(34, 197, 94, 0.2);
+        color: var(--success);
+    }
+
+    .status-badge.error {
+        background: rgba(239, 68, 68, 0.2);
+        color: var(--error);
+    }
+
+    .history-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .history-table th,
+    .history-table td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .history-table th {
+        color: var(--text-muted);
+        font-weight: 500;
+        font-size: 12px;
+        text-transform: uppercase;
+    }
+
+    .history-table tbody tr:hover {
+        background: var(--bg-dark);
+    }
 </style>
 {% endblock %}
 
@@ -135,6 +204,50 @@
         }
     }
 
-    document.addEventListener('DOMContentLoaded', loadActivityLog);
+    // Load rip history
+    async function loadRipHistory() {
+        try {
+            const response = await fetch('/api/rip-history');
+            const data = await response.json();
+            const tbody = document.getElementById('history-body');
+            
+            if (data.rips && data.rips.length > 0) {
+                tbody.innerHTML = data.rips.map(rip => {
+                    const date = rip.completed_at ? new Date(rip.completed_at).toLocaleDateString() : 'Unknown';
+                    const statusClass = rip.status === 'complete' ? 'success' : 'error';
+                    const statusIcon = rip.status === 'complete' ? '✓' : '✗';
+                    const discType = rip.disc_type || 'unknown';
+                    const discBadge = discType.toLowerCase() === 'bluray' 
+                        ? '<span class="badge badge-bluray">BD</span>'
+                        : '<span class="badge badge-dvd">DVD</span>';
+                    
+                    return `
+                        <tr>
+                            <td>${date}</td>
+                            <td>
+                                <div class="title-cell">
+                                    ${rip.poster_url ? `<img src="${rip.poster_url}" alt="" class="poster-thumb">` : ''}
+                                    <span>${rip.title || 'Unknown'} ${rip.year ? `(${rip.year})` : ''}</span>
+                                </div>
+                            </td>
+                            <td>${discBadge}</td>
+                            <td>${rip.rip_duration || '-'}</td>
+                            <td><span class="status-badge ${statusClass}">${statusIcon} ${rip.status || 'unknown'}</span></td>
+                            <td>${rip.size_gb ? rip.size_gb.toFixed(1) + ' GB' : '-'}</td>
+                        </tr>
+                    `;
+                }).join('');
+            } else {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No rip history yet. Insert a disc to get started!</td></tr>';
+            }
+        } catch (err) {
+            console.error('Error loading rip history:', err);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadActivityLog();
+        loadRipHistory();
+    });
 </script>
 {% endblock %}

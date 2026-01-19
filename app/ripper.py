@@ -448,7 +448,12 @@ class MakeMKV:
         # Debug: log exact command being run
         from . import activity
         cmd_str = "makemkvcon " + " ".join(f'"{a}"' if " " in a else a for a in args)
-        activity.log_info(f"DEBUG: Running: {cmd_str}")
+        # Check debug logging setting
+        from . import config as cfg_module
+        debug_cfg = cfg_module.load_config()
+        debug_enabled = debug_cfg.get('ripping', {}).get('debug_logging', False)
+        if debug_enabled:
+            activity.log_info(f"DEBUG: Running: {cmd_str}")
 
         process = self._run_cmd(args)
         last_error = ""
@@ -464,7 +469,8 @@ class MakeMKV:
 
             # Log first few lines for debugging
             if line_count <= 5:
-                activity.log_info(f"DEBUG MakeMKV[{line_count}]: {line[:100]}")
+                if debug_enabled:
+                    activity.log_info(f"DEBUG MakeMKV[{line_count}]: {line[:100]}")
 
             # Parse progress: PRGV:current,total,max
             if line.startswith("PRGV:"):
@@ -479,7 +485,8 @@ class MakeMKV:
                         progress_callback(percent)
                         # Log occasional progress for debugging
                         if prgv_count == 1 or prgv_count % 100 == 0:
-                            activity.log_info(f"DEBUG: Progress {percent}% (PRGV #{prgv_count})")
+                            if debug_enabled:
+                                activity.log_info(f"DEBUG: Progress {percent}% (PRGV #{prgv_count})")
 
             # Fallback: poll folder size if no PRGV and expected_size provided
             if prgv_count == 0 and expected_size > 0 and progress_callback:
@@ -513,10 +520,12 @@ class MakeMKV:
                         path_match = re.search(r'file://(/[^\s]+)', msg)
                         if path_match:
                             actual_output_path = path_match.group(1)
-                            activity.log_info(f"DEBUG: MakeMKV saving to: {actual_output_path}")
+                            if debug_enabled:
+                                activity.log_info(f"DEBUG: MakeMKV saving to: {actual_output_path}")
 
         return_code = process.wait()
-        activity.log_info(f"DEBUG: MakeMKV finished. Lines: {line_count}, PRGV: {prgv_count}, Return: {return_code}")
+        if debug_enabled:
+            activity.log_info(f"DEBUG: MakeMKV finished. Lines: {line_count}, PRGV: {prgv_count}, Return: {return_code}")
 
         if return_code == 0:
             # Detect silent failures: MakeMKV returned success but never reported progress
@@ -590,7 +599,7 @@ class MakeMKV:
             line_count += 1
 
             # Log first few lines for debugging
-            if line_count <= 5:
+            if line_count <= 5 and debug_enabled:
                 activity.log_info(f"BACKUP MakeMKV[{line_count}]: {line[:100]}")
 
             # Parse progress: PRGV:current,total,max
@@ -702,7 +711,7 @@ class MakeMKV:
             line = line.strip()
             line_count += 1
 
-            if line_count <= 5:
+            if line_count <= 5 and debug_enabled:
                 activity.log_info(f"RIP FROM BACKUP MakeMKV[{line_count}]: {line[:100]}")
 
             if line.startswith("PRGV:"):

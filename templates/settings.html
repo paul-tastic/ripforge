@@ -162,13 +162,13 @@
                 <small>Keep original MakeMKV quality</small>
             </div>
             <div class="field rip-mode-field">
-                <label>Rip Mode</label>
+                <label>Rip Mode <span style="color: var(--text-muted); font-weight: normal;">(Blu-ray only)</span></label>
                 <select id="rip-mode">
                     <option value="smart" {% if config.ripping.rip_mode == 'smart' or not config.ripping.rip_mode %}selected{% endif %}>Smart (Recommended)</option>
                     <option value="always_backup" {% if config.ripping.rip_mode == 'always_backup' %}selected{% endif %}>Always Backup</option>
                     <option value="direct_only" {% if config.ripping.rip_mode == 'direct_only' %}selected{% endif %}>Direct Only</option>
                 </select>
-                <small id="rip-mode-desc">Try direct first, auto-fallback to backup if copy protection detected</small>
+                <small id="rip-mode-desc">Try direct first, auto-fallback to backup if copy protection detected. DVDs always use direct extraction.</small>
             </div>
         </div>
         <div class="rip-mode-info" id="rip-mode-info">
@@ -226,6 +226,13 @@
                     <span>Eject Disc When Done</span>
                 </label>
                 <small>Automatically eject disc after ripping completes</small>
+            </div>
+            <div class="field">
+                <label class="toggle-label">
+                    <input type="checkbox" id="debug-logging" {% if config.ripping.debug_logging %}checked{% endif %}>
+                    <span>Debug Logging</span>
+                </label>
+                <small>Show raw MakeMKV protocol messages in activity log</small>
             </div>
         </div>
     </section>
@@ -556,7 +563,8 @@
                 auto_rip_delay: parseInt(document.getElementById('auto-rip-delay').value),
                 confidence_threshold: parseInt(document.getElementById('confidence-threshold').value),
                 notify_uncertain: document.getElementById('notify-uncertain').checked,
-                eject_when_done: document.getElementById('eject-when-done').checked
+                eject_when_done: document.getElementById('eject-when-done').checked,
+                debug_logging: document.getElementById('debug-logging').checked
             },
             paths: {
                 raw_rips: document.getElementById('path-raw').value,
