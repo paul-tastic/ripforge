@@ -323,17 +323,17 @@ class TestNotificationsRoute:
 class TestAPIDiscCheck:
     """Tests for the /api/disc/check endpoint"""
 
-    @patch('app.routes.rip_engine')
+    @patch('app.ripper.get_engine')
     def test_disc_check_no_engine(self, mock_engine, client):
         """Test disc check when no engine"""
         mock_engine.return_value = None
         response = client.get('/api/disc/check')
         assert response.status_code == 200
 
-    @patch('app.routes.rip_engine')
+    @patch('app.ripper.get_engine')
     def test_disc_check_with_engine(self, mock_engine, client):
         """Test disc check with engine"""
-        mock_engine.check_disc.return_value = {'present': True, 'label': 'TEST_DISC'}
+        mock_engine.return_value.check_disc.return_value = {'present': True, 'label': 'TEST_DISC'}
         response = client.get('/api/disc/check')
         assert response.status_code == 200
 
@@ -341,7 +341,7 @@ class TestAPIDiscCheck:
 class TestAPIDriveEject:
     """Tests for the /api/drive/eject endpoint"""
 
-    @patch('app.routes.rip_engine')
+    @patch('app.ripper.get_engine')
     def test_drive_eject_no_engine(self, mock_engine, client):
         """Test drive eject when no engine"""
         mock_engine.return_value = None
@@ -352,7 +352,7 @@ class TestAPIDriveEject:
 class TestAPIDriveReset:
     """Tests for the /api/drive/reset endpoint"""
 
-    @patch('app.routes.rip_engine')
+    @patch('app.ripper.get_engine')
     def test_drive_reset_no_engine(self, mock_engine, client):
         """Test drive reset when no engine"""
         mock_engine.return_value = None
