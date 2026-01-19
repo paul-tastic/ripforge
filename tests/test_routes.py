@@ -59,6 +59,42 @@ class TestHistoryRoute:
         assert response.status_code == 200
 
 
+class TestFailuresRoute:
+    """Tests for the failures route"""
+
+    def test_failures_returns_200(self, client):
+        """Test failures page loads successfully"""
+        response = client.get('/failures')
+        assert response.status_code == 200
+
+    def test_api_failures_returns_json(self, client):
+        """Test failures API returns JSON"""
+        response = client.get('/api/failures')
+        assert response.status_code == 200
+        assert response.content_type == 'application/json'
+
+    def test_api_failures_has_failures_key(self, client):
+        """Test failures API returns failures array"""
+        response = client.get('/api/failures')
+        data = json.loads(response.data)
+        assert 'failures' in data
+        assert isinstance(data['failures'], list)
+
+    def test_api_failures_delete(self, client):
+        """Test clearing failures via DELETE"""
+        with patch('app.config.clear_failure_log') as mock_clear:
+            response = client.delete('/api/failures')
+            assert response.status_code == 200
+            mock_clear.assert_called_once()
+
+    def test_api_failures_delete_single(self, client):
+        """Test deleting single failure by index"""
+        with patch('app.config.delete_failure') as mock_delete:
+            response = client.delete('/api/failures/0')
+            assert response.status_code == 200
+            mock_delete.assert_called_once_with(0)
+
+
 class TestAPIStatus:
     """Tests for the /api/status endpoint"""
 
