@@ -290,6 +290,67 @@ class MakeMKV:
 
         return info
 
+    def get_backup_main_feature(self, backup_path: str) -> Optional[int]:
+        """Scan a backup folder and return the index of the longest track.
+        
+        IMPORTANT: Track indices from disc scan may differ from backup scan.
+        Always use this function to get the correct track index for backup rips.
+        
+        Args:
+            backup_path: Path to the backup folder containing BDMV structure
+            
+        Returns:
+            Track index of the longest track (main feature), or None if scan fails
+        """
+        activity.log_info(f"BACKUP SCAN: Scanning {backup_path} for main feature track...")
+        
+        args = ["-r", "info", f"file:{backup_path}"]
+        process = self._run_cmd(args)
+        
+        longest_track = {"index": None, "duration": 0}
+        tracks_found = []
+        
+        for line in process.stdout:
+            line = line.strip()
+            
+            # Parse track duration: TINFO:0,9,0,"1:45:30"
+            if line.startswith("TINFO:") and ",9,0," in line:
+                match = re.search(r'TINFO:(\d+),9,0,"([^"]*)"', line)
+                if match:
+                    track_num = int(match.group(1))
+                    duration_str = match.group(2)
+                    
+                    try:
+                        parts = duration_str.split(":")
+                        if len(parts) == 3:
+                            duration_secs = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+                        elif len(parts) == 2:
+                            duration_secs = int(parts[0]) * 60 + int(parts[1])
+                        else:
+                            duration_secs = 0
+                        
+                        tracks_found.append((track_num, duration_secs, duration_str))
+                        
+                        if duration_secs > longest_track["duration"]:
+                            longest_track = {"index": track_num, "duration": duration_secs}
+                    except:
+                        pass
+        
+        process.wait()
+        
+        if tracks_found:
+            activity.log_info(f"BACKUP SCAN: Found {len(tracks_found)} tracks")
+            for t in sorted(tracks_found, key=lambda x: -x[1])[:3]:
+                activity.log_info(f"BACKUP SCAN:   Track {t[0]}: {t[2]} ({t[1] // 60}m)")
+        
+        if longest_track["index"] is not None and longest_track["duration"] > 2700:
+            activity.log_info(f"BACKUP SCAN: Main feature is track {longest_track['index']} ({longest_track['duration'] // 60}m)")
+            return longest_track["index"]
+        else:
+            activity.log_warning(f"BACKUP SCAN: No suitable main feature found")
+            return None
+
+
     def select_best_track(self, tracks: list, official_runtime_seconds: int, tolerance: int = 30) -> tuple:
         """Select track closest to official runtime (handles fake playlist protection).
 
@@ -1521,6 +1582,16 @@ class RipEngine:
                 if backup_success:
                     activity.log_success("Backup complete, ripping from backup...")
                     self._update_step("rip", "active", "Ripping from backup...")
+
+                    # CRITICAL: Re-scan backup to get correct track index
+                    # Track indices from disc scan may differ from backup scan!
+                    backup_main_feature = self.makemkv.get_backup_main_feature(backup_dir)
+                    if backup_main_feature is not None:
+                        if backup_main_feature != main_feature:
+                            activity.log_warning(f"TRACK INDEX FIX: Disc had track {main_feature}, backup has track {backup_main_feature}")
+                        main_feature = backup_main_feature
+                    else:
+                        activity.log_warning(f"BACKUP SCAN: Could not determine main feature, using disc track {main_feature}")
 
                     def backup_rip_progress_cb(percent):
                         # Second half of progress (50-100%)

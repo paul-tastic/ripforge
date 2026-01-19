@@ -490,18 +490,33 @@ class SmartIdentifier:
                     score += 40
                     score_breakdown.append(f"sequel #{sequel_num} match +40")
 
-            # Runtime match scoring
+            # Runtime match scoring - use PERCENTAGE difference, not absolute
+            # A 3min track claiming to be a 4min movie is 25% off - terrible match
+            # A 115min track claiming to be a 120min movie is 4% off - good match
             if runtime_seconds and movie_runtime > 0:
-                diff = abs(runtime_seconds - movie_runtime)
-                if diff <= self.runtime_tolerance:
-                    runtime_score = 100 - (diff / self.runtime_tolerance * 50)
-                    score += runtime_score
-                    score_breakdown.append(f"runtime +{runtime_score:.0f} (diff {diff // 60}m)")
-                elif diff <= self.runtime_tolerance * 2:
-                    score += 25
-                    score_breakdown.append(f"runtime +25 (diff {diff // 60}m, partial)")
+                # CRITICAL: Tracks under 10 minutes cannot be main features
+                if runtime_seconds < 600:  # < 10 minutes
+                    score -= 100  # Heavy penalty - this is NOT a movie
+                    score_breakdown.append(f"runtime -100 (track only {runtime_seconds // 60}m, too short for movie)")
                 else:
-                    score_breakdown.append(f"runtime +0 (diff {diff // 60}m, too far)")
+                    # Use percentage-based scoring
+                    diff = abs(runtime_seconds - movie_runtime)
+                    pct_diff = diff / max(runtime_seconds, movie_runtime) * 100
+                    
+                    if pct_diff <= 5:  # Within 5% = excellent match
+                        runtime_score = 100
+                        score += runtime_score
+                        score_breakdown.append(f"runtime +{runtime_score:.0f} (diff {pct_diff:.1f}%)")
+                    elif pct_diff <= 10:  # Within 10% = good match
+                        runtime_score = 75
+                        score += runtime_score
+                        score_breakdown.append(f"runtime +{runtime_score:.0f} (diff {pct_diff:.1f}%)")
+                    elif pct_diff <= 20:  # Within 20% = okay match
+                        runtime_score = 40
+                        score += runtime_score
+                        score_breakdown.append(f"runtime +{runtime_score:.0f} (diff {pct_diff:.1f}%, partial)")
+                    else:  # Over 20% = bad match
+                        score_breakdown.append(f"runtime +0 (diff {pct_diff:.1f}%, too far)")
             else:
                 score_breakdown.append("runtime N/A")
 
