@@ -1470,7 +1470,11 @@ class RipEngine:
                         existing_backup_valid = True
                         backup_success = True
                     else:
-                        activity.log_warning(f"Existing backup too small ({backup_size / (1024**3):.1f} GB) - re-backing up")
+                        activity.log_warning(f"Existing backup too small ({backup_size / (1024**3):.1f} GB) - deleting and re-backing up")
+                        try:
+                            shutil.rmtree(backup_dir, ignore_errors=True)
+                        except:
+                            pass
 
                 if not existing_backup_valid:
                     # Reset progress for backup phase

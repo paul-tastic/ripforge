@@ -365,7 +365,7 @@
                     // Active rip in progress - show rip UI, don't restore scan results
                     showRipProgress(ripStatus);
                     discAlreadyProcessed = true;
-                } else if (ripStatus && ripStatus.status === 'complete' || ripStatus.status === 'error') {
+                } else if (ripStatus && (ripStatus.status === 'complete' || ripStatus.status === 'error')) {
                     // Completed rip - show it
                     showRipProgress(ripStatus);
                 } else {
