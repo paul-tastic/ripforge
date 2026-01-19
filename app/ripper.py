@@ -1272,81 +1272,130 @@ class RipEngine:
 
 
     def reset_drive_state(self, device: str = "/dev/sr0", deep_reset: bool = True) -> dict:
-        """Reset drive state for a fresh start - prevents "No disc found" errors.
+        """Reset drive state for a fresh start - prevents "No disc found" and AACS errors.
         
-        Call this before scans when previous operations may have left the drive
-        in an inconsistent state (killed MakeMKV, failed ejects, etc.).
+        Reset methods (in order of aggressiveness):
+        1. Kill MakeMKV processes
+        2. Eject disc
+        3. sg_reset -d (device reset) - resets logical unit
+        4. sg_reset -t (target reset) - resets SATA target
+        5. SCSI unbind/rebind - fully resets kernel driver
         
         Args:
             device: The optical drive device path
-            deep_reset: If True, performs SCSI unbind/rebind to fully reset drive
+            deep_reset: If True, performs full SCSI reset sequence
                        (fixes AACS authentication issues after disc failures)
         """
         activity.log_info("Drive state reset initiated" + (" (deep reset)" if deep_reset else ""))
+        results = {
+            "killed_process": False,
+            "ejected": False,
+            "device_reset": False,
+            "target_reset": False,
+            "scsi_rebind": False
+        }
         
         try:
-            # Kill lingering MakeMKV processes
+            # Step 1: Kill lingering MakeMKV processes
             killed = self._kill_makemkv()
+            results["killed_process"] = killed
             if killed:
                 activity.log_info("Killed lingering MakeMKV process")
             
-            # Eject disc first
+            # Step 2: Eject disc first
             try:
                 subprocess.run(["eject", device], capture_output=True, timeout=10)
+                results["ejected"] = True
                 activity.log_info("Disc ejected for reset")
             except:
-                pass
+                activity.log_warning("Eject failed or timed out")
             
             time.sleep(2)
             
-            # Deep reset: unbind/rebind SCSI device to clear AACS state
             if deep_reset:
+                # Step 3: Try sg_reset device reset (lightest touch)
+                try:
+                    result = subprocess.run(
+                        ["sudo", "sg_reset", "-d", "-N", device],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    if result.returncode == 0:
+                        results["device_reset"] = True
+                        activity.log_info("sg_reset device reset successful")
+                    else:
+                        activity.log_warning(f"sg_reset device reset failed: {result.stderr}")
+                except Exception as e:
+                    activity.log_warning(f"sg_reset device reset error: {e}")
+                
+                time.sleep(1)
+                
+                # Step 4: Try sg_reset target reset if device reset indicated issues
+                try:
+                    result = subprocess.run(
+                        ["sudo", "sg_reset", "-t", "-N", device],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    if result.returncode == 0:
+                        results["target_reset"] = True
+                        activity.log_info("sg_reset target reset successful")
+                    else:
+                        activity.log_warning(f"sg_reset target reset failed: {result.stderr}")
+                except Exception as e:
+                    activity.log_warning(f"sg_reset target reset error: {e}")
+                
+                time.sleep(1)
+                
+                # Step 5: SCSI unbind/rebind - heavier reset
                 scsi_id = self._get_scsi_id(device)
                 if scsi_id:
-                    activity.log_info(f"Performing SCSI reset for {scsi_id}")
+                    activity.log_info(f"Performing SCSI unbind/rebind for {scsi_id}")
                     try:
                         # Unbind
-                        with open("/sys/bus/scsi/drivers/sr/unbind", "w") as f:
-                            f.write(scsi_id)
+                        subprocess.run(
+                            f"echo '{scsi_id}' | sudo tee /sys/bus/scsi/drivers/sr/unbind",
+                            shell=True, capture_output=True, timeout=10
+                        )
                         time.sleep(2)
                         # Rebind
-                        with open("/sys/bus/scsi/drivers/sr/bind", "w") as f:
-                            f.write(scsi_id)
+                        subprocess.run(
+                            f"echo '{scsi_id}' | sudo tee /sys/bus/scsi/drivers/sr/bind",
+                            shell=True, capture_output=True, timeout=10
+                        )
                         time.sleep(2)
-                        activity.log_success("SCSI device reset complete")
-                    except PermissionError:
-                        activity.log_warning("SCSI reset requires root - trying sudo")
-                        try:
-                            subprocess.run(f"echo '{scsi_id}' | sudo tee /sys/bus/scsi/drivers/sr/unbind", 
-                                         shell=True, capture_output=True, timeout=10)
-                            time.sleep(2)
-                            subprocess.run(f"echo '{scsi_id}' | sudo tee /sys/bus/scsi/drivers/sr/bind",
-                                         shell=True, capture_output=True, timeout=10)
-                            time.sleep(2)
-                            activity.log_success("SCSI device reset complete (via sudo)")
-                        except Exception as e:
-                            activity.log_warning(f"SCSI reset failed: {e}")
+                        results["scsi_rebind"] = True
+                        activity.log_success("SCSI unbind/rebind complete")
                     except Exception as e:
-                        activity.log_warning(f"SCSI reset failed: {e}")
+                        activity.log_warning(f"SCSI unbind/rebind failed: {e}")
             
             # Clear stale job state
             with self._lock:
                 self._clear_job_state()
                 self._cancelled = False
             
-            # Verify disc is detectable
+            # Verify drive is accessible and check for disc
             time.sleep(1)
+            
+            # Check if drive is back
+            if not os.path.exists(device):
+                activity.log_warning(f"Device {device} not present after reset")
+                return {
+                    "success": False,
+                    "error": "Device not present after reset",
+                    "ready_to_scan": False,
+                    "results": results
+                }
+            
             disc_info = self.check_disc(device)
             
             activity.log_success(f"Drive reset complete - disc present: {disc_info.get('present', False)}")
             return {
                 "success": True,
-                "killed_process": killed,
                 "deep_reset": deep_reset,
                 "disc_present": disc_info.get("present", False),
                 "disc_label": disc_info.get("label", ""),
                 "ready_to_scan": True,
-                "message": "Drive state reset complete"
+                "message": "Drive state reset complete",
+                "results": results
             }
             
         except Exception as e:
@@ -1354,9 +1403,11 @@ class RipEngine:
             return {
                 "success": False,
                 "error": str(e),
-                "ready_to_scan": False
+                "ready_to_scan": False,
+                "results": results
             }
-    
+
+
     def _get_scsi_id(self, device: str) -> str:
         """Get SCSI device ID for a given device path (e.g., /dev/sr0 -> 5:0:0:0)"""
         try:
