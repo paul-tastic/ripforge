@@ -1075,12 +1075,24 @@ class RipEngine:
                         self.current_job.progress = min(size_progress, 99)  # Cap at 99% until actually done
                         # Update step detail with dynamic status (for when MakeMKV doesn't report PRGV)
                         pct = self.current_job.progress
-                        if pct < 3:
-                            status_msg = f"Starting rip... {pct}%"
-                        elif pct > 90:
-                            status_msg = f"Finishing rip... {pct}%"
+                        # Check if using backup method to show correct phase
+                        is_backup_method = self.current_job.rip_method == "backup"
+                        backup_dir = os.path.join(self.backup_path, sanitize_folder_name(self.current_job.disc_label))
+                        raw_dir = self.current_job.rip_output_dir
+                        raw_has_mkv = os.path.exists(raw_dir) and any(Path(raw_dir).glob("*.mkv")) if raw_dir else False
+                        
+                        if is_backup_method:
+                            if raw_has_mkv:
+                                status_msg = f"Ripping from backup... {pct}%"
+                            else:
+                                status_msg = f"Backup... {pct}%"
                         else:
-                            status_msg = f"Ripping... {pct}%"
+                            if pct < 3:
+                                status_msg = f"Starting rip... {pct}%"
+                            elif pct > 90:
+                                status_msg = f"Finishing rip... {pct}%"
+                            else:
+                                status_msg = f"Ripping... {pct}%"
                         self._update_step("rip", "active", status_msg)
 
                     # Check if MakeMKV finished (process gone but we're still in ripping state)
