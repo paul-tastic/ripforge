@@ -1064,7 +1064,11 @@ class RipEngine:
             if self.current_job:
                 # Update current file size if ripping
                 if self.current_job.status == RipStatus.RIPPING and self.current_job.rip_output_dir:
-                    self.current_job.current_size_bytes = self._get_output_size(self.current_job.rip_output_dir)
+                    # Check both raw output dir and backup dir (backup writes to different location)
+                    raw_size = self._get_output_size(self.current_job.rip_output_dir)
+                    backup_dir = os.path.join(self.backup_path, sanitize_folder_name(self.current_job.disc_label))
+                    backup_size = self._get_output_size(backup_dir) if os.path.exists(backup_dir) else 0
+                    self.current_job.current_size_bytes = max(raw_size, backup_size)
                     # Always calculate progress from file size (MakeMKV doesn't report PRGV for DVDs)
                     if self.current_job.expected_size_bytes > 0:
                         size_progress = int((self.current_job.current_size_bytes / self.current_job.expected_size_bytes) * 100)
