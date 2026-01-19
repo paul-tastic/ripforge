@@ -1294,6 +1294,9 @@
                 etaEl.textContent = 'Starting...';
             } else if (pct >= 100) {
                 etaEl.textContent = 'Finishing...';
+            } else {
+                // Progress is active but no ETA - show percentage remaining
+                etaEl.textContent = `${100 - pct}% remaining`;
             }
         } else {
             document.getElementById('rip-progress').style.display = 'none';

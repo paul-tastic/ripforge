@@ -99,6 +99,7 @@ class RipJob:
     rip_method: str = "direct"  # "direct", "backup", or "recovery"
     rip_mode: str = "smart"  # "smart", "always_backup", "direct_only" - from config
     direct_failed: bool = False  # True if direct rip was attempted and failed
+    rip_started_at: Optional[float] = None  # Unix timestamp when rip phase began (for ETA calc)
     steps: Dict[str, RipStep] = field(default_factory=lambda: {
         "insert": RipStep(),
         "detect": RipStep(),
@@ -463,6 +464,9 @@ class MakeMKV:
         prgv_count = 0
         last_size_check = time.time()
         last_progress = 0
+        last_heartbeat = time.time()
+        start_time = time.time()
+        msg_count = 0  # Track MSG lines for initialization logging
         for line in process.stdout:
             line = line.strip()
             line_count += 1
@@ -501,11 +505,34 @@ class MakeMKV:
                             if percent > last_progress:
                                 progress_callback(percent)
                                 last_progress = percent
+                                # Log size progress in debug mode
+                                if debug_enabled:
+                                    size_mb = current_size / (1024 * 1024)
+                                    activity.log_info(f"DEBUG: File size progress: {size_mb:.1f} MB ({percent}%)")
                     except:
                         pass
 
+            # Heartbeat logging: when at 0% for extended periods, log periodic status
+            if debug_enabled and last_progress == 0:
+                now = time.time()
+                elapsed = now - start_time
+                if now - last_heartbeat >= 60:  # Every 60 seconds
+                    last_heartbeat = now
+                    # Check for any mkv files starting to appear
+                    try:
+                        mkv_files = list(Path(output_dir).glob("*.mkv"))
+                        if mkv_files:
+                            current_size = max(f.stat().st_size for f in mkv_files)
+                            size_mb = current_size / (1024 * 1024)
+                            activity.log_info(f"DEBUG: Still initializing ({int(elapsed)}s elapsed), {len(mkv_files)} file(s), {size_mb:.1f} MB so far, {line_count} lines processed")
+                        else:
+                            activity.log_info(f"DEBUG: Still initializing ({int(elapsed)}s elapsed), no output yet, {line_count} lines processed, {msg_count} MSG lines")
+                    except:
+                        activity.log_info(f"DEBUG: Still initializing ({int(elapsed)}s elapsed), {line_count} lines processed")
+
             # Parse messages for errors/status and track actual output path
             if line.startswith("MSG:"):
+                msg_count += 1
                 # Extract message text: MSG:code,flags,count,"message",...
                 match = re.search(r'MSG:\d+,\d+,\d+,"([^"]*)"', line)
                 if match:
@@ -522,6 +549,10 @@ class MakeMKV:
                             actual_output_path = path_match.group(1)
                             if debug_enabled:
                                 activity.log_info(f"DEBUG: MakeMKV saving to: {actual_output_path}")
+                    # Log MSG status during initialization (when still at 0%)
+                    elif debug_enabled and prgv_count == 0:
+                        # Log status messages during initialization phase
+                        activity.log_info(f"DEBUG MSG[{msg_count}]: {msg[:80]}")
 
         return_code = process.wait()
         if debug_enabled:
@@ -585,6 +616,11 @@ class MakeMKV:
 
         args = ["-r", "backup", f"disc:{disc_num}", output_dir]
 
+        # Check debug logging setting
+        from . import config as cfg_module
+        debug_cfg = cfg_module.load_config()
+        debug_enabled = debug_cfg.get('ripping', {}).get('debug_logging', False)
+
         activity.log_info(f"BACKUP: Running: makemkvcon {' '.join(args)}")
 
         process = self._run_cmd(args)
@@ -594,6 +630,9 @@ class MakeMKV:
         prgv_count = 0
         last_size_check = time.time()
         last_progress = 0
+        last_heartbeat = time.time()
+        start_time = time.time()
+        msg_count = 0
         for line in process.stdout:
             line = line.strip()
             line_count += 1
@@ -626,11 +665,28 @@ class MakeMKV:
                         if percent > last_progress:
                             progress_callback(percent)
                             last_progress = percent
+                            if debug_enabled:
+                                size_mb = current_size / (1024 * 1024)
+                                activity.log_info(f"BACKUP DEBUG: File size progress: {size_mb:.1f} MB ({percent}%)")
                     except:
                         pass
 
+            # Heartbeat logging: when at 0% for extended periods
+            if debug_enabled and last_progress == 0:
+                now = time.time()
+                elapsed = now - start_time
+                if now - last_heartbeat >= 60:  # Every 60 seconds
+                    last_heartbeat = now
+                    try:
+                        current_size = sum(f.stat().st_size for f in Path(output_dir).rglob("*") if f.is_file())
+                        size_mb = current_size / (1024 * 1024)
+                        activity.log_info(f"BACKUP DEBUG: Still initializing ({int(elapsed)}s elapsed), {size_mb:.1f} MB so far, {line_count} lines processed")
+                    except:
+                        activity.log_info(f"BACKUP DEBUG: Still initializing ({int(elapsed)}s elapsed), {line_count} lines processed")
+
             # Parse messages for errors/status
             if line.startswith("MSG:"):
+                msg_count += 1
                 match = re.search(r'MSG:\d+,\d+,\d+,"([^"]*)"', line)
                 if match:
                     msg = match.group(1)
@@ -638,8 +694,13 @@ class MakeMKV:
                         message_callback(msg)
                     if "error" in msg.lower() or "fail" in msg.lower():
                         last_error = msg
+                    # Log MSG status during initialization (when still at 0%)
+                    elif debug_enabled and prgv_count == 0:
+                        activity.log_info(f"BACKUP DEBUG MSG[{msg_count}]: {msg[:80]}")
 
         return_code = process.wait()
+        if debug_enabled:
+            activity.log_info(f"BACKUP DEBUG: Finished. Lines: {line_count}, PRGV: {prgv_count}, MSG: {msg_count}, Return: {return_code}")
         activity.log_info(f"BACKUP: Finished. Lines: {line_count}, PRGV: {prgv_count}, Return: {return_code}")
 
         if return_code == 0:
@@ -1167,7 +1228,7 @@ class RipEngine:
                         backup_dir = os.path.join(self.backup_path, sanitize_folder_name(self.current_job.disc_label))
                         raw_dir = self.current_job.rip_output_dir
                         raw_has_mkv = os.path.exists(raw_dir) and any(Path(raw_dir).glob("*.mkv")) if raw_dir else False
-                        
+
                         if is_backup_method:
                             if raw_has_mkv:
                                 status_msg = f"Ripping from backup... {pct}%"
@@ -1181,6 +1242,28 @@ class RipEngine:
                             else:
                                 status_msg = f"Ripping... {pct}%"
                         self._update_step("rip", "active", status_msg)
+
+                        # Update ETA based on elapsed time and progress
+                        if pct > 0:
+                            # Set rip start time if not already set
+                            if not self.current_job.rip_started_at:
+                                self.current_job.rip_started_at = time.time()
+
+                            # Calculate time-based ETA
+                            elapsed = time.time() - self.current_job.rip_started_at
+                            if pct >= 5 and elapsed > 30:  # Need enough data for reasonable estimate
+                                # Estimate total time = elapsed / (pct / 100)
+                                estimated_total = elapsed / (pct / 100)
+                                remaining_secs = estimated_total - elapsed
+                                if remaining_secs > 60:
+                                    mins = int(remaining_secs / 60)
+                                    self.current_job.eta = f"~{mins} min remaining"
+                                elif remaining_secs > 0:
+                                    self.current_job.eta = f"<1 min remaining"
+                                else:
+                                    self.current_job.eta = "Finishing..."
+                            else:
+                                self.current_job.eta = f"{100 - pct}% remaining"
 
                     # Check if MakeMKV finished (process gone but we're still in ripping state)
                     if not self._is_makemkv_running():
@@ -1605,6 +1688,7 @@ class RipEngine:
             # Step 4: Rip main feature
             self._update_step("rip", "active", "Starting rip...")
             job.status = RipStatus.RIPPING
+            job.rip_started_at = time.time()  # Track for ETA calculation
 
             output_dir = os.path.join(self.raw_path, sanitize_folder_name(job.disc_label))
             job.rip_output_dir = output_dir  # Track for file size monitoring
@@ -2078,6 +2162,7 @@ class RipEngine:
             # Step 4: Rip episodes sequentially
             self._update_step("rip", "active", "Starting episode rips...")
             job.status = RipStatus.RIPPING
+            job.rip_started_at = time.time()  # Track for ETA calculation
 
             # Create output directory for this series/season
             series_name = job.series_title or job.identified_title or job.disc_label.replace("_", " ").title()

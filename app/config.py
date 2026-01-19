@@ -202,8 +202,53 @@ def detect_optical_drives() -> list:
     return drives
 
 
-def get_optical_drive_status() -> dict:
-    """Get detailed optical drive status from MakeMKV including LibreDrive info"""
+# Cache for optical drive status
+_drive_status_cache = {
+    'data': None,
+    'timestamp': None
+}
+
+def get_optical_drive_status(force_refresh: bool = False) -> dict:
+    """Get detailed optical drive status from MakeMKV including LibreDrive info.
+
+    Caches result for 1 hour. Skips MakeMKV call if a rip/scan is in progress.
+    """
+    import time
+    from datetime import datetime, timedelta
+
+    cache_duration = timedelta(hours=1)
+    now = datetime.now()
+
+    # Check if we have valid cached data
+    if not force_refresh and _drive_status_cache['data'] and _drive_status_cache['timestamp']:
+        age = now - _drive_status_cache['timestamp']
+        if age < cache_duration:
+            cached = _drive_status_cache['data'].copy()
+            cached['cached'] = True
+            cached['cache_age_minutes'] = int(age.total_seconds() / 60)
+            return cached
+
+    # Check if MakeMKV is already running (rip/scan in progress)
+    try:
+        result = subprocess.run(
+            ['pgrep', '-f', 'makemkvcon'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            # MakeMKV is running - return cached data or busy status
+            if _drive_status_cache['data']:
+                cached = _drive_status_cache['data'].copy()
+                cached['cached'] = True
+                cached['busy'] = True
+                return cached
+            return {
+                'error': 'Drive busy (scan/rip in progress)',
+                'busy': True,
+                'cached': False
+            }
+    except Exception:
+        pass
+
     status = {
         'drive_model': None,
         'drive_firmware': None,
@@ -213,7 +258,9 @@ def get_optical_drive_status() -> dict:
         'libre_drive_version': None,
         'access_mode': None,
         'makemkv_version': None,
-        'error': None
+        'error': None,
+        'cached': False,
+        'busy': False
     }
 
     try:
@@ -283,6 +330,12 @@ def get_optical_drive_status() -> dict:
         status['error'] = 'MakeMKV not installed'
     except Exception as e:
         status['error'] = str(e)
+
+    # Cache the result (only if we got useful data)
+    if status.get('drive_model') or status.get('makemkv_version'):
+        from datetime import datetime
+        _drive_status_cache['data'] = status.copy()
+        _drive_status_cache['timestamp'] = datetime.now()
 
     return status
 

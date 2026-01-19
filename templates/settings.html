@@ -502,12 +502,25 @@
             .then(r => r.json())
             .then(data => {
                 const container = document.getElementById('drive-status');
+
+                // Handle busy state with no cached data
+                if (data.busy && !data.drive_model) {
+                    container.innerHTML = '<div class="drive-status-loading">Drive busy (scan/rip in progress)</div>';
+                    return;
+                }
+
+                // Handle error with no data
                 if (data.error && !data.drive_model) {
                     container.innerHTML = `<div class="drive-status-loading" style="color: var(--error);">${data.error}</div>`;
                     return;
                 }
 
                 let html = '<div class="drive-status-grid">';
+
+                // Show cached indicator if applicable
+                if (data.cached && data.cache_age_minutes > 0) {
+                    html = `<div style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">Cached ${data.cache_age_minutes}m ago${data.busy ? ' (drive busy)' : ''}</div>` + html;
+                }
 
                 // Drive Model
                 html += `<div class="drive-stat">
