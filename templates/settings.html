@@ -293,7 +293,7 @@
     <!-- Optical Drive Status -->
     <section class="card">
         <h2>Optical Drive</h2>
-        <div class="drive-status" id="drive-status">
+        <div class="drive-status" id="optical-drive-info">
             <div class="drive-status-loading">Loading drive info...</div>
         </div>
     </section>
@@ -501,7 +501,7 @@
         fetch('/api/drive/status')
             .then(r => r.json())
             .then(data => {
-                const container = document.getElementById('drive-status');
+                const container = document.getElementById('optical-drive-info');
 
                 // Handle busy state with no cached data
                 if (data.busy && !data.drive_model) {
@@ -573,7 +573,7 @@
                 container.innerHTML = html;
             })
             .catch(err => {
-                document.getElementById('drive-status').innerHTML =
+                document.getElementById('optical-drive-info').innerHTML =
                     '<div class="drive-status-loading" style="color: var(--error);">Failed to load drive status</div>';
             });
     }
