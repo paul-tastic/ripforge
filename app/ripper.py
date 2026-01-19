@@ -4,6 +4,7 @@ Handles disc detection, MakeMKV control, and rip job management
 """
 
 import os
+import glob
 import re
 import subprocess
 import threading
@@ -1263,13 +1264,18 @@ class RipEngine:
         }
 
 
-    def reset_drive_state(self, device: str = "/dev/sr0") -> dict:
+    def reset_drive_state(self, device: str = "/dev/sr0", deep_reset: bool = True) -> dict:
         """Reset drive state for a fresh start - prevents "No disc found" errors.
         
         Call this before scans when previous operations may have left the drive
         in an inconsistent state (killed MakeMKV, failed ejects, etc.).
+        
+        Args:
+            device: The optical drive device path
+            deep_reset: If True, performs SCSI unbind/rebind to fully reset drive
+                       (fixes AACS authentication issues after disc failures)
         """
-        activity.log_info("Drive state reset initiated")
+        activity.log_info("Drive state reset initiated" + (" (deep reset)" if deep_reset else ""))
         
         try:
             # Kill lingering MakeMKV processes
@@ -1277,8 +1283,44 @@ class RipEngine:
             if killed:
                 activity.log_info("Killed lingering MakeMKV process")
             
-            # Wait for drive to settle
+            # Eject disc first
+            try:
+                subprocess.run(["eject", device], capture_output=True, timeout=10)
+                activity.log_info("Disc ejected for reset")
+            except:
+                pass
+            
             time.sleep(2)
+            
+            # Deep reset: unbind/rebind SCSI device to clear AACS state
+            if deep_reset:
+                scsi_id = self._get_scsi_id(device)
+                if scsi_id:
+                    activity.log_info(f"Performing SCSI reset for {scsi_id}")
+                    try:
+                        # Unbind
+                        with open("/sys/bus/scsi/drivers/sr/unbind", "w") as f:
+                            f.write(scsi_id)
+                        time.sleep(2)
+                        # Rebind
+                        with open("/sys/bus/scsi/drivers/sr/bind", "w") as f:
+                            f.write(scsi_id)
+                        time.sleep(2)
+                        activity.log_success("SCSI device reset complete")
+                    except PermissionError:
+                        activity.log_warning("SCSI reset requires root - trying sudo")
+                        try:
+                            subprocess.run(f"echo '{scsi_id}' | sudo tee /sys/bus/scsi/drivers/sr/unbind", 
+                                         shell=True, capture_output=True, timeout=10)
+                            time.sleep(2)
+                            subprocess.run(f"echo '{scsi_id}' | sudo tee /sys/bus/scsi/drivers/sr/bind",
+                                         shell=True, capture_output=True, timeout=10)
+                            time.sleep(2)
+                            activity.log_success("SCSI device reset complete (via sudo)")
+                        except Exception as e:
+                            activity.log_warning(f"SCSI reset failed: {e}")
+                    except Exception as e:
+                        activity.log_warning(f"SCSI reset failed: {e}")
             
             # Clear stale job state
             with self._lock:
@@ -1293,6 +1335,7 @@ class RipEngine:
             return {
                 "success": True,
                 "killed_process": killed,
+                "deep_reset": deep_reset,
                 "disc_present": disc_info.get("present", False),
                 "disc_label": disc_info.get("label", ""),
                 "ready_to_scan": True,
@@ -1306,6 +1349,26 @@ class RipEngine:
                 "error": str(e),
                 "ready_to_scan": False
             }
+    
+    def _get_scsi_id(self, device: str) -> str:
+        """Get SCSI device ID for a given device path (e.g., /dev/sr0 -> 5:0:0:0)"""
+        try:
+            # Get the device name (sr0)
+            dev_name = device.replace("/dev/", "")
+            # Find the SCSI ID from sysfs
+            import glob
+            for path in glob.glob("/sys/bus/scsi/devices/*/block/*"):
+                if path.endswith(f"/{dev_name}"):
+                    # Extract SCSI ID from path like /sys/bus/scsi/devices/5:0:0:0/block/sr0
+                    scsi_id = path.split("/")[-3]
+                    return scsi_id
+            # Fallback: try common IDs
+            for scsi_id in ["5:0:0:0", "4:0:0:0", "6:0:0:0", "3:0:0:0"]:
+                if os.path.exists(f"/sys/bus/scsi/devices/{scsi_id}/block/{dev_name}"):
+                    return scsi_id
+        except Exception as e:
+            activity.log_warning(f"Could not determine SCSI ID: {e}")
+        return ""
 
     def force_eject_disc(self, device: str = "/dev/sr0") -> dict:
         """Eject disc without stopping any jobs."""
