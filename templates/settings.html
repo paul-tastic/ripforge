@@ -536,14 +536,22 @@
                     </div>`;
                 }
 
-                // LibreDrive Status
-                html += `<div class="drive-stat">
-                    <div class="drive-stat-label">LibreDrive</div>
-                    <div class="drive-stat-value ${data.libre_drive ? 'success' : 'warning'}">
-                        ${data.libre_drive ? '✓ Enabled' : '✗ Disabled'}
-                        ${data.libre_drive_version ? ' (v' + data.libre_drive_version + ')' : ''}
-                    </div>
-                </div>`;
+                // LibreDrive Status (only shown when disc present, since it requires disc access to detect)
+                if (data.libre_drive) {
+                    html += `<div class="drive-stat">
+                        <div class="drive-stat-label">LibreDrive</div>
+                        <div class="drive-stat-value success">
+                            ✓ Enabled${data.libre_drive_version ? ' (v' + data.libre_drive_version + ')' : ''}
+                        </div>
+                    </div>`;
+                } else if (data.disc_present) {
+                    // Disc present but LibreDrive not detected
+                    html += `<div class="drive-stat">
+                        <div class="drive-stat-label">LibreDrive</div>
+                        <div class="drive-stat-value warning">✗ Not detected</div>
+                    </div>`;
+                }
+                // Don't show LibreDrive status if no disc - can't detect without disc access
 
                 // MakeMKV Version
                 if (data.makemkv_version) {
