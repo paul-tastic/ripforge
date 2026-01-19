@@ -360,9 +360,7 @@
     gap: 12px;
 }
 .cheatsheet-item {
-    background: var(--bg-dark);
-    border-radius: 8px;
-    padding: 12px;
+    padding: 4px 0;
 }
 .cheatsheet-label {
     font-size: 12px;
@@ -371,6 +369,19 @@
     text-transform: uppercase;
 }
 .cheatsheet-code {
+    display: block;
+    font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+    font-size: 13px;
+    color: #e2e8f0;
+    cursor: pointer;
+    padding: 10px 14px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    overflow-x: auto;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
+}
+.cheatsheet-code-OLD {
     display: block;
     font-family: monospace;
     font-size: 13px;
