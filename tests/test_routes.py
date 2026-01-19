@@ -3,7 +3,7 @@ Tests for RipForge Flask routes
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, mock_open
 import json
 
 import sys
@@ -173,6 +173,27 @@ class TestAPIActivityLog:
         data = json.loads(response.data)
         assert 'log' in data
         assert isinstance(data['log'], list)
+
+
+class TestAPIRipHistory:
+    """Tests for the /api/rip-history endpoint"""
+
+    def test_rip_history_returns_json(self, client):
+        """Test rip history returns JSON with rips list"""
+        response = client.get('/api/rip-history')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert 'rips' in data
+        assert isinstance(data['rips'], list)
+
+    @patch('builtins.open', mock_open(read_data='[{"title": "Test Movie", "year": 2024}]'))
+    @patch('pathlib.Path.exists', return_value=True)
+    def test_rip_history_with_data(self, mock_exists, client):
+        """Test rip history returns data from file"""
+        response = client.get('/api/rip-history')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert 'rips' in data
 
 
 class TestAPIHardware:

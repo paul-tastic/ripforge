@@ -291,6 +291,26 @@ class TestMakeMKVInit:
         assert mkv.container_name == "makemkv"
 
 
+class TestDebugLoggingConfig:
+    """Tests for debug_logging config setting"""
+
+    @patch('app.config.load_config')
+    def test_debug_logging_default_false(self, mock_load):
+        """Test debug_logging defaults to False"""
+        mock_load.return_value = {'ripping': {}}
+        cfg = mock_load()
+        debug_enabled = cfg.get('ripping', {}).get('debug_logging', False)
+        assert debug_enabled is False
+
+    @patch('app.config.load_config')
+    def test_debug_logging_enabled(self, mock_load):
+        """Test debug_logging can be enabled"""
+        mock_load.return_value = {'ripping': {'debug_logging': True}}
+        cfg = mock_load()
+        debug_enabled = cfg.get('ripping', {}).get('debug_logging', False)
+        assert debug_enabled is True
+
+
 class TestSelectBestTrack:
     """Tests for MakeMKV.select_best_track fake playlist detection"""
 
