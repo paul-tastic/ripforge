@@ -1286,7 +1286,7 @@ class RipEngine:
             deep_reset: If True, performs full SCSI reset sequence
                        (fixes AACS authentication issues after disc failures)
         """
-        activity.log_info("Drive state reset initiated" + (" (deep reset)" if deep_reset else ""))
+        activity.log_info("RESET: Starting drive reset" + (" (deep reset)" if deep_reset else ""))
         results = {
             "killed_process": False,
             "ejected": False,
@@ -1297,23 +1297,28 @@ class RipEngine:
         
         try:
             # Step 1: Kill lingering MakeMKV processes
+            activity.log_info("RESET: [1/5] Checking for MakeMKV processes...")
             killed = self._kill_makemkv()
             results["killed_process"] = killed
             if killed:
-                activity.log_info("Killed lingering MakeMKV process")
+                activity.log_info("RESET: [1/5] Killed lingering MakeMKV process")
+            else:
+                activity.log_info("RESET: [1/5] No MakeMKV processes found")
             
             # Step 2: Eject disc first
+            activity.log_info("RESET: [2/5] Ejecting disc...")
             try:
                 subprocess.run(["eject", device], capture_output=True, timeout=10)
                 results["ejected"] = True
-                activity.log_info("Disc ejected for reset")
+                activity.log_info("RESET: [2/5] Disc ejected")
             except:
-                activity.log_warning("Eject failed or timed out")
+                activity.log_warning("RESET: [2/5] Eject failed or timed out")
             
             time.sleep(2)
             
             if deep_reset:
                 # Step 3: Try sg_reset device reset (lightest touch)
+                activity.log_info("RESET: [3/5] Device reset (sg_reset -d)...")
                 try:
                     result = subprocess.run(
                         ["sudo", "sg_reset", "-d", "-N", device],
@@ -1321,15 +1326,16 @@ class RipEngine:
                     )
                     if result.returncode == 0:
                         results["device_reset"] = True
-                        activity.log_info("sg_reset device reset successful")
+                        activity.log_info("RESET: [3/5] Device reset successful")
                     else:
-                        activity.log_warning(f"sg_reset device reset failed: {result.stderr}")
+                        activity.log_warning(f"RESET: [3/5] Device reset failed: {result.stderr}")
                 except Exception as e:
-                    activity.log_warning(f"sg_reset device reset error: {e}")
+                    activity.log_warning(f"RESET: [3/5] Device reset error: {e}")
                 
                 time.sleep(1)
                 
                 # Step 4: Try sg_reset target reset if device reset indicated issues
+                activity.log_info("RESET: [4/5] Target reset (sg_reset -t)...")
                 try:
                     result = subprocess.run(
                         ["sudo", "sg_reset", "-t", "-N", device],
@@ -1337,18 +1343,19 @@ class RipEngine:
                     )
                     if result.returncode == 0:
                         results["target_reset"] = True
-                        activity.log_info("sg_reset target reset successful")
+                        activity.log_info("RESET: [4/5] Target reset successful")
                     else:
-                        activity.log_warning(f"sg_reset target reset failed: {result.stderr}")
+                        activity.log_warning(f"RESET: [4/5] Target reset failed: {result.stderr}")
                 except Exception as e:
-                    activity.log_warning(f"sg_reset target reset error: {e}")
+                    activity.log_warning(f"RESET: [4/5] Target reset error: {e}")
                 
                 time.sleep(1)
                 
                 # Step 5: SCSI unbind/rebind - heavier reset
+                activity.log_info("RESET: [5/5] SCSI rebind...")
                 scsi_id = self._get_scsi_id(device)
                 if scsi_id:
-                    activity.log_info(f"Performing SCSI unbind/rebind for {scsi_id}")
+                    activity.log_info(f"RESET: [5/5] Performing SCSI unbind/rebind for {scsi_id}")
                     try:
                         # Unbind
                         subprocess.run(
@@ -1363,9 +1370,11 @@ class RipEngine:
                         )
                         time.sleep(2)
                         results["scsi_rebind"] = True
-                        activity.log_success("SCSI unbind/rebind complete")
+                        activity.log_success("RESET: [5/5] SCSI rebind complete")
                     except Exception as e:
-                        activity.log_warning(f"SCSI unbind/rebind failed: {e}")
+                        activity.log_warning(f"RESET: [5/5] SCSI rebind failed: {e}")
+                else:
+                    activity.log_warning("RESET: [5/5] Could not determine SCSI ID, skipping rebind")
             
             # Clear stale job state
             with self._lock:
@@ -1387,7 +1396,7 @@ class RipEngine:
             
             disc_info = self.check_disc(device)
             
-            activity.log_success(f"Drive reset complete - disc present: {disc_info.get('present', False)}")
+            activity.log_success(f"RESET: Complete - drive ready (disc present: {disc_info.get('present', False)})")
             return {
                 "success": True,
                 "deep_reset": deep_reset,
@@ -1629,6 +1638,11 @@ class RipEngine:
             if 'rip_mode' not in cfg.get('ripping', {}):
                 backup_fallback = cfg.get('ripping', {}).get('backup_fallback', True)
                 rip_mode = 'smart' if backup_fallback else 'direct_only'
+
+            # DVDs must use direct extraction - backup creates ISO/UDF, not usable VIDEO_TS structure
+            if job.disc_type == 'dvd' and rip_mode != 'direct_only':
+                activity.log_info("DVD detected - using direct extraction (backup mode not supported for DVDs)")
+                rip_mode = 'direct_only'
 
             # Store rip mode in job for UI
             job.rip_mode = rip_mode
