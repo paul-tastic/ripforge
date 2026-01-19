@@ -271,13 +271,22 @@ class MakeMKV:
 
         info["episode_tracks"] = episode_tracks
 
-        # If 2+ episode-length tracks, likely a TV disc
+        # If 2+ episode-length tracks AND no long main feature, likely a TV disc
+        # Movies with bonus features should NOT be classified as TV
+        main_feature_duration = longest_track["duration"] if longest_track["index"] is not None else 0
+        has_long_main_feature = main_feature_duration > 5400  # > 90 minutes = definitely a movie
+        
         if len(episode_tracks) >= 2:
-            info["is_tv_disc"] = True
-            # For TV discs, log the episode tracks
-            activity.log_info(f"DISC: Detected {len(episode_tracks)} episode-length tracks (TV disc)")
-            for et in episode_tracks:
-                activity.log_info(f"DISC:   Track {et['index']}: {et['duration_str']} ({et['duration'] // 60}m)")
+            if has_long_main_feature:
+                # This is a movie with bonus features, not a TV disc
+                activity.log_info(f"DISC: Found {len(episode_tracks)} episode-length tracks but main feature is {main_feature_duration // 60}m - treating as movie with bonus features")
+                info["is_tv_disc"] = False
+            else:
+                info["is_tv_disc"] = True
+                # For TV discs, log the episode tracks
+                activity.log_info(f"DISC: Detected {len(episode_tracks)} episode-length tracks (TV disc)")
+                for et in episode_tracks:
+                    activity.log_info(f"DISC:   Track {et['index']}: {et['duration_str']} ({et['duration'] // 60}m)")
 
         return info
 
