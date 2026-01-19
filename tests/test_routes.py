@@ -428,3 +428,63 @@ class TestAPIImportKeys:
         mock_load.return_value = {'integrations': {}}
         response = client.post('/api/import-keys')
         assert response.status_code == 200
+
+
+class TestAPIRipHistory:
+    """Tests for the /api/rip-history endpoint"""
+
+    def test_rip_history_returns_json(self, client):
+        """Test rip history returns JSON"""
+        response = client.get('/api/rip-history')
+        assert response.status_code == 200
+        assert response.content_type == 'application/json'
+
+    def test_rip_history_has_rips_key(self, client):
+        """Test rip history has rips array"""
+        response = client.get('/api/rip-history')
+        data = json.loads(response.data)
+        assert 'rips' in data
+        assert isinstance(data['rips'], list)
+
+
+class TestAPIActivityLog:
+    """Tests for the /api/activity-log endpoint"""
+
+    def test_activity_log_returns_json(self, client):
+        """Test activity log returns JSON"""
+        response = client.get('/api/activity-log')
+        assert response.status_code == 200
+        assert response.content_type == 'application/json'
+
+    def test_activity_log_has_log_key(self, client):
+        """Test activity log has log array"""
+        response = client.get('/api/activity-log')
+        data = json.loads(response.data)
+        assert 'log' in data
+
+
+class TestAPIRipStats:
+    """Tests for the /api/rip-stats endpoint"""
+
+    def test_rip_stats_returns_json(self, client):
+        """Test rip stats returns JSON"""
+        response = client.get('/api/rip-stats')
+        assert response.status_code == 200
+        assert response.content_type == 'application/json'
+
+    def test_rip_stats_has_expected_keys(self, client):
+        """Test rip stats has expected structure"""
+        response = client.get('/api/rip-stats')
+        data = json.loads(response.data)
+        assert 'today' in data
+        assert 'week' in data
+
+
+class TestAPIDriveStatus:
+    """Tests for the /api/drive/status endpoint"""
+
+    def test_drive_status_returns_json(self, client):
+        """Test drive status returns JSON"""
+        response = client.get('/api/drive/status')
+        assert response.status_code == 200
+        assert response.content_type == 'application/json'

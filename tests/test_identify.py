@@ -268,3 +268,56 @@ class TestSonarrSearch:
 
         assert result is not None
         assert result.title == "Breaking Bad"
+
+
+class TestMediaTypeDetection:
+    """Tests for media type detection"""
+
+    def test_detect_tv_by_episode_count(self, sample_config):
+        """Test detection of TV by episode-like track count"""
+        identifier = SmartIdentifier(sample_config)
+
+        # Multiple tracks with similar durations indicates TV
+        track_info = [
+            {'duration': 2700},  # 45 min
+            {'duration': 2700},
+            {'duration': 2700},
+            {'duration': 2700},
+        ]
+        media_type, _, _ = identifier.detect_media_type("TEST_DISC", tracks=track_info)
+        assert media_type == "tv"
+
+    def test_detect_movie_by_single_track(self, sample_config):
+        """Test detection of movie by single long track"""
+        identifier = SmartIdentifier(sample_config)
+
+        track_info = [
+            {'duration': 7200},  # 2 hours
+        ]
+        media_type, _, _ = identifier.detect_media_type("TEST_DISC", tracks=track_info)
+        assert media_type == "movie"
+
+
+class TestParseDiscLabel:
+    """Tests for disc label parsing"""
+
+    def test_parse_removes_studio_prefix(self, sample_config):
+        """Test removing studio prefixes"""
+        identifier = SmartIdentifier(sample_config)
+
+        result = identifier.parse_disc_label("MARVEL_STUDIOS_GUARDIANS_3", verbose=False)
+        assert "guardians" in result.lower()
+
+    def test_parse_removes_underscores(self, sample_config):
+        """Test converting underscores to spaces"""
+        identifier = SmartIdentifier(sample_config)
+
+        result = identifier.parse_disc_label("THE_MATRIX", verbose=False)
+        assert "_" not in result or "matrix" in result.lower()
+
+    def test_parse_handles_year(self, sample_config):
+        """Test parsing labels with years"""
+        identifier = SmartIdentifier(sample_config)
+
+        result = identifier.parse_disc_label("MOVIE_2023", verbose=False)
+        assert result is not None

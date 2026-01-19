@@ -373,3 +373,52 @@ class TestScanEvents:
             logged = mock_log.call_args[0][0]
             assert "The Matrix" in logged
             assert "Copy protection detected" in logged
+
+
+class TestRecentRips:
+    """Tests for get_recent_rips function"""
+
+    def test_get_recent_rips_empty(self):
+        """Test get_recent_rips when no history"""
+        from app import activity
+
+        with patch.object(activity, 'load_rip_history', return_value=[]):
+            result = activity.get_recent_rips(days=7)
+            assert result == []
+
+    def test_get_recent_rips_filters_by_date(self):
+        """Test get_recent_rips filters by date correctly"""
+        from app import activity
+        from datetime import datetime, timedelta
+
+        recent_date = (datetime.now() - timedelta(days=1)).isoformat()
+        old_date = (datetime.now() - timedelta(days=30)).isoformat()
+
+        history = [
+            {'title': 'Recent Movie', 'completed_at': recent_date},
+            {'title': 'Old Movie', 'completed_at': old_date}
+        ]
+
+        # Mock load_rip_history and load_config
+        with patch.object(activity, 'load_rip_history', return_value=history):
+            from app import config
+            with patch.object(config, 'load_config', return_value={'notifications': {'email': {}}}):
+                result = activity.get_recent_rips(days=7, respect_digest_reset=False)
+                # Should only include recent movie
+                assert len(result) == 1
+                assert result[0]['title'] == 'Recent Movie'
+
+
+class TestResetDigestList:
+    """Tests for reset_digest_list function"""
+
+    def test_reset_digest_calls_save(self):
+        """Test reset updates config"""
+        from app import activity
+        from app import config
+
+        with patch.object(config, 'load_config', return_value={'notifications': {'email': {}}}):
+            with patch.object(config, 'save_config') as mock_save:
+                with patch.object(activity, 'log_info'):
+                    activity.reset_digest_list()
+                    mock_save.assert_called_once()
