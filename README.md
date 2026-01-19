@@ -6,7 +6,7 @@
 
 - **Smart Disc Identification** - Parses disc labels + matches runtime against Radarr/TMDB
 - **Fake Playlist Detection** - Detects Disney-style protection with dozens of similar-length tracks, uses TMDB runtime to find the real movie
-- **Auto-Retry Backup Mode** - If direct rip fails (copy protection), auto-retries by decrypting full disc first
+- **Auto-Retry Backup Mode** - For Blu-rays, if direct rip fails (copy protection), auto-retries by decrypting full disc first
 - **Filename Sanitization** - Handles colons and special characters in titles (Star Wars: → Star Wars -)
 - **TV Show Auto-Detection** - Detects episode-length tracks and rips all episodes automatically
 - **Hands-Free Mode** - Insert disc, walk away - auto-detects movies vs TV, rips everything
@@ -104,14 +104,16 @@ RipForge includes two features for handling problematic discs:
 
 RipForge compares track durations against the official TMDB runtime (from Radarr identification) and selects the track closest to the actual movie length. You'll see "fake playlists detected" in the scan results when this happens.
 
-**Auto-Retry via Backup** - When direct ripping fails (copy protection, read errors, silent failures), RipForge can automatically retry using a backup-first approach:
+**Auto-Retry via Backup (Blu-ray only)** - When direct ripping fails on Blu-rays (copy protection, read errors, silent failures), RipForge can automatically retry using a backup-first approach:
 
 1. **Direct rip fails** → Logs "Retrying via backup method..."
 2. **Backup disc** → MakeMKV decrypts the entire disc to a temp folder
 3. **Rip from backup** → Extracts the movie from the decrypted backup
 4. **Cleanup** → Backup folder deleted after successful rip
 
-This is enabled by default (`backup_fallback: true`) and handles most problematic discs automatically. The backup approach is slower but more reliable for protected content.
+This is enabled by default (`backup_fallback: true`) and handles most problematic Blu-ray discs automatically. The backup approach is slower but more reliable for protected content.
+
+> **DVD Note:** DVDs always use direct extraction. MakeMKV's backup command creates ISO/UDF images for DVDs rather than a usable VIDEO_TS folder structure, so RipForge bypasses backup mode entirely for DVDs.
 
 ## Quick Start
 
@@ -204,7 +206,10 @@ ripping:
   tv_min_episode_length: 1200   # 20 min - minimum track length for TV detection
 ```
 
-**Rip Modes:**
+**Rip Modes (Blu-ray only):**
+
+> **Note:** DVDs always use direct extraction regardless of this setting. MakeMKV's backup mode creates ISO images for DVDs (not a usable folder structure), so direct extraction is used instead.
+
 - **Smart** (recommended) - Tries direct rip first; if it fails, automatically retries with backup method
 - **Always Backup** - Always decrypts full disc first, then extracts. Slower but most reliable for protected content
 - **Direct Only** - Only attempts direct rip; no fallback if copy protection blocks it
