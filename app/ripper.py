@@ -637,18 +637,25 @@ class MakeMKV:
             if prgv_count == 0:
                 # PRGV messages not received - verify backup succeeded by checking folder
                 activity.log_info("BACKUP: No progress messages received, verifying backup folder...")
+                # Check for Blu-ray (BDMV) or DVD (VIDEO_TS) structure
                 bdmv_path = Path(output_dir) / "BDMV"
-                if bdmv_path.exists():
+                video_ts_path = Path(output_dir) / "VIDEO_TS"
+                has_valid_structure = bdmv_path.exists() or video_ts_path.exists()
+                disc_type = "Blu-ray" if bdmv_path.exists() else "DVD" if video_ts_path.exists() else "unknown"
+                
+                if has_valid_structure:
                     # Calculate total size
                     total_size = sum(f.stat().st_size for f in Path(output_dir).rglob("*") if f.is_file())
-                    if total_size > 1_000_000_000:  # > 1 GB
-                        activity.log_success(f"BACKUP: Verified - {total_size / (1024**3):.1f} GB in {output_dir}")
+                    # DVDs are smaller than Blu-rays, adjust threshold
+                    min_size = 100_000_000 if disc_type == "DVD" else 1_000_000_000  # 100MB for DVD, 1GB for BR
+                    if total_size > min_size:
+                        activity.log_success(f"BACKUP: Verified {disc_type} - {total_size / (1024**3):.1f} GB in {output_dir}")
                         return (True, "", output_dir)
                     else:
                         activity.log_warning(f"BACKUP: Folder exists but only {total_size / (1024**3):.1f} GB")
                         return (False, f"Backup folder too small ({total_size / (1024**3):.1f} GB)", output_dir)
                 else:
-                    activity.log_warning("BACKUP: MakeMKV reported success but no BDMV folder found")
+                    activity.log_warning("BACKUP: MakeMKV reported success but no BDMV/VIDEO_TS folder found")
                     return (False, "Backup reported success but no valid backup structure found", output_dir)
             activity.log_success(f"BACKUP: Complete - {output_dir}")
             return (True, "", output_dir)
@@ -1611,12 +1618,20 @@ class RipEngine:
                 backup_dir = os.path.join(self.backup_path, sanitize_folder_name(job.disc_label))
 
                 # Check if valid backup already exists (skip re-backup on retry)
+                # Support both Blu-ray (BDMV) and DVD (VIDEO_TS) structures
                 bdmv_path = Path(backup_dir) / "BDMV"
+                video_ts_path = Path(backup_dir) / "VIDEO_TS"
+                has_backup_structure = bdmv_path.exists() or video_ts_path.exists()
+                is_dvd = video_ts_path.exists() and not bdmv_path.exists()
                 existing_backup_valid = False
-                if bdmv_path.exists():
+                
+                if has_backup_structure:
                     backup_size = sum(f.stat().st_size for f in Path(backup_dir).rglob("*") if f.is_file())
-                    if backup_size > 1_000_000_000:  # > 1 GB
-                        activity.log_success(f"Found existing backup: {backup_size / (1024**3):.1f} GB - skipping backup phase")
+                    # DVDs are smaller - use 100MB threshold, Blu-rays use 1GB
+                    min_size = 100_000_000 if is_dvd else 1_000_000_000
+                    if backup_size > min_size:
+                        disc_type = "DVD" if is_dvd else "Blu-ray"
+                        activity.log_success(f"Found existing {disc_type} backup: {backup_size / (1024**3):.1f} GB - skipping backup phase")
                         existing_backup_valid = True
                         backup_success = True
                     else:
