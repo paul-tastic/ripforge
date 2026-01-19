@@ -350,7 +350,7 @@ class MakeMKV:
 
     def rip_track(self, device: str, track: int, output_dir: str,
                   progress_callback: Optional[Callable] = None,
-                  message_callback: Optional[Callable] = None) -> tuple:
+                  message_callback: Optional[Callable] = None, expected_size: int = 0) -> tuple:
         """Rip a specific track from the disc
 
         Returns: (success: bool, error_message: str)
@@ -385,6 +385,8 @@ class MakeMKV:
 
         line_count = 0
         prgv_count = 0
+        last_size_check = time.time()
+        last_progress = 0
         for line in process.stdout:
             line = line.strip()
             line_count += 1
@@ -407,6 +409,22 @@ class MakeMKV:
                         # Log occasional progress for debugging
                         if prgv_count == 1 or prgv_count % 100 == 0:
                             activity.log_info(f"DEBUG: Progress {percent}% (PRGV #{prgv_count})")
+
+            # Fallback: poll folder size if no PRGV and expected_size provided
+            if prgv_count == 0 and expected_size > 0 and progress_callback:
+                now = time.time()
+                if now - last_size_check >= 3:  # Check every 3 seconds
+                    last_size_check = now
+                    try:
+                        mkv_files = list(Path(output_dir).glob("*.mkv"))
+                        if mkv_files:
+                            current_size = max(f.stat().st_size for f in mkv_files)
+                            percent = min(99, int((current_size / expected_size) * 100))
+                            if percent > last_progress:
+                                progress_callback(percent)
+                                last_progress = percent
+                    except:
+                        pass
 
             # Parse messages for errors/status and track actual output path
             if line.startswith("MSG:"):
@@ -432,8 +450,20 @@ class MakeMKV:
         if return_code == 0:
             # Detect silent failures: MakeMKV returned success but never reported progress
             if prgv_count == 0:
-                activity.log_warning("MakeMKV reported success but no progress - possible disc read failure or copy protection")
-                return (False, "MakeMKV reported success but no progress was made - disc may be unreadable or copy-protected", actual_output_path)
+                activity.log_info("RIP: No progress messages received, verifying output...")
+                mkv_files = list(Path(output_dir).glob("*.mkv"))
+                if mkv_files:
+                    largest = max(mkv_files, key=lambda f: f.stat().st_size)
+                    size = largest.stat().st_size
+                    if size > 100_000_000:  # > 100 MB
+                        activity.log_success(f"RIP: Verified - {size / (1024**3):.1f} GB in {largest.name}")
+                        return (True, "", str(largest))
+                    else:
+                        activity.log_warning(f"RIP: MKV exists but only {size / (1024**2):.1f} MB")
+                        return (False, f"Output file too small ({size / (1024**2):.1f} MB)", str(largest))
+                else:
+                    activity.log_warning("RIP: No MKV files found - possible disc read failure or copy protection")
+                    return (False, "MakeMKV reported success but no output file found", actual_output_path)
             return (True, "", actual_output_path)
         else:
             # Map common MakeMKV error codes
@@ -451,7 +481,7 @@ class MakeMKV:
 
     def backup_disc(self, device: str, output_dir: str,
                     progress_callback: Optional[Callable] = None,
-                    message_callback: Optional[Callable] = None) -> tuple:
+                    message_callback: Optional[Callable] = None, expected_size: int = 0) -> tuple:
         """Backup entire disc to folder (decrypted).
 
         This is used as a fallback when direct ripping fails due to copy protection.
@@ -482,6 +512,8 @@ class MakeMKV:
 
         line_count = 0
         prgv_count = 0
+        last_size_check = time.time()
+        last_progress = 0
         for line in process.stdout:
             line = line.strip()
             line_count += 1
@@ -502,6 +534,20 @@ class MakeMKV:
                         progress_callback(percent)
                         if prgv_count == 1 or prgv_count % 100 == 0:
                             activity.log_info(f"BACKUP: Progress {percent}%")
+
+            # Fallback: poll folder size if no PRGV and expected_size provided
+            if prgv_count == 0 and expected_size > 0 and progress_callback:
+                now = time.time()
+                if now - last_size_check >= 3:  # Check every 3 seconds
+                    last_size_check = now
+                    try:
+                        current_size = sum(f.stat().st_size for f in Path(output_dir).rglob("*") if f.is_file())
+                        percent = min(99, int((current_size / expected_size) * 100))
+                        if percent > last_progress:
+                            progress_callback(percent)
+                            last_progress = percent
+                    except:
+                        pass
 
             # Parse messages for errors/status
             if line.startswith("MSG:"):
@@ -544,7 +590,7 @@ class MakeMKV:
 
     def rip_from_backup(self, backup_path: str, track: int, output_dir: str,
                         progress_callback: Optional[Callable] = None,
-                        message_callback: Optional[Callable] = None) -> tuple:
+                        message_callback: Optional[Callable] = None, expected_size: int = 0) -> tuple:
         """Rip track from backup folder instead of disc.
 
         After a disc has been backed up with backup_disc(), this method extracts
@@ -572,6 +618,8 @@ class MakeMKV:
 
         line_count = 0
         prgv_count = 0
+        last_size_check = time.time()
+        last_progress = 0
         for line in process.stdout:
             line = line.strip()
             line_count += 1
@@ -591,6 +639,22 @@ class MakeMKV:
                         if prgv_count == 1 or prgv_count % 100 == 0:
                             activity.log_info(f"RIP FROM BACKUP: Progress {percent}%")
 
+            # Fallback: poll folder size if no PRGV and expected_size provided
+            if prgv_count == 0 and expected_size > 0 and progress_callback:
+                now = time.time()
+                if now - last_size_check >= 3:  # Check every 3 seconds
+                    last_size_check = now
+                    try:
+                        mkv_files = list(Path(output_dir).glob("*.mkv"))
+                        if mkv_files:
+                            current_size = max(f.stat().st_size for f in mkv_files)
+                            percent = min(99, int((current_size / expected_size) * 100))
+                            if percent > last_progress:
+                                progress_callback(percent)
+                                last_progress = percent
+                    except:
+                        pass
+
             if line.startswith("MSG:"):
                 match = re.search(r'MSG:\d+,\d+,\d+,"([^"]*)"', line)
                 if match:
@@ -609,7 +673,21 @@ class MakeMKV:
 
         if return_code == 0:
             if prgv_count == 0:
-                return (False, "Rip from backup reported success but no progress was made", actual_output_path)
+                # PRGV messages not received - verify rip succeeded by checking output
+                activity.log_info("RIP FROM BACKUP: No progress messages received, verifying output...")
+                mkv_files = list(Path(output_dir).glob("*.mkv"))
+                if mkv_files:
+                    largest = max(mkv_files, key=lambda f: f.stat().st_size)
+                    size = largest.stat().st_size
+                    if size > 100_000_000:  # > 100 MB
+                        activity.log_success(f"RIP FROM BACKUP: Verified - {size / (1024**3):.1f} GB in {largest.name}")
+                        return (True, "", str(largest))
+                    else:
+                        activity.log_warning(f"RIP FROM BACKUP: MKV exists but only {size / (1024**2):.1f} MB")
+                        return (False, f"Output file too small ({size / (1024**2):.1f} MB)", str(largest))
+                else:
+                    activity.log_warning("RIP FROM BACKUP: No MKV files found in output directory")
+                    return (False, "Rip from backup reported success but no output file found", actual_output_path)
             activity.log_success(f"RIP FROM BACKUP: Complete")
             return (True, "", actual_output_path)
         else:
@@ -1361,7 +1439,8 @@ class RipEngine:
                     main_feature,
                     output_dir,
                     progress_callback=progress_cb,
-                    message_callback=message_cb
+                    message_callback=message_cb,
+                    expected_size=job.expected_size_bytes
                 )
 
             # Handle backup fallback for smart mode, or always_backup mode
@@ -1377,19 +1456,33 @@ class RipEngine:
                 # Create backup directory
                 backup_dir = os.path.join(self.backup_path, sanitize_folder_name(job.disc_label))
 
-                # Reset progress for backup phase
-                def backup_progress_cb(percent):
-                    # Backup is first half (0-50%), rip from backup is second half (50-100%)
-                    self._set_progress(percent // 2, "Backing up disc...")
-                    self._update_step("rip", "active", f"Backup... {percent}%")
+                # Check if valid backup already exists (skip re-backup on retry)
+                bdmv_path = Path(backup_dir) / "BDMV"
+                existing_backup_valid = False
+                if bdmv_path.exists():
+                    backup_size = sum(f.stat().st_size for f in Path(backup_dir).rglob("*") if f.is_file())
+                    if backup_size > 1_000_000_000:  # > 1 GB
+                        activity.log_success(f"Found existing backup: {backup_size / (1024**3):.1f} GB - skipping backup phase")
+                        existing_backup_valid = True
+                        backup_success = True
+                    else:
+                        activity.log_warning(f"Existing backup too small ({backup_size / (1024**3):.1f} GB) - re-backing up")
 
-                # Backup the disc first
-                backup_success, backup_error, _ = self.makemkv.backup_disc(
-                    job.device,
-                    backup_dir,
-                    progress_callback=backup_progress_cb,
-                    message_callback=message_cb
-                )
+                if not existing_backup_valid:
+                    # Reset progress for backup phase
+                    def backup_progress_cb(percent):
+                        # Backup is first half (0-50%), rip from backup is second half (50-100%)
+                        self._set_progress(percent // 2, "Backing up disc...")
+                        self._update_step("rip", "active", f"Backup... {percent}%")
+
+                    # Backup the disc first
+                    backup_success, backup_error, _ = self.makemkv.backup_disc(
+                        job.device,
+                        backup_dir,
+                        progress_callback=backup_progress_cb,
+                        message_callback=message_cb,
+                        expected_size=job.expected_size_bytes
+                    )
 
                 if backup_success:
                     activity.log_success("Backup complete, ripping from backup...")
@@ -1406,7 +1499,8 @@ class RipEngine:
                         main_feature,
                         output_dir,
                         progress_callback=backup_rip_progress_cb,
-                        message_callback=message_cb
+                        message_callback=message_cb,
+                        expected_size=job.expected_size_bytes
                     )
 
                     # Clean up backup folder on success
@@ -1766,11 +1860,15 @@ class RipEngine:
                         status_msg = f"Ripping E{ep_num:02d}... {percent}%"
                     self._update_step("rip", "active", f"Episode {idx + 1}/{total_tracks}: {status_msg}")
 
+                # Get track size for progress polling (if available)
+                ep_expected_size = track_sizes.get(track_num, 0) if track_sizes else 0
+                
                 success, error_msg, actual_path = self.makemkv.rip_track(
                     job.device,
                     track_num,
                     output_dir,
-                    progress_callback=progress_cb
+                    progress_callback=progress_cb,
+                    expected_size=ep_expected_size
                 )
 
                 if success:
