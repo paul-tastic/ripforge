@@ -295,9 +295,12 @@
 
     <!-- CLI Cheatsheet -->
     <section class="card">
-        <h2>CLI Cheatsheet</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h2 style="margin: 0;">CLI Cheatsheet</h2>
+            <span class="os-badge" id="os-badge">Loading...</span>
+        </div>
         <p style="color: var(--text-muted); margin-bottom: 16px;">
-            Quick reference for server management commands.
+            Commands customized for this server. Click to copy.
         </p>
         <div class="cheatsheet-grid">
             <div class="cheatsheet-item">
@@ -383,6 +386,15 @@
 }
 .cheatsheet-code.copied {
     color: var(--success);
+}
+.os-badge {
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--warning);
+    font-family: monospace;
 }
 </style>
 
@@ -608,6 +620,22 @@
     }
 
     loadCachedVersion();
+
+    // Load OS info for cheatsheet
+    fetch("/api/hardware")
+        .then(r => r.json())
+        .then(data => {
+            const osBadge = document.getElementById("os-badge");
+            if (osBadge && data.os) {
+                osBadge.textContent = data.os;
+            } else if (osBadge) {
+                osBadge.textContent = "Linux";
+            }
+        })
+        .catch(() => {
+            const osBadge = document.getElementById("os-badge");
+            if (osBadge) osBadge.textContent = "Linux";
+        });
 
     // Button handlers
     document.getElementById('btn-check-updates').addEventListener('click', () => checkForUpdates(true));
