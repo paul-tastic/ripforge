@@ -575,6 +575,12 @@ def api_hardware():
     return jsonify(hardware)
 
 
+@main.route('/api/drive/status')
+def api_drive_status():
+    """Get detailed optical drive status including LibreDrive info"""
+    return jsonify(config.get_optical_drive_status())
+
+
 @main.route('/api/version')
 def api_version():
     """Get version info and check for updates"""

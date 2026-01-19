@@ -290,7 +290,14 @@
         </div>
     </section>
 
-    
+    <!-- Optical Drive Status -->
+    <section class="card">
+        <h2>Optical Drive</h2>
+        <div class="drive-status" id="drive-status">
+            <div class="drive-status-loading">Loading drive info...</div>
+        </div>
+    </section>
+
     <!-- Save Button -->
 
     <!-- CLI Cheatsheet -->
@@ -302,6 +309,11 @@
         <p style="color: var(--text-muted); margin-bottom: 16px;">
             Commands customized for this server. Click to copy.
         </p>
+        <div style="margin-bottom: 16px;">
+            <button class="btn btn-secondary" id="btn-restart-service" onclick="restartService()">
+                🔄 Restart Service
+            </button>
+        </div>
         <div class="cheatsheet-grid">
             <div class="cheatsheet-item">
                 <div class="cheatsheet-label">Restart Service</div>
@@ -381,17 +393,6 @@
     overflow-x: auto;
     box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
 }
-.cheatsheet-code-OLD {
-    display: block;
-    font-family: monospace;
-    font-size: 13px;
-    color: var(--warning);
-    cursor: pointer;
-    padding: 8px;
-    background: var(--bg);
-    border-radius: 4px;
-    overflow-x: auto;
-}
 .cheatsheet-code:hover {
     background: var(--border);
 }
@@ -407,10 +408,81 @@
     color: var(--warning);
     font-family: monospace;
 }
+.drive-status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px;
+}
+.drive-stat {
+    background: var(--bg-dark);
+    border-radius: 8px;
+    padding: 12px 16px;
+}
+.drive-stat-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+.drive-stat-value {
+    font-size: 14px;
+    color: var(--text);
+    font-weight: 500;
+}
+.drive-stat-value.success {
+    color: var(--success);
+}
+.drive-stat-value.warning {
+    color: var(--warning);
+}
+.drive-stat-value.error {
+    color: var(--error);
+}
+.drive-status-loading {
+    color: var(--text-muted);
+    padding: 20px;
+    text-align: center;
+}
 </style>
 
 {% block scripts %}
 <script>
+    // Restart service
+    function restartService() {
+        const btn = document.getElementById('btn-restart-service');
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Restarting...';
+
+        fetch('/api/service/restart', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('Service restarting...', 'success');
+                    btn.innerHTML = '✓ Restarting...';
+                    // Page will lose connection, countdown to reload
+                    setTimeout(() => {
+                        btn.innerHTML = 'Reloading in 3...';
+                        setTimeout(() => {
+                            btn.innerHTML = 'Reloading in 2...';
+                            setTimeout(() => {
+                                btn.innerHTML = 'Reloading in 1...';
+                                setTimeout(() => window.location.reload(), 1000);
+                            }, 1000);
+                        }, 1000);
+                    }, 1000);
+                } else {
+                    showToast('Restart failed: ' + (data.error || 'Unknown error'), 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = '🔄 Restart Service';
+                }
+            })
+            .catch(() => {
+                // Connection lost means restart is happening
+                showToast('Service restarting...', 'success');
+                setTimeout(() => window.location.reload(), 4000);
+            });
+    }
+
     // Copy to clipboard
     function copyToClipboard(el) {
         navigator.clipboard.writeText(el.textContent).then(() => {
@@ -424,6 +496,77 @@
         });
     }
 
+    // Load optical drive status
+    function loadDriveStatus() {
+        fetch('/api/drive/status')
+            .then(r => r.json())
+            .then(data => {
+                const container = document.getElementById('drive-status');
+                if (data.error && !data.drive_model) {
+                    container.innerHTML = `<div class="drive-status-loading" style="color: var(--error);">${data.error}</div>`;
+                    return;
+                }
+
+                let html = '<div class="drive-status-grid">';
+
+                // Drive Model
+                html += `<div class="drive-stat">
+                    <div class="drive-stat-label">Drive Model</div>
+                    <div class="drive-stat-value">${data.drive_model || 'Unknown'}</div>
+                </div>`;
+
+                // Firmware
+                if (data.drive_firmware) {
+                    html += `<div class="drive-stat">
+                        <div class="drive-stat-label">Firmware</div>
+                        <div class="drive-stat-value">${data.drive_firmware}</div>
+                    </div>`;
+                }
+
+                // LibreDrive Status
+                html += `<div class="drive-stat">
+                    <div class="drive-stat-label">LibreDrive</div>
+                    <div class="drive-stat-value ${data.libre_drive ? 'success' : 'warning'}">
+                        ${data.libre_drive ? '✓ Enabled' : '✗ Disabled'}
+                        ${data.libre_drive_version ? ' (v' + data.libre_drive_version + ')' : ''}
+                    </div>
+                </div>`;
+
+                // MakeMKV Version
+                if (data.makemkv_version) {
+                    html += `<div class="drive-stat">
+                        <div class="drive-stat-label">MakeMKV</div>
+                        <div class="drive-stat-value">v${data.makemkv_version}</div>
+                    </div>`;
+                }
+
+                // Disc Status
+                html += `<div class="drive-stat">
+                    <div class="drive-stat-label">Disc</div>
+                    <div class="drive-stat-value ${data.disc_present ? 'success' : ''}">
+                        ${data.disc_present ? (data.disc_label || 'Present') : 'No disc'}
+                    </div>
+                </div>`;
+
+                // Access Mode
+                if (data.access_mode) {
+                    html += `<div class="drive-stat">
+                        <div class="drive-stat-label">Access Mode</div>
+                        <div class="drive-stat-value">${data.access_mode}</div>
+                    </div>`;
+                }
+
+                html += '</div>';
+                container.innerHTML = html;
+            })
+            .catch(err => {
+                document.getElementById('drive-status').innerHTML =
+                    '<div class="drive-status-loading" style="color: var(--error);">Failed to load drive status</div>';
+            });
+    }
+
+    // Load drive status on page load
+    loadDriveStatus();
 
     // Auto-detect button
     document.getElementById('btn-auto-detect').addEventListener('click', function() {

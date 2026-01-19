@@ -202,6 +202,91 @@ def detect_optical_drives() -> list:
     return drives
 
 
+def get_optical_drive_status() -> dict:
+    """Get detailed optical drive status from MakeMKV including LibreDrive info"""
+    status = {
+        'drive_model': None,
+        'drive_firmware': None,
+        'disc_present': False,
+        'disc_label': None,
+        'libre_drive': False,
+        'libre_drive_version': None,
+        'access_mode': None,
+        'makemkv_version': None,
+        'error': None
+    }
+
+    try:
+        result = subprocess.run(
+            ['makemkvcon', '-r', 'info', 'disc:0'],
+            capture_output=True, text=True, timeout=30
+        )
+
+        for line in result.stdout.split('\n'):
+            # MakeMKV version: MSG:1005,0,1,"MakeMKV v1.18.2 linux(x64-release) started"
+            if line.startswith('MSG:1005'):
+                match = re.search(r'MakeMKV v([\d.]+)', line)
+                if match:
+                    status['makemkv_version'] = match.group(1)
+
+            # Drive info: DRV:0,2,999,1,"BD-RE HL-DT-ST BD-RE BU40N 1.03","DISC_LABEL","/dev/sr0"
+            elif line.startswith('DRV:0,'):
+                parts = line.split(',')
+                if len(parts) >= 5:
+                    # Parse drive state (parts[1]: 0=empty, 1=loading, 2=disc present)
+                    try:
+                        drive_state = int(parts[1])
+                        status['disc_present'] = drive_state == 2
+                    except ValueError:
+                        pass
+
+                    # Parse drive model (parts[4] with quotes)
+                    model_match = re.search(r'"([^"]+)"', ','.join(parts[4:6]))
+                    if model_match:
+                        model = model_match.group(1)
+                        # Extract firmware version if present (e.g., "BD-RE BU40N 1.03")
+                        model_parts = model.rsplit(' ', 1)
+                        if len(model_parts) == 2 and re.match(r'[\d.]+', model_parts[1]):
+                            status['drive_model'] = model_parts[0].replace('BD-RE ', '').replace('HL-DT-ST ', '')
+                            status['drive_firmware'] = model_parts[1]
+                        else:
+                            status['drive_model'] = model
+
+                    # Parse disc label (parts[5] with quotes)
+                    label_match = re.search(r'"([^"]*)"[^"]*"([^"]*)"', line)
+                    if label_match and label_match.group(2):
+                        status['disc_label'] = label_match.group(2)
+
+            # LibreDrive: MSG:1011,0,1,"Using LibreDrive mode (v06.3 id=866A98CB9C4E)"
+            elif 'MSG:1011' in line and 'LibreDrive' in line:
+                status['libre_drive'] = True
+                match = re.search(r'LibreDrive mode \(v([\d.]+)', line)
+                if match:
+                    status['libre_drive_version'] = match.group(1)
+
+            # Access mode: MSG:3007,0,0,"Using direct disc access mode"
+            elif 'MSG:3007' in line:
+                if 'direct' in line.lower():
+                    status['access_mode'] = 'Direct'
+                elif 'backup' in line.lower():
+                    status['access_mode'] = 'Backup'
+
+            # Error message
+            elif 'MSG:5' in line and ('Failed' in line or 'Error' in line):
+                match = re.search(r'"([^"]+)"[^"]*$', line)
+                if match:
+                    status['error'] = match.group(1)
+
+    except subprocess.TimeoutExpired:
+        status['error'] = 'MakeMKV timeout'
+    except FileNotFoundError:
+        status['error'] = 'MakeMKV not installed'
+    except Exception as e:
+        status['error'] = str(e)
+
+    return status
+
+
 def _simplify_gpu_name(gpu: str) -> str:
     """Clean up verbose GPU names from lspci"""
     import re
