@@ -167,6 +167,12 @@
             <div class="rip-actions" id="rip-actions" style="display: none; margin-top: 1rem; text-align: center;">
                 <button class="btn btn-danger" id="btn-stop-rip" onclick="confirmStopDrive()">Stop Drive</button>
             </div>
+            
+            <!-- Post-rip actions (shown on complete/error) -->
+            <div class="post-rip-actions" id="post-rip-actions" style="display: none; margin-top: 1rem; text-align: center;">
+                <button class="btn btn-danger" onclick="resetRip()">Reset</button>
+                <button class="btn btn-secondary" onclick="ejectDisc()">Eject</button>
+            </div>
         </div>
     </section>
 
@@ -1300,6 +1306,7 @@
         if (ripData.status === 'error' || ripData.status === 'complete') {
             // Rip finished - show Reset, hide Stop Drive
             resetBtn.style.display = 'inline-block';
+            document.getElementById('post-rip-actions').style.display = 'block';
             // Show recovery buttons on error
             if (ripData.status === "error") {
                 document.getElementById("btn-reset-drive").style.display = "inline-block";
@@ -1321,6 +1328,7 @@
             if (document.getElementById("btn-eject-disc")) document.getElementById("btn-eject-disc").style.display = "none";
             if (document.getElementById("btn-restart-service")) document.getElementById("btn-restart-service").style.display = "none";
             ripActions.style.display = 'block';
+            if (document.getElementById('post-rip-actions')) document.getElementById('post-rip-actions').style.display = 'none';
             stopBtn.style.display = 'inline-block';
         } else {
             resetBtn.style.display = 'none';
