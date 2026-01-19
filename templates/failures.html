@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block title %}RipForge - Failed Rips{% endblock %}
+{% block page_title %}Failed Rips{% endblock %}
+
+{% block content %}
+<div class="failures">
+    <section class="card">
+        <div class="failures-header">
+            <h2>Failed Rip Log</h2>
+            <div class="failures-actions">
+                <button class="btn btn-secondary" onclick="clearFailures()">Clear All</button>
+            </div>
+        </div>
+        <p class="failures-desc">Track discs that failed to rip for troubleshooting or replacement.</p>
+
+        <div id="failures-list">
+            <div class="loading">Loading failure log...</div>
+        </div>
+    </section>
+</div>
+
+<style>
+    .failures-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+
+    .failures-desc {
+        color: var(--text-muted);
+        margin-bottom: 20px;
+        font-size: 14px;
+    }
+
+    .failure-card {
+        background: var(--bg-dark);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+        border-left: 4px solid var(--error);
+    }
+
+    .failure-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 12px;
+    }
+
+    .failure-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text);
+    }
+
+    .failure-meta {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-top: 4px;
+    }
+
+    .failure-date {
+        font-size: 12px;
+        color: var(--text-muted);
+        text-align: right;
+    }
+
+    .failure-details {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    .failure-stat {
+        background: var(--bg);
+        border-radius: 6px;
+        padding: 8px 12px;
+    }
+
+    .failure-stat-label {
+        font-size: 10px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        margin-bottom: 2px;
+    }
+
+    .failure-stat-value {
+        font-size: 13px;
+        color: var(--text);
+    }
+
+    .failure-reason {
+        background: rgba(239, 68, 68, 0.1);
+        border-radius: 6px;
+        padding: 12px;
+        margin-bottom: 12px;
+    }
+
+    .failure-reason-label {
+        font-size: 11px;
+        color: var(--error);
+        text-transform: uppercase;
+        margin-bottom: 4px;
+    }
+
+    .failure-reason-text {
+        font-size: 13px;
+        color: var(--text);
+    }
+
+    .failure-errors {
+        background: var(--bg);
+        border-radius: 6px;
+        padding: 12px;
+        font-family: 'Monaco', 'Menlo', monospace;
+        font-size: 11px;
+        color: var(--text-muted);
+        max-height: 100px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+    }
+
+    .failure-errors-label {
+        font-size: 10px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        margin-bottom: 8px;
+    }
+
+    .no-failures {
+        text-align: center;
+        color: var(--text-muted);
+        padding: 40px 20px;
+    }
+
+    .no-failures-icon {
+        font-size: 48px;
+        margin-bottom: 12px;
+    }
+
+    .loading {
+        text-align: center;
+        color: var(--text-muted);
+        padding: 40px;
+    }
+
+    .delete-btn {
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: 4px 8px;
+        font-size: 12px;
+        border-radius: 4px;
+    }
+
+    .delete-btn:hover {
+        background: var(--bg);
+        color: var(--error);
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function loadFailures() {
+        try {
+            const response = await fetch('/api/failures');
+            const data = await response.json();
+            const container = document.getElementById('failures-list');
+
+            if (data.failures && data.failures.length > 0) {
+                container.innerHTML = data.failures.map((f, idx) => {
+                    const date = new Date(f.timestamp).toLocaleString();
+                    const duration = f.duration_minutes ? `${f.duration_minutes} min` : 'Unknown';
+
+                    return `
+                        <div class="failure-card">
+                            <div class="failure-header">
+                                <div>
+                                    <div class="failure-title">${f.disc_label || 'Unknown Disc'}</div>
+                                    <div class="failure-meta">${f.disc_type || 'Unknown'} • Attempt #${f.attempt_count || 1}</div>
+                                </div>
+                                <div>
+                                    <div class="failure-date">${date}</div>
+                                    <button class="delete-btn" onclick="deleteFailure(${idx})">Remove</button>
+                                </div>
+                            </div>
+                            <div class="failure-details">
+                                <div class="failure-stat">
+                                    <div class="failure-stat-label">Duration</div>
+                                    <div class="failure-stat-value">${duration}</div>
+                                </div>
+                                <div class="failure-stat">
+                                    <div class="failure-stat-label">Track</div>
+                                    <div class="failure-stat-value">${f.track_info || 'N/A'}</div>
+                                </div>
+                                <div class="failure-stat">
+                                    <div class="failure-stat-label">Output Size</div>
+                                    <div class="failure-stat-value">${f.output_size || '0 bytes'}</div>
+                                </div>
+                                <div class="failure-stat">
+                                    <div class="failure-stat-label">MakeMKV Exit</div>
+                                    <div class="failure-stat-value">${f.exit_code !== undefined ? f.exit_code : 'N/A'}</div>
+                                </div>
+                            </div>
+                            <div class="failure-reason">
+                                <div class="failure-reason-label">Failure Reason</div>
+                                <div class="failure-reason-text">${f.reason || 'Unknown error'}</div>
+                            </div>
+                            ${f.kernel_errors ? `
+                                <div class="failure-errors-label">Kernel I/O Errors</div>
+                                <div class="failure-errors">${f.kernel_errors}</div>
+                            ` : ''}
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                container.innerHTML = `
+                    <div class="no-failures">
+                        <div class="no-failures-icon">✓</div>
+                        <div>No failed rips logged</div>
+                    </div>
+                `;
+            }
+        } catch (err) {
+            console.error('Error loading failures:', err);
+            document.getElementById('failures-list').innerHTML = '<div class="loading" style="color: var(--error);">Error loading failure log</div>';
+        }
+    }
+
+    async function deleteFailure(index) {
+        if (!confirm('Remove this failure from the log?')) return;
+        try {
+            await fetch(`/api/failures/${index}`, { method: 'DELETE' });
+            loadFailures();
+        } catch (err) {
+            console.error('Error deleting failure:', err);
+        }
+    }
+
+    async function clearFailures() {
+        if (!confirm('Clear all failure logs?')) return;
+        try {
+            await fetch('/api/failures', { method: 'DELETE' });
+            loadFailures();
+        } catch (err) {
+            console.error('Error clearing failures:', err);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadFailures);
+</script>
+{% endblock %}

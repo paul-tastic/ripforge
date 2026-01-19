@@ -21,6 +21,9 @@
             <li><a href="/history" class="{% if request.endpoint == 'main.history' %}active{% endif %}">
                 <span class="nav-icon">📜</span> History
             </a></li>
+            <li><a href="/failures" class="{% if request.endpoint == 'main.failures' %}active{% endif %}">
+                <span class="nav-icon">⚠️</span> Failures
+            </a></li>
             <li><a href="/notifications" class="{% if request.endpoint == 'main.notifications' %}active{% endif %}">
                 <span class="nav-icon">🔔</span> Notifications
             </a></li>

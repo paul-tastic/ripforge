@@ -39,6 +39,29 @@ def history():
     return render_template('history.html', config=cfg)
 
 
+@main.route('/failures')
+def failures():
+    """Failed rips page"""
+    cfg = config.load_config()
+    return render_template('failures.html', config=cfg)
+
+
+@main.route('/api/failures', methods=['GET', 'DELETE'])
+def api_failures():
+    """Get or clear failure log"""
+    if request.method == 'DELETE':
+        config.clear_failure_log()
+        return jsonify({'success': True})
+    return jsonify({'failures': config.get_failure_log()})
+
+
+@main.route('/api/failures/<int:index>', methods=['DELETE'])
+def api_delete_failure(index):
+    """Delete a specific failure entry"""
+    config.delete_failure(index)
+    return jsonify({'success': True})
+
+
 @main.route('/notifications')
 def notifications():
     """Notifications and newsletter management page"""

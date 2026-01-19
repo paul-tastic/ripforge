@@ -859,3 +859,90 @@ def check_for_updates() -> dict:
         result['error'] = str(e)
 
     return result
+
+
+# ============== Failure Log Management ==============
+
+FAILURE_LOG_FILE = CONFIG_DIR / "failures.json"
+
+
+def get_failure_log() -> list:
+    """Get the failure log entries"""
+    import json
+    if FAILURE_LOG_FILE.exists():
+        try:
+            with open(FAILURE_LOG_FILE) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return []
+    return []
+
+
+def log_failure(failure_data: dict):
+    """Add a failure entry to the log"""
+    import json
+    from datetime import datetime
+
+    failures = get_failure_log()
+
+    # Check if this disc has failed before (increment attempt count)
+    disc_label = failure_data.get('disc_label', '')
+    existing = next((f for f in failures if f.get('disc_label') == disc_label), None)
+    if existing:
+        failure_data['attempt_count'] = existing.get('attempt_count', 1) + 1
+    else:
+        failure_data['attempt_count'] = 1
+
+    # Add timestamp
+    failure_data['timestamp'] = datetime.now().isoformat()
+
+    # Try to capture kernel I/O errors
+    try:
+        result = subprocess.run(
+            ['sudo', 'dmesg'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            # Look for recent sr0 errors
+            lines = result.stdout.split('\n')
+            errors = [l for l in lines[-50:] if 'sr0' in l and ('error' in l.lower() or 'failed' in l.lower() or 'critical' in l.lower())]
+            if errors:
+                failure_data['kernel_errors'] = '\n'.join(errors[-5:])  # Last 5 errors
+    except:
+        pass
+
+    # Remove old entry for same disc if exists
+    failures = [f for f in failures if f.get('disc_label') != disc_label]
+
+    # Add new entry at the beginning
+    failures.insert(0, failure_data)
+
+    # Keep only last 50 failures
+    failures = failures[:50]
+
+    # Save
+    try:
+        FAILURE_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(FAILURE_LOG_FILE, 'w') as f:
+            json.dump(failures, f, indent=2)
+    except IOError:
+        pass
+
+
+def clear_failure_log():
+    """Clear all failure entries"""
+    if FAILURE_LOG_FILE.exists():
+        FAILURE_LOG_FILE.unlink()
+
+
+def delete_failure(index: int):
+    """Delete a specific failure entry by index"""
+    import json
+    failures = get_failure_log()
+    if 0 <= index < len(failures):
+        failures.pop(index)
+        try:
+            with open(FAILURE_LOG_FILE, 'w') as f:
+                json.dump(failures, f, indent=2)
+        except IOError:
+            pass

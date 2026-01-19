@@ -1872,8 +1872,30 @@ class RipEngine:
                     title = job.identified_title or job.disc_label
                     activity.rip_failed(title, error_msg or "MakeMKV rip failed")
 
-                    # Send error email if enabled
+                    # Log failure for tracking
                     from . import config as cfg_module
+                    duration_mins = None
+                    if job.rip_started_at:
+                        duration_mins = int((time.time() - job.rip_started_at) / 60)
+                    output_size = "0 bytes"
+                    if job.rip_output_dir and os.path.exists(job.rip_output_dir):
+                        try:
+                            total = sum(f.stat().st_size for f in Path(job.rip_output_dir).glob("*") if f.is_file())
+                            if total > 0:
+                                output_size = f"{total / (1024*1024):.1f} MB"
+                        except:
+                            pass
+                    cfg_module.log_failure({
+                        'disc_label': job.disc_label,
+                        'disc_type': job.disc_type.upper() if job.disc_type else 'Unknown',
+                        'duration_minutes': duration_mins,
+                        'track_info': f"Track {job.tracks_to_rip[0] if job.tracks_to_rip else 'main'}",
+                        'output_size': output_size,
+                        'reason': error_msg or "MakeMKV rip failed",
+                        'rip_method': job.rip_method
+                    })
+
+                    # Send error email if enabled
                     cfg = cfg_module.load_config()
                     email_cfg = cfg.get('notifications', {}).get('email', {})
                     if email_cfg.get('on_error'):
