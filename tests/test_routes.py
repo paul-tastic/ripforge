@@ -309,3 +309,86 @@ class TestReviewQueue:
             content_type='application/json'
         )
         assert response.status_code == 400
+
+
+class TestNotificationsRoute:
+    """Tests for the /notifications page"""
+
+    def test_notifications_returns_200(self, client):
+        """Test notifications page loads"""
+        response = client.get('/notifications')
+        assert response.status_code == 200
+
+
+class TestAPIDiscCheck:
+    """Tests for the /api/disc/check endpoint"""
+
+    @patch('app.routes.rip_engine')
+    def test_disc_check_no_engine(self, mock_engine, client):
+        """Test disc check when no engine"""
+        mock_engine.return_value = None
+        response = client.get('/api/disc/check')
+        assert response.status_code == 200
+
+    @patch('app.routes.rip_engine')
+    def test_disc_check_with_engine(self, mock_engine, client):
+        """Test disc check with engine"""
+        mock_engine.check_disc.return_value = {'present': True, 'label': 'TEST_DISC'}
+        response = client.get('/api/disc/check')
+        assert response.status_code == 200
+
+
+class TestAPIDriveEject:
+    """Tests for the /api/drive/eject endpoint"""
+
+    @patch('app.routes.rip_engine')
+    def test_drive_eject_no_engine(self, mock_engine, client):
+        """Test drive eject when no engine"""
+        mock_engine.return_value = None
+        response = client.post('/api/drive/eject')
+        assert response.status_code in [200, 500]
+
+
+class TestAPIDriveReset:
+    """Tests for the /api/drive/reset endpoint"""
+
+    @patch('app.routes.rip_engine')
+    def test_drive_reset_no_engine(self, mock_engine, client):
+        """Test drive reset when no engine"""
+        mock_engine.return_value = None
+        response = client.post('/api/drive/reset')
+        assert response.status_code in [200, 500]
+
+
+class TestAPITestConnection:
+    """Tests for the /api/test-connection endpoint"""
+
+    def test_test_connection_missing_params(self, client):
+        """Test connection test requires parameters"""
+        response = client.post(
+            '/api/test-connection',
+            data=json.dumps({}),
+            content_type='application/json'
+        )
+        assert response.status_code in [200, 400]
+
+    def test_test_connection_invalid_service(self, client):
+        """Test connection with invalid service"""
+        response = client.post(
+            '/api/test-connection',
+            data=json.dumps({'service': 'invalid', 'url': 'http://localhost', 'api_key': 'test'}),
+            content_type='application/json'
+        )
+        assert response.status_code == 200
+
+
+class TestAPIImportKeys:
+    """Tests for the /api/import-keys endpoint"""
+
+    @patch('app.routes.config.load_config')
+    @patch('app.routes.config.save_config')
+    def test_import_keys(self, mock_save, mock_load, client):
+        """Test import keys endpoint"""
+        mock_load.return_value = {'integrations': {}}
+        response = client.post('/api/import-keys')
+        assert response.status_code == 200

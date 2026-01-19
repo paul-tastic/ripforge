@@ -560,6 +560,8 @@ def api_rip_history():
     except Exception:
         pass
     
+    # Sort by completed_at descending (newest first)
+    rips.sort(key=lambda x: x.get('completed_at', ''), reverse=True)
     return jsonify({'rips': rips})
 
 

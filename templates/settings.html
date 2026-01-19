@@ -154,13 +154,6 @@
                 </label>
                 <small>Only rip the longest track (main movie)</small>
             </div>
-            <div class="field">
-                <label class="toggle-label">
-                    <input type="checkbox" id="skip-transcode" {% if config.ripping.skip_transcode %}checked{% endif %}>
-                    <span>Skip Transcoding</span>
-                </label>
-                <small>Keep original MakeMKV quality</small>
-            </div>
             <div class="field rip-mode-field">
                 <label>Rip Mode <span style="color: var(--text-muted); font-weight: normal;">(Blu-ray only)</span></label>
                 <select id="rip-mode">
@@ -168,7 +161,13 @@
                     <option value="always_backup" {% if config.ripping.rip_mode == 'always_backup' %}selected{% endif %}>Always Backup</option>
                     <option value="direct_only" {% if config.ripping.rip_mode == 'direct_only' %}selected{% endif %}>Direct Only</option>
                 </select>
-                <small id="rip-mode-desc">Try direct first, auto-fallback to backup if copy protection detected. DVDs always use direct extraction.</small>
+            </div>
+            <div class="field">
+                <label class="toggle-label">
+                    <input type="checkbox" id="skip-transcode" {% if config.ripping.skip_transcode %}checked{% endif %}>
+                    <span>Skip Transcoding</span>
+                </label>
+                <small>Keep original MakeMKV quality</small>
             </div>
         </div>
         <div class="rip-mode-info" id="rip-mode-info">
@@ -291,7 +290,58 @@
         </div>
     </section>
 
+    
     <!-- Save Button -->
+
+    <!-- CLI Cheatsheet -->
+    <section class="card">
+        <h2>CLI Cheatsheet</h2>
+        <p style="color: var(--text-muted); margin-bottom: 16px;">
+            Quick reference for server management commands.
+        </p>
+        <div class="cheatsheet-grid">
+            <div class="cheatsheet-item">
+                <div class="cheatsheet-label">Restart Service</div>
+                <code class="cheatsheet-code" onclick="copyToClipboard(this)">sudo systemctl restart ripforge</code>
+            </div>
+            <div class="cheatsheet-item">
+                <div class="cheatsheet-label">Service Status</div>
+                <code class="cheatsheet-code" onclick="copyToClipboard(this)">systemctl status ripforge</code>
+            </div>
+            <div class="cheatsheet-item">
+                <div class="cheatsheet-label">View Logs (live)</div>
+                <code class="cheatsheet-code" onclick="copyToClipboard(this)">tail -f ~/ripforge/logs/activity.log</code>
+            </div>
+            <div class="cheatsheet-item">
+                <div class="cheatsheet-label">View Logs (last 50)</div>
+                <code class="cheatsheet-code" onclick="copyToClipboard(this)">tail -50 ~/ripforge/logs/activity.log</code>
+            </div>
+            <div class="cheatsheet-item">
+                <div class="cheatsheet-label">Pull Updates</div>
+                <code class="cheatsheet-code" onclick="copyToClipboard(this)">cd ~/ripforge && git pull</code>
+            </div>
+            <div class="cheatsheet-item">
+                <div class="cheatsheet-label">Edit Config</div>
+                <code class="cheatsheet-code" onclick="copyToClipboard(this)">nano ~/ripforge/config/settings.yaml</code>
+            </div>
+            <div class="cheatsheet-item">
+                <div class="cheatsheet-label">Check Drive</div>
+                <code class="cheatsheet-code" onclick="copyToClipboard(this)">lsblk | grep sr</code>
+            </div>
+            <div class="cheatsheet-item">
+                <div class="cheatsheet-label">Eject Disc</div>
+                <code class="cheatsheet-code" onclick="copyToClipboard(this)">eject /dev/sr0</code>
+            </div>
+            <div class="cheatsheet-item">
+                <div class="cheatsheet-label">MakeMKV Info</div>
+                <code class="cheatsheet-code" onclick="copyToClipboard(this)">makemkvcon -r info disc:0</code>
+            </div>
+            <div class="cheatsheet-item">
+                <div class="cheatsheet-label">Disk Space</div>
+                <code class="cheatsheet-code" onclick="copyToClipboard(this)">df -h /mnt/media</code>
+            </div>
+        </div>
+    </section>
     <div class="settings-actions">
         <button class="btn btn-primary btn-large" id="btn-save">
             <span class="btn-icon">💾</span> Save Settings
@@ -300,8 +350,57 @@
 </div>
 {% endblock %}
 
+<style>
+.cheatsheet-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 12px;
+}
+.cheatsheet-item {
+    background: var(--bg-dark);
+    border-radius: 8px;
+    padding: 12px;
+}
+.cheatsheet-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+}
+.cheatsheet-code {
+    display: block;
+    font-family: monospace;
+    font-size: 13px;
+    color: var(--warning);
+    cursor: pointer;
+    padding: 8px;
+    background: var(--bg);
+    border-radius: 4px;
+    overflow-x: auto;
+}
+.cheatsheet-code:hover {
+    background: var(--border);
+}
+.cheatsheet-code.copied {
+    color: var(--success);
+}
+</style>
+
 {% block scripts %}
 <script>
+    // Copy to clipboard
+    function copyToClipboard(el) {
+        navigator.clipboard.writeText(el.textContent).then(() => {
+            el.classList.add("copied");
+            const original = el.textContent;
+            el.textContent = "Copied!";
+            setTimeout(() => {
+                el.textContent = original;
+                el.classList.remove("copied");
+            }, 1500);
+        });
+    }
+
 
     // Auto-detect button
     document.getElementById('btn-auto-detect').addEventListener('click', function() {
