@@ -491,3 +491,140 @@ class TestFailureLog:
                             failures = json.load(f)
                         assert len(failures) == 50
                         assert failures[0]['disc_label'] == 'NEW_DISC'
+
+
+class TestTriggerPlexScan:
+    """Tests for Plex library scan triggering"""
+
+    def test_plex_not_enabled(self):
+        """Test returns error when Plex not enabled"""
+        from app import config
+
+        with patch.object(config, 'load_config') as mock_load:
+            mock_load.return_value = {
+                'integrations': {
+                    'plex': {'enabled': False}
+                }
+            }
+
+            result = config.trigger_plex_scan('all')
+
+            assert result['success'] is False
+            assert 'not enabled' in result['error']
+
+    def test_plex_missing_url(self):
+        """Test returns error when Plex URL missing"""
+        from app import config
+
+        with patch.object(config, 'load_config') as mock_load:
+            mock_load.return_value = {
+                'integrations': {
+                    'plex': {'enabled': True, 'url': '', 'token': 'test'}
+                }
+            }
+
+            result = config.trigger_plex_scan('all')
+
+            assert result['success'] is False
+            assert 'not configured' in result['error']
+
+    @patch('app.config.requests.get')
+    def test_plex_scan_success(self, mock_get):
+        """Test successful Plex scan trigger"""
+        from app import config
+
+        # First call returns sections, second call triggers scan
+        sections_response = MagicMock()
+        sections_response.status_code = 200
+        sections_response.json.return_value = {
+            'MediaContainer': {
+                'Directory': [
+                    {'key': '1', 'type': 'movie', 'title': 'Movies'},
+                    {'key': '2', 'type': 'show', 'title': 'TV Shows'}
+                ]
+            }
+        }
+
+        scan_response = MagicMock()
+        scan_response.status_code = 200
+
+        mock_get.side_effect = [sections_response, scan_response, scan_response]
+
+        with patch.object(config, 'load_config') as mock_load:
+            mock_load.return_value = {
+                'integrations': {
+                    'plex': {
+                        'enabled': True,
+                        'url': 'http://localhost:32400',
+                        'token': 'test_token'
+                    }
+                }
+            }
+
+            result = config.trigger_plex_scan('all')
+
+            assert result['success'] is True
+            assert 'Movies' in result['scanned']
+            assert 'TV Shows' in result['scanned']
+
+    @patch('app.config.requests.get')
+    def test_plex_scan_movies_only(self, mock_get):
+        """Test scanning only movies library"""
+        from app import config
+
+        sections_response = MagicMock()
+        sections_response.status_code = 200
+        sections_response.json.return_value = {
+            'MediaContainer': {
+                'Directory': [
+                    {'key': '1', 'type': 'movie', 'title': 'Movies'},
+                    {'key': '2', 'type': 'show', 'title': 'TV Shows'}
+                ]
+            }
+        }
+
+        scan_response = MagicMock()
+        scan_response.status_code = 200
+
+        mock_get.side_effect = [sections_response, scan_response]
+
+        with patch.object(config, 'load_config') as mock_load:
+            mock_load.return_value = {
+                'integrations': {
+                    'plex': {
+                        'enabled': True,
+                        'url': 'http://localhost:32400',
+                        'token': 'test_token'
+                    }
+                }
+            }
+
+            result = config.trigger_plex_scan('movies')
+
+            assert result['success'] is True
+            assert 'Movies' in result['scanned']
+            assert 'TV Shows' not in result['scanned']
+
+    @patch('app.config.requests.get')
+    def test_plex_scan_network_error(self, mock_get):
+        """Test handling network errors"""
+        from app import config
+        import requests
+
+        mock_get.side_effect = requests.exceptions.ConnectionError("Connection refused")
+
+        with patch.object(config, 'load_config') as mock_load:
+            mock_load.return_value = {
+                'integrations': {
+                    'plex': {
+                        'enabled': True,
+                        'url': 'http://localhost:32400',
+                        'token': 'test_token'
+                    }
+                }
+            }
+
+            result = config.trigger_plex_scan('all')
+
+            assert result['success'] is False
+            assert result['error'] is not None
