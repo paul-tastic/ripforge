@@ -101,6 +101,10 @@ class RipJob:
     rip_mode: str = "smart"  # "smart", "always_backup", "direct_only" - from config
     direct_failed: bool = False  # True if direct rip was attempted and failed
     rip_started_at: Optional[float] = None  # Unix timestamp when rip phase began (for ETA calc)
+    # Disc fingerprint data for capture/analysis
+    disc_tracks: List[dict] = field(default_factory=list)
+    disc_track_sizes: Dict[int, int] = field(default_factory=dict)
+    disc_cinfo_raw: Dict[str, str] = field(default_factory=dict)
     steps: Dict[str, RipStep] = field(default_factory=lambda: {
         "insert": RipStep(),
         "detect": RipStep(),
@@ -194,7 +198,8 @@ class MakeMKV:
             "main_feature": None,
             "track_sizes": {},  # Track index -> size in bytes
             "episode_tracks": [],  # Tracks that look like TV episodes (20-60 min)
-            "is_tv_disc": False  # True if multiple episode-length tracks detected
+            "is_tv_disc": False,  # True if multiple episode-length tracks detected
+            "cinfo_raw": {}  # Raw CINFO fields for disc fingerprinting
         }
 
         # Convert device to MakeMKV format (disc:0 for /dev/sr0)
@@ -209,6 +214,12 @@ class MakeMKV:
 
         for line in process.stdout:
             line = line.strip()
+
+            # Capture all CINFO fields for fingerprinting
+            if line.startswith("CINFO:"):
+                cinfo_match = re.match(r'CINFO:(\d+),\d+,"([^"]*)"', line)
+                if cinfo_match:
+                    info["cinfo_raw"][f"CINFO:{cinfo_match.group(1)}"] = cinfo_match.group(2)
 
             # Parse disc name: CINFO:2,0,"GUARDIANS_VOL_3"
             if line.startswith("CINFO:2,0,"):
@@ -1053,6 +1064,18 @@ class RipEngine:
             self._update_step("identify", "complete", f"{job.identified_title} [{confidence_str}]")
             activity.log_success(f"=== IDENTIFICATION COMPLETE: {job.identified_title} ({id_result.confidence}% confidence) ===")
             activity.rip_identified(job.disc_label, job.identified_title, id_result.confidence)
+            # Capture disc data for identification database
+            activity.capture_disc_data(
+                disc_label=job.disc_label,
+                disc_type=job.disc_type,
+                tracks=job.disc_tracks,
+                track_sizes=job.disc_track_sizes,
+                identified_title=job.identified_title,
+                year=job.year,
+                tmdb_id=job.tmdb_id,
+                confidence=id_result.confidence,
+                cinfo_raw=job.disc_cinfo_raw
+            )
         else:
             # Fall back to disc label - mark for review
             fallback_title = job.disc_label.replace("_", " ").title()
@@ -1061,6 +1084,18 @@ class RipEngine:
             self._update_step("identify", "complete", f"{job.identified_title} [NEEDS REVIEW]")
             activity.log_warning(f"IDENTIFY: Radarr match failed, falling back to disc label")
             activity.log_warning(f"=== IDENTIFICATION FALLBACK: '{job.disc_label}' -> '{fallback_title}' (NEEDS REVIEW) ===")
+            # Still capture disc data for unidentified discs
+            activity.capture_disc_data(
+                disc_label=job.disc_label,
+                disc_type=job.disc_type,
+                tracks=job.disc_tracks,
+                track_sizes=job.disc_track_sizes,
+                identified_title=None,
+                year=None,
+                tmdb_id=None,
+                confidence=None,
+                cinfo_raw=job.disc_cinfo_raw
+            )
 
     def _run_post_processing(self):
         """Run the post-rip steps (identify, library, move, plex scan)"""
@@ -1643,6 +1678,10 @@ class RipEngine:
             disc_info = self.makemkv.get_disc_info(job.device)
             job.disc_label = disc_info.get("disc_label", "UNKNOWN")
             job.disc_type = disc_info.get("disc_type", "unknown")
+            # Store fingerprint data for capture
+            job.disc_tracks = disc_info.get("tracks", [])
+            job.disc_track_sizes = disc_info.get("track_sizes", {})
+            job.disc_cinfo_raw = disc_info.get("cinfo_raw", {})
 
             activity.disc_detected(job.disc_type.upper(), job.disc_label)
             self._update_step("detect", "complete", f"{job.disc_type.upper()}: {job.disc_label}")

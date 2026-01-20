@@ -14,6 +14,7 @@ from typing import Optional, Dict
 LOG_DIR = Path(__file__).parent.parent / "logs"
 ACTIVITY_LOG = LOG_DIR / "activity.log"
 HISTORY_FILE = LOG_DIR / "rip_history.json"
+DISC_CAPTURES_FILE = LOG_DIR / "disc_captures.jsonl"
 
 # Ensure log directory exists
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -468,3 +469,51 @@ def enrich_and_save_rip(
         content_type=content_type,
         rip_method=rip_method
     )
+
+
+# ============== Disc Data Capture ==============
+# Captures disc fingerprint data for building identification database
+
+def capture_disc_data(
+    disc_label: str,
+    disc_type: str,
+    tracks: list,
+    track_sizes: dict,
+    identified_title: str = None,
+    year: int = None,
+    tmdb_id: int = None,
+    confidence: int = None,
+    cinfo_raw: dict = None
+):
+    """
+    Capture disc data for analysis and future identification database.
+    Appends to JSONL file for easy processing.
+    """
+    # Build fingerprint from disc characteristics
+    track_durations = [t.get("duration", 0) for t in tracks]
+    main_duration = max(track_durations) if track_durations else 0
+
+    capture = {
+        "timestamp": datetime.now().isoformat(),
+        "disc_label": disc_label,
+        "disc_type": disc_type,
+        "track_count": len(tracks),
+        "main_duration_secs": main_duration,
+        "track_durations": track_durations,
+        "track_sizes": {str(k): v for k, v in track_sizes.items()},  # JSON needs string keys
+        "total_size_bytes": sum(track_sizes.values()) if track_sizes else 0,
+        # Identification result (if available)
+        "identified_title": identified_title,
+        "year": year,
+        "tmdb_id": tmdb_id,
+        "confidence": confidence,
+        # Raw CINFO for future analysis
+        "cinfo_raw": cinfo_raw or {}
+    }
+
+    try:
+        with open(DISC_CAPTURES_FILE, "a") as f:
+            f.write(json.dumps(capture) + "\n")
+        log_info(f"Disc data captured: {disc_label} -> {identified_title or 'unidentified'}")
+    except Exception as e:
+        log_warning(f"Failed to capture disc data: {e}")
