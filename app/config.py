@@ -755,6 +755,91 @@ def get_plex_users() -> list:
     return users
 
 
+def trigger_plex_scan(library_type: str = 'all') -> dict:
+    """Trigger a Plex library scan via API.
+
+    Args:
+        library_type: 'movies', 'tv', or 'all'
+
+    Returns:
+        dict with success status and details
+    """
+    result = {
+        'success': False,
+        'scanned': [],
+        'error': None
+    }
+
+    cfg = load_config()
+    plex_cfg = cfg.get('integrations', {}).get('plex', {})
+
+    if not plex_cfg.get('enabled'):
+        result['error'] = 'Plex integration not enabled'
+        return result
+
+    plex_url = plex_cfg.get('url', '').rstrip('/')
+    plex_token = plex_cfg.get('token', '')
+
+    if not plex_url or not plex_token:
+        result['error'] = 'Plex URL or token not configured'
+        return result
+
+    headers = {
+        'X-Plex-Token': plex_token,
+        'Accept': 'application/json'
+    }
+
+    try:
+        # First, get library sections to find the section IDs
+        r = requests.get(f'{plex_url}/library/sections', headers=headers, timeout=10)
+        if r.status_code != 200:
+            result['error'] = f'Failed to get Plex libraries: HTTP {r.status_code}'
+            return result
+
+        sections = r.json().get('MediaContainer', {}).get('Directory', [])
+
+        # Map library types to Plex section types
+        type_map = {
+            'movies': 'movie',
+            'tv': 'show'
+        }
+
+        scanned = []
+        for section in sections:
+            section_type = section.get('type')
+            section_key = section.get('key')
+            section_title = section.get('title')
+
+            # Determine if we should scan this section
+            should_scan = False
+            if library_type == 'all':
+                should_scan = section_type in ['movie', 'show']
+            elif library_type == 'movies' and section_type == 'movie':
+                should_scan = True
+            elif library_type == 'tv' and section_type == 'show':
+                should_scan = True
+
+            if should_scan and section_key:
+                # Trigger the scan
+                scan_url = f'{plex_url}/library/sections/{section_key}/refresh'
+                scan_r = requests.get(scan_url, headers=headers, timeout=10)
+                if scan_r.status_code in [200, 204]:
+                    scanned.append(section_title)
+                else:
+                    print(f"Failed to scan {section_title}: HTTP {scan_r.status_code}")
+
+        result['success'] = len(scanned) > 0
+        result['scanned'] = scanned
+
+        if not scanned:
+            result['error'] = 'No matching libraries found to scan'
+
+    except requests.exceptions.RequestException as e:
+        result['error'] = str(e)
+
+    return result
+
+
 def run_auto_setup() -> dict:
     """Run full auto-detection and apply discovered configuration"""
     print("Running auto-detection...")
