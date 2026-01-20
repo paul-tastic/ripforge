@@ -1,0 +1,900 @@
+{% extends "base.html" %}
+
+{% block title %}RipForge - Library{% endblock %}
+{% block page_title %}Library{% endblock %}
+
+{% block content %}
+<div class="library">
+    <!-- Header with actions -->
+    <div class="library-header">
+        <div class="library-tabs">
+            <button class="tab-btn active" data-type="movies">Movies</button>
+            <button class="tab-btn" data-type="tv">TV Shows</button>
+        </div>
+        <div class="library-actions">
+            <input type="text" id="library-search" class="search-input" placeholder="Search...">
+            <button class="btn btn-secondary" id="rescan-plex-btn">Rescan Plex</button>
+        </div>
+    </div>
+
+    <!-- Stats bar -->
+    <div class="library-stats">
+        <span id="library-count">0 items</span>
+        <span id="library-size">0 GB total</span>
+    </div>
+
+    <!-- Loading indicator -->
+    <div class="library-loading" id="library-loading">
+        <div class="spinner"></div>
+        <span>Scanning library...</span>
+    </div>
+
+    <!-- Library grid -->
+    <div class="library-grid" id="library-grid">
+        <!-- Cards will be populated via JS -->
+    </div>
+
+    <!-- Empty state -->
+    <div class="library-empty" id="library-empty" style="display: none;">
+        <span class="empty-icon">📂</span>
+        <p>No items found</p>
+        <p class="text-muted">Check your library paths in Settings</p>
+    </div>
+</div>
+
+<!-- Rename Modal -->
+<div class="modal" id="rename-modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Rename Item</h3>
+            <button class="modal-close" onclick="closeModal('rename-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Title</label>
+                <input type="text" id="rename-title" class="form-input">
+            </div>
+            <div class="form-group">
+                <label>Year</label>
+                <input type="text" id="rename-year" class="form-input" maxlength="4">
+            </div>
+            <p class="text-muted" id="rename-preview">Preview: </p>
+            <input type="hidden" id="rename-old-folder">
+            <input type="hidden" id="rename-media-type">
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('rename-modal')">Cancel</button>
+            <button class="btn btn-primary" onclick="applyRename()">Rename</button>
+        </div>
+    </div>
+</div>
+
+<!-- Re-identify Modal -->
+<div class="modal" id="identify-modal">
+    <div class="modal-content modal-lg">
+        <div class="modal-header">
+            <h3>Re-identify Item</h3>
+            <button class="modal-close" onclick="closeModal('identify-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Search for title</label>
+                <div class="search-row">
+                    <input type="text" id="identify-query" class="form-input" placeholder="Enter movie or show name...">
+                    <button class="btn btn-primary" onclick="searchIdentify()">Search</button>
+                </div>
+            </div>
+            <input type="hidden" id="identify-old-folder">
+            <input type="hidden" id="identify-media-type">
+
+            <div class="identify-results" id="identify-results">
+                <!-- Results will be populated here -->
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('identify-modal')">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal" id="delete-modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Delete Item</h3>
+            <button class="modal-close" onclick="closeModal('delete-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p>Are you sure you want to delete this item?</p>
+            <p class="delete-item-name" id="delete-item-name"></p>
+            <p class="text-muted">This will permanently remove the folder and all files inside.</p>
+            <input type="hidden" id="delete-folder">
+            <input type="hidden" id="delete-media-type">
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('delete-modal')">Cancel</button>
+            <button class="btn btn-danger" onclick="confirmDelete()">Delete</button>
+        </div>
+    </div>
+</div>
+
+<!-- Plex Rescan Modal -->
+<div class="modal" id="plex-modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Rescan Plex Library</h3>
+            <button class="modal-close" onclick="closeModal('plex-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p>Select which library to scan:</p>
+            <div class="plex-options">
+                <button class="btn btn-secondary plex-scan-btn" data-library="movies">Movies Only</button>
+                <button class="btn btn-secondary plex-scan-btn" data-library="tv">TV Shows Only</button>
+                <button class="btn btn-primary plex-scan-btn" data-library="all">Scan All</button>
+            </div>
+            <p class="text-muted plex-status" id="plex-status"></p>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('plex-modal')">Close</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.library {
+    padding: 0;
+}
+
+.library-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.library-tabs {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.tab-btn {
+    padding: 0.5rem 1.5rem;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+}
+
+.tab-btn:hover {
+    background: var(--bg-card-hover);
+    color: var(--text);
+}
+
+.tab-btn.active {
+    background: var(--accent);
+    color: var(--bg-dark);
+    border-color: var(--accent);
+}
+
+.library-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.search-input {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text);
+    border-radius: 4px;
+    width: 200px;
+}
+
+.search-input::placeholder {
+    color: var(--text-dim);
+}
+
+.library-stats {
+    display: flex;
+    gap: 2rem;
+    margin-bottom: 1rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.library-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 3rem;
+    color: var(--text-muted);
+}
+
+.spinner {
+    width: 24px;
+    height: 24px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.library-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 1.5rem;
+}
+
+.library-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.library-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+
+.card-poster {
+    width: 100%;
+    aspect-ratio: 2/3;
+    background: var(--bg-dark);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 3rem;
+    position: relative;
+}
+
+.card-poster img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.card-poster .no-poster {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-dark) 100%);
+}
+
+.card-info {
+    padding: 0.75rem;
+}
+
+.card-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-meta {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+}
+
+.card-meta span {
+    margin-right: 0.5rem;
+}
+
+.card-actions {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.card-actions button {
+    flex: 1;
+    padding: 0.4rem;
+    border: 1px solid var(--border);
+    background: var(--bg-dark);
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    transition: all 0.2s;
+}
+
+.card-actions button:hover {
+    background: var(--bg-card-hover);
+    color: var(--text);
+}
+
+.card-actions .btn-delete:hover {
+    background: var(--error);
+    color: white;
+    border-color: var(--error);
+}
+
+.library-empty {
+    text-align: center;
+    padding: 4rem 2rem;
+    color: var(--text-muted);
+}
+
+.empty-icon {
+    font-size: 4rem;
+    display: block;
+    margin-bottom: 1rem;
+}
+
+/* Modal Styles */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.7);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal.active {
+    display: flex;
+}
+
+.modal-content {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: 90%;
+    max-width: 400px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-content.modal-lg {
+    max-width: 600px;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: var(--text);
+}
+
+.modal-body {
+    padding: 1rem;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 1rem;
+    border-top: 1px solid var(--border);
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.form-input {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    background: var(--bg-dark);
+    color: var(--text);
+    border-radius: 4px;
+}
+
+.search-row {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.search-row .form-input {
+    flex: 1;
+}
+
+.delete-item-name {
+    font-weight: 600;
+    color: var(--text);
+    padding: 0.5rem;
+    background: var(--bg-dark);
+    border-radius: 4px;
+    margin: 1rem 0;
+}
+
+.plex-options {
+    display: flex;
+    gap: 0.5rem;
+    margin: 1rem 0;
+    flex-wrap: wrap;
+}
+
+.plex-status {
+    margin-top: 1rem;
+}
+
+/* Identify Results */
+.identify-results {
+    margin-top: 1rem;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.identify-result {
+    display: flex;
+    gap: 1rem;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.identify-result:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--accent);
+}
+
+.identify-result img {
+    width: 60px;
+    height: 90px;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+.identify-result-info {
+    flex: 1;
+}
+
+.identify-result-title {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.identify-result-meta {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.identify-loading {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-muted);
+}
+
+/* Button overrides */
+.btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background: var(--accent);
+    color: var(--bg-dark);
+}
+
+.btn-primary:hover {
+    background: var(--accent-hover);
+}
+
+.btn-secondary {
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    color: var(--text);
+}
+
+.btn-secondary:hover {
+    background: var(--bg-card-hover);
+}
+
+.btn-danger {
+    background: var(--error);
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #dc2626;
+}
+
+.text-muted {
+    color: var(--text-muted);
+}
+</style>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentMediaType = 'movies';
+let libraryData = { movies: [], tv: [] };
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    loadLibrary();
+
+    // Tab switching
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentMediaType = btn.dataset.type;
+            renderLibrary();
+        });
+    });
+
+    // Search filter
+    document.getElementById('library-search').addEventListener('input', (e) => {
+        renderLibrary(e.target.value);
+    });
+
+    // Rescan Plex button
+    document.getElementById('rescan-plex-btn').addEventListener('click', () => {
+        openModal('plex-modal');
+    });
+
+    // Plex scan buttons
+    document.querySelectorAll('.plex-scan-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            triggerPlexScan(btn.dataset.library);
+        });
+    });
+
+    // Rename preview
+    document.getElementById('rename-title').addEventListener('input', updateRenamePreview);
+    document.getElementById('rename-year').addEventListener('input', updateRenamePreview);
+});
+
+async function loadLibrary() {
+    const loading = document.getElementById('library-loading');
+    const grid = document.getElementById('library-grid');
+    const empty = document.getElementById('library-empty');
+
+    loading.style.display = 'flex';
+    grid.style.display = 'none';
+    empty.style.display = 'none';
+
+    try {
+        const response = await fetch('/api/library/list');
+        const data = await response.json();
+
+        libraryData.movies = data.movies || [];
+        libraryData.tv = data.tv || [];
+
+        loading.style.display = 'none';
+        renderLibrary();
+    } catch (error) {
+        console.error('Failed to load library:', error);
+        loading.innerHTML = '<span class="text-muted">Failed to load library</span>';
+    }
+}
+
+function renderLibrary(searchFilter = '') {
+    const grid = document.getElementById('library-grid');
+    const empty = document.getElementById('library-empty');
+    const countEl = document.getElementById('library-count');
+    const sizeEl = document.getElementById('library-size');
+
+    let items = currentMediaType === 'movies' ? libraryData.movies : libraryData.tv;
+
+    // Apply search filter
+    if (searchFilter) {
+        const query = searchFilter.toLowerCase();
+        items = items.filter(item =>
+            item.title.toLowerCase().includes(query) ||
+            item.folder_name.toLowerCase().includes(query)
+        );
+    }
+
+    // Update stats
+    const totalSize = items.reduce((sum, item) => sum + (item.size_gb || 0), 0);
+    countEl.textContent = `${items.length} item${items.length !== 1 ? 's' : ''}`;
+    sizeEl.textContent = `${totalSize.toFixed(1)} GB total`;
+
+    if (items.length === 0) {
+        grid.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+    }
+
+    grid.style.display = 'grid';
+    empty.style.display = 'none';
+
+    grid.innerHTML = items.map(item => `
+        <div class="library-card" data-folder="${escapeHtml(item.folder_name)}">
+            <div class="card-poster">
+                ${item.poster_url
+                    ? `<img src="${escapeHtml(item.poster_url)}" alt="${escapeHtml(item.title)}" loading="lazy">`
+                    : `<div class="no-poster">${currentMediaType === 'movies' ? '🎬' : '📺'}</div>`
+                }
+            </div>
+            <div class="card-info">
+                <div class="card-title" title="${escapeHtml(item.folder_name)}">${escapeHtml(item.title)}</div>
+                <div class="card-meta">
+                    <span>${item.year || '?'}</span>
+                    <span>${item.size_gb ? item.size_gb.toFixed(1) + ' GB' : ''}</span>
+                </div>
+                <div class="card-actions">
+                    <button onclick="openRenameModal('${escapeJs(item.folder_name)}', '${escapeJs(item.title)}', '${item.year || ''}', '${currentMediaType}')" title="Rename">✏️</button>
+                    <button onclick="openIdentifyModal('${escapeJs(item.folder_name)}', '${escapeJs(item.title)}', '${currentMediaType}')" title="Re-identify">🔍</button>
+                    <button class="btn-delete" onclick="openDeleteModal('${escapeJs(item.folder_name)}', '${currentMediaType}')" title="Delete">🗑️</button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+}
+
+function escapeJs(text) {
+    return (text || '').replace(/'/g, "\\'").replace(/"/g, '\\"');
+}
+
+// Modal functions
+function openModal(id) {
+    document.getElementById(id).classList.add('active');
+}
+
+function closeModal(id) {
+    document.getElementById(id).classList.remove('active');
+}
+
+// Rename functions
+function openRenameModal(folderName, title, year, mediaType) {
+    document.getElementById('rename-title').value = title;
+    document.getElementById('rename-year').value = year;
+    document.getElementById('rename-old-folder').value = folderName;
+    document.getElementById('rename-media-type').value = mediaType;
+    updateRenamePreview();
+    openModal('rename-modal');
+}
+
+function updateRenamePreview() {
+    const title = document.getElementById('rename-title').value;
+    const year = document.getElementById('rename-year').value;
+    const preview = year ? `${title} (${year})` : title;
+    document.getElementById('rename-preview').textContent = `Preview: ${preview}`;
+}
+
+async function applyRename() {
+    const oldFolder = document.getElementById('rename-old-folder').value;
+    const newTitle = document.getElementById('rename-title').value;
+    const newYear = document.getElementById('rename-year').value;
+    const mediaType = document.getElementById('rename-media-type').value;
+
+    if (!newTitle) {
+        alert('Title is required');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/library/rename', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                old_folder: oldFolder,
+                new_title: newTitle,
+                new_year: newYear,
+                media_type: mediaType
+            })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            closeModal('rename-modal');
+            loadLibrary();
+        } else {
+            alert('Rename failed: ' + (result.error || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('Rename failed: ' + error.message);
+    }
+}
+
+// Identify functions
+function openIdentifyModal(folderName, title, mediaType) {
+    document.getElementById('identify-query').value = title;
+    document.getElementById('identify-old-folder').value = folderName;
+    document.getElementById('identify-media-type').value = mediaType;
+    document.getElementById('identify-results').innerHTML = '';
+    openModal('identify-modal');
+}
+
+async function searchIdentify() {
+    const query = document.getElementById('identify-query').value;
+    const mediaType = document.getElementById('identify-media-type').value;
+    const resultsDiv = document.getElementById('identify-results');
+
+    if (!query) {
+        alert('Please enter a search term');
+        return;
+    }
+
+    resultsDiv.innerHTML = '<div class="identify-loading">Searching...</div>';
+
+    try {
+        const response = await fetch('/api/library/identify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                query: query,
+                media_type: mediaType
+            })
+        });
+
+        const data = await response.json();
+
+        if (!data.results || data.results.length === 0) {
+            resultsDiv.innerHTML = '<div class="identify-loading">No results found</div>';
+            return;
+        }
+
+        resultsDiv.innerHTML = data.results.map(result => `
+            <div class="identify-result" onclick="applyIdentify('${escapeJs(result.folder_name)}', '${escapeJs(result.title)}', '${result.year}')">
+                ${result.poster_url
+                    ? `<img src="${escapeHtml(result.poster_url)}" alt="">`
+                    : `<div style="width:60px;height:90px;background:var(--bg-dark);display:flex;align-items:center;justify-content:center;">🎬</div>`
+                }
+                <div class="identify-result-info">
+                    <div class="identify-result-title">${escapeHtml(result.title)}</div>
+                    <div class="identify-result-meta">
+                        ${result.year || 'Unknown year'}
+                        ${result.runtime_minutes ? ` • ${result.runtime_minutes} min` : ''}
+                    </div>
+                    <div class="identify-result-meta text-muted">${escapeHtml(result.folder_name)}</div>
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        resultsDiv.innerHTML = '<div class="identify-loading">Search failed</div>';
+    }
+}
+
+async function applyIdentify(folderName, title, year) {
+    const oldFolder = document.getElementById('identify-old-folder').value;
+    const mediaType = document.getElementById('identify-media-type').value;
+
+    try {
+        const response = await fetch('/api/library/rename', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                old_folder: oldFolder,
+                new_title: title,
+                new_year: year,
+                media_type: mediaType
+            })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            closeModal('identify-modal');
+            loadLibrary();
+        } else {
+            alert('Rename failed: ' + (result.error || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('Rename failed: ' + error.message);
+    }
+}
+
+// Delete functions
+function openDeleteModal(folderName, mediaType) {
+    document.getElementById('delete-item-name').textContent = folderName;
+    document.getElementById('delete-folder').value = folderName;
+    document.getElementById('delete-media-type').value = mediaType;
+    openModal('delete-modal');
+}
+
+async function confirmDelete() {
+    const folderName = document.getElementById('delete-folder').value;
+    const mediaType = document.getElementById('delete-media-type').value;
+
+    try {
+        const response = await fetch('/api/library/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                folder_name: folderName,
+                media_type: mediaType
+            })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            closeModal('delete-modal');
+            loadLibrary();
+        } else {
+            alert('Delete failed: ' + (result.error || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('Delete failed: ' + error.message);
+    }
+}
+
+// Plex scan
+async function triggerPlexScan(libraryType) {
+    const statusEl = document.getElementById('plex-status');
+    statusEl.textContent = 'Triggering scan...';
+
+    try {
+        const response = await fetch('/api/library/rescan-plex', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ library_type: libraryType })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            statusEl.textContent = 'Scan triggered successfully!';
+            statusEl.style.color = 'var(--success)';
+        } else {
+            statusEl.textContent = 'Scan failed: ' + (result.error || 'Unknown error');
+            statusEl.style.color = 'var(--error)';
+        }
+    } catch (error) {
+        statusEl.textContent = 'Scan failed: ' + error.message;
+        statusEl.style.color = 'var(--error)';
+    }
+
+    setTimeout(() => {
+        statusEl.textContent = '';
+        statusEl.style.color = '';
+    }, 3000);
+}
+</script>
+{% endblock %}

@@ -488,3 +488,165 @@ class TestAPIDriveStatus:
         response = client.get('/api/drive/status')
         assert response.status_code == 200
         assert response.content_type == 'application/json'
+
+
+class TestLibraryPage:
+    """Tests for the /library page"""
+
+    def test_library_returns_200(self, client):
+        """Test library page loads successfully"""
+        response = client.get('/library')
+        assert response.status_code == 200
+
+    def test_library_renders_template(self, client):
+        """Test library page contains expected content"""
+        response = client.get('/library')
+        assert b'Library' in response.data
+
+
+class TestAPILibraryList:
+    """Tests for the /api/library/list endpoint"""
+
+    def test_library_list_returns_json(self, client):
+        """Test library list returns JSON"""
+        response = client.get('/api/library/list')
+        assert response.status_code == 200
+        assert response.content_type == 'application/json'
+
+    def test_library_list_has_expected_keys(self, client):
+        """Test library list has movies and tv keys"""
+        response = client.get('/api/library/list')
+        data = json.loads(response.data)
+        assert 'movies' in data
+        assert 'tv' in data
+        assert isinstance(data['movies'], list)
+        assert isinstance(data['tv'], list)
+
+
+class TestAPILibraryRename:
+    """Tests for the /api/library/rename endpoint"""
+
+    def test_library_rename_missing_params(self, client):
+        """Test rename requires parameters"""
+        response = client.post(
+            '/api/library/rename',
+            data=json.dumps({}),
+            content_type='application/json'
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert data['success'] is False
+
+    def test_library_rename_missing_title(self, client):
+        """Test rename requires new_title"""
+        response = client.post(
+            '/api/library/rename',
+            data=json.dumps({'old_folder': 'Test Movie (2024)'}),
+            content_type='application/json'
+        )
+        assert response.status_code == 400
+
+    @patch('app.routes.config.load_config')
+    def test_library_rename_folder_not_found(self, mock_config, client):
+        """Test rename with non-existent folder"""
+        mock_config.return_value = {'paths': {'movies': '/tmp/nonexistent'}}
+        response = client.post(
+            '/api/library/rename',
+            data=json.dumps({
+                'old_folder': 'Nonexistent Movie (2024)',
+                'new_title': 'New Title',
+                'new_year': '2024',
+                'media_type': 'movies'
+            }),
+            content_type='application/json'
+        )
+        assert response.status_code == 404
+
+
+class TestAPILibraryDelete:
+    """Tests for the /api/library/delete endpoint"""
+
+    def test_library_delete_missing_folder(self, client):
+        """Test delete requires folder_name"""
+        response = client.post(
+            '/api/library/delete',
+            data=json.dumps({}),
+            content_type='application/json'
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert data['success'] is False
+
+    @patch('app.routes.config.load_config')
+    def test_library_delete_folder_not_found(self, mock_config, client):
+        """Test delete with non-existent folder"""
+        mock_config.return_value = {'paths': {'movies': '/tmp/nonexistent'}}
+        response = client.post(
+            '/api/library/delete',
+            data=json.dumps({
+                'folder_name': 'Nonexistent Movie (2024)',
+                'media_type': 'movies'
+            }),
+            content_type='application/json'
+        )
+        assert response.status_code == 404
+
+
+class TestAPILibraryRescanPlex:
+    """Tests for the /api/library/rescan-plex endpoint"""
+
+    @patch('app.routes.config.trigger_plex_scan')
+    def test_rescan_plex_calls_trigger(self, mock_trigger, client):
+        """Test rescan calls trigger_plex_scan"""
+        mock_trigger.return_value = {'success': True, 'scanned': ['Movies']}
+        response = client.post(
+            '/api/library/rescan-plex',
+            data=json.dumps({'library_type': 'movies'}),
+            content_type='application/json'
+        )
+        assert response.status_code == 200
+        mock_trigger.assert_called_once_with('movies')
+
+    @patch('app.routes.config.trigger_plex_scan')
+    def test_rescan_plex_default_all(self, mock_trigger, client):
+        """Test rescan defaults to all libraries"""
+        mock_trigger.return_value = {'success': True, 'scanned': ['Movies', 'TV Shows']}
+        response = client.post(
+            '/api/library/rescan-plex',
+            data=json.dumps({}),
+            content_type='application/json'
+        )
+        assert response.status_code == 200
+        mock_trigger.assert_called_once_with('all')
+
+
+class TestAPILibraryIdentify:
+    """Tests for the /api/library/identify endpoint"""
+
+    def test_identify_missing_query(self, client):
+        """Test identify requires query"""
+        response = client.post(
+            '/api/library/identify',
+            data=json.dumps({}),
+            content_type='application/json'
+        )
+        assert response.status_code == 400
+
+    @patch('app.routes.config.load_config')
+    def test_identify_returns_results(self, mock_config, client):
+        """Test identify returns results array"""
+        mock_config.return_value = {
+            'integrations': {
+                'radarr': {'enabled': False},
+                'sonarr': {'enabled': False}
+            }
+        }
+        response = client.post(
+            '/api/library/identify',
+            data=json.dumps({'query': 'Test Movie', 'media_type': 'movies'}),
+            content_type='application/json'
+        )
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert 'results' in data
+        assert 'query' in data

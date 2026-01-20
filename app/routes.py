@@ -1312,3 +1312,247 @@ def api_review_delete():
     except Exception as e:
         activity.log_error(f"REVIEW: Delete failed - {e}")
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# Library Management Page
+# ============================================================================
+
+@main.route('/library')
+def library():
+    """Library management page"""
+    cfg = config.load_config()
+    return render_template('library.html', config=cfg)
+
+
+@main.route('/api/library/list')
+def api_library_list():
+    """List all movies and TV shows in the library folders"""
+    import os
+    import re
+    import glob
+
+    cfg = config.load_config()
+    movies_path = cfg.get('paths', {}).get('movies', '/mnt/media/movies')
+    tv_path = cfg.get('paths', {}).get('tv', '/mnt/media/tv')
+
+    def parse_folder_name(folder_name):
+        """Parse 'Title (Year)' format from folder name"""
+        match = re.match(r'^(.+?)\s*\((\d{4})\)$', folder_name)
+        if match:
+            return match.group(1).strip(), match.group(2)
+        return folder_name, None
+
+    def get_folder_info(folder_path, folder_name):
+        """Get info about a library folder"""
+        title, year = parse_folder_name(folder_name)
+
+        # Calculate total size of MKV files
+        size_bytes = 0
+        has_mkv = False
+        for mkv in glob.glob(os.path.join(folder_path, '*.mkv')):
+            size_bytes += os.path.getsize(mkv)
+            has_mkv = True
+
+        # Also check subdirectories for TV shows
+        for root, dirs, files in os.walk(folder_path):
+            for f in files:
+                if f.endswith('.mkv'):
+                    size_bytes += os.path.getsize(os.path.join(root, f))
+                    has_mkv = True
+
+        return {
+            'folder_name': folder_name,
+            'title': title,
+            'year': year,
+            'size_gb': round(size_bytes / (1024**3), 2) if size_bytes else 0,
+            'has_mkv': has_mkv,
+            'poster_url': None  # Could be enhanced to look for poster.jpg
+        }
+
+    movies = []
+    tv = []
+
+    # Scan movies folder
+    if os.path.isdir(movies_path):
+        for folder_name in os.listdir(movies_path):
+            folder_path = os.path.join(movies_path, folder_name)
+            if os.path.isdir(folder_path):
+                info = get_folder_info(folder_path, folder_name)
+                if info['has_mkv']:
+                    movies.append(info)
+
+    # Scan TV folder
+    if os.path.isdir(tv_path):
+        for folder_name in os.listdir(tv_path):
+            folder_path = os.path.join(tv_path, folder_name)
+            if os.path.isdir(folder_path):
+                info = get_folder_info(folder_path, folder_name)
+                # TV shows may not have MKV directly in root
+                info['has_mkv'] = True  # Assume valid if folder exists
+                tv.append(info)
+
+    # Sort alphabetically by title
+    movies.sort(key=lambda x: x['title'].lower())
+    tv.sort(key=lambda x: x['title'].lower())
+
+    return jsonify({
+        'movies': movies,
+        'tv': tv,
+        'movies_path': movies_path,
+        'tv_path': tv_path
+    })
+
+
+@main.route('/api/library/rename', methods=['POST'])
+def api_library_rename():
+    """Rename a library folder and its MKV file"""
+    import os
+    import shutil
+    import glob
+
+    data = request.json or {}
+    old_folder = data.get('old_folder')
+    new_title = data.get('new_title')
+    new_year = data.get('new_year')
+    media_type = data.get('media_type', 'movies')
+
+    if not old_folder or not new_title:
+        return jsonify({'success': False, 'error': 'old_folder and new_title required'}), 400
+
+    cfg = config.load_config()
+    base_path = cfg.get('paths', {}).get('movies' if media_type == 'movies' else 'tv')
+
+    if not base_path:
+        return jsonify({'success': False, 'error': 'Library path not configured'}), 400
+
+    old_path = os.path.join(base_path, old_folder)
+    if not os.path.isdir(old_path):
+        return jsonify({'success': False, 'error': f'Folder not found: {old_folder}'}), 404
+
+    # Build new folder name
+    new_folder = f"{new_title} ({new_year})" if new_year else new_title
+    new_path = os.path.join(base_path, new_folder)
+
+    # Check if target already exists (and isn't the same folder)
+    if os.path.exists(new_path) and old_path.lower() != new_path.lower():
+        return jsonify({'success': False, 'error': f'Folder already exists: {new_folder}'}), 400
+
+    try:
+        # For movies, also rename the MKV file inside
+        if media_type == 'movies':
+            mkv_files = glob.glob(os.path.join(old_path, '*.mkv'))
+            for i, mkv_file in enumerate(mkv_files):
+                old_mkv_name = os.path.basename(mkv_file)
+                if len(mkv_files) == 1:
+                    new_mkv_name = f"{new_folder}.mkv"
+                else:
+                    # Multiple files - keep part number
+                    new_mkv_name = f"{new_folder} - Part {i+1}.mkv"
+                new_mkv_path = os.path.join(old_path, new_mkv_name)
+                if mkv_file != new_mkv_path:
+                    os.rename(mkv_file, new_mkv_path)
+                    activity.log_info(f"LIBRARY: Renamed file: {old_mkv_name} -> {new_mkv_name}")
+
+        # Rename the folder
+        if old_path != new_path:
+            shutil.move(old_path, new_path)
+            activity.log_info(f"LIBRARY: Renamed folder: {old_folder} -> {new_folder}")
+
+        return jsonify({'success': True, 'new_folder': new_folder})
+
+    except Exception as e:
+        activity.log_error(f"LIBRARY: Rename failed - {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@main.route('/api/library/delete', methods=['POST'])
+def api_library_delete():
+    """Delete a library folder and all its contents"""
+    import os
+    import shutil
+
+    data = request.json or {}
+    folder_name = data.get('folder_name')
+    media_type = data.get('media_type', 'movies')
+
+    if not folder_name:
+        return jsonify({'success': False, 'error': 'folder_name required'}), 400
+
+    cfg = config.load_config()
+    base_path = cfg.get('paths', {}).get('movies' if media_type == 'movies' else 'tv')
+
+    if not base_path:
+        return jsonify({'success': False, 'error': 'Library path not configured'}), 400
+
+    folder_path = os.path.join(base_path, folder_name)
+
+    if not os.path.isdir(folder_path):
+        return jsonify({'success': False, 'error': f'Folder not found: {folder_name}'}), 404
+
+    try:
+        shutil.rmtree(folder_path)
+        activity.log_warning(f"LIBRARY: Deleted: {folder_name}")
+        return jsonify({'success': True, 'message': f'Deleted {folder_name}'})
+    except Exception as e:
+        activity.log_error(f"LIBRARY: Delete failed - {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@main.route('/api/library/rescan-plex', methods=['POST'])
+def api_library_rescan_plex():
+    """Trigger a Plex library scan"""
+    data = request.json or {}
+    library_type = data.get('library_type', 'all')  # 'movies', 'tv', or 'all'
+
+    result = config.trigger_plex_scan(library_type)
+    return jsonify(result)
+
+
+@main.route('/api/library/identify', methods=['POST'])
+def api_library_identify():
+    """Search for movie/show identification"""
+    data = request.json or {}
+    query = data.get('query', '')
+    media_type = data.get('media_type', 'movies')
+
+    if not query:
+        return jsonify({'results': [], 'error': 'Query required'}), 400
+
+    cfg = config.load_config()
+    from .identify import SmartIdentifier
+    identifier = SmartIdentifier(cfg)
+
+    results = []
+
+    if media_type == 'movies':
+        # Search Radarr/TMDB
+        result = identifier.search_radarr(query, None)
+        if result:
+            results.append({
+                'title': result.title,
+                'year': result.year,
+                'tmdb_id': result.tmdb_id,
+                'runtime_minutes': result.runtime_minutes,
+                'confidence': result.confidence,
+                'folder_name': result.folder_name,
+                'poster_url': result.poster_url,
+                'media_type': 'movie'
+            })
+    else:
+        # Search Sonarr for TV
+        result = identifier.search_sonarr(query, [], 0)
+        if result:
+            results.append({
+                'title': result.title,
+                'year': result.year,
+                'tmdb_id': result.tmdb_id,
+                'tvdb_id': getattr(result, 'tvdb_id', None),
+                'runtime_minutes': result.runtime_minutes,
+                'confidence': result.confidence,
+                'folder_name': result.folder_name,
+                'poster_url': result.poster_url,
+                'media_type': 'tv'
+            })
+
+    return jsonify({'results': results, 'query': query})
