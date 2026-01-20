@@ -1331,10 +1331,34 @@ def api_library_list():
     import os
     import re
     import glob
+    import json
 
     cfg = config.load_config()
     movies_path = cfg.get('paths', {}).get('movies', '/mnt/media/movies')
     tv_path = cfg.get('paths', {}).get('tv', '/mnt/media/tv')
+
+    # Load rip history to get poster URLs
+    logs_dir = Path(__file__).parent.parent / "logs"
+    history_file = logs_dir / "rip_history.json"
+    rip_history = []
+    try:
+        if history_file.exists():
+            with open(history_file) as f:
+                rip_history = json.load(f)
+    except Exception:
+        pass
+
+    # Build lookup by title and title+year for matching
+    poster_lookup = {}
+    for rip in rip_history:
+        title = rip.get('title', '')
+        year = rip.get('year')
+        poster_url = rip.get('poster_url', '')
+        if title and poster_url:
+            # Key by "Title (Year)" format to match folder names
+            if year:
+                poster_lookup[f"{title} ({year})"] = poster_url
+            poster_lookup[title.lower()] = poster_url
 
     def parse_folder_name(folder_name):
         """Parse 'Title (Year)' format from folder name"""
@@ -1361,13 +1385,16 @@ def api_library_list():
                     size_bytes += os.path.getsize(os.path.join(root, f))
                     has_mkv = True
 
+        # Look up poster URL from rip history
+        poster_url = poster_lookup.get(folder_name) or poster_lookup.get(title.lower())
+
         return {
             'folder_name': folder_name,
             'title': title,
             'year': year,
             'size_gb': round(size_bytes / (1024**3), 2) if size_bytes else 0,
             'has_mkv': has_mkv,
-            'poster_url': None  # Could be enhanced to look for poster.jpg
+            'poster_url': poster_url
         }
 
     movies = []
