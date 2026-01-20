@@ -34,6 +34,7 @@
         <table class="library-table">
             <thead>
                 <tr>
+                    <th class="col-poster"></th>
                     <th class="col-title">Title</th>
                     <th class="col-year">Year</th>
                     <th class="col-size">Size</th>
@@ -272,11 +273,30 @@
     background: var(--bg-card-hover);
 }
 
+.col-poster { width: 50px; }
 .col-title { width: 35%; }
 .col-year { width: 80px; text-align: center; }
 .col-size { width: 100px; text-align: right; }
 .col-folder { width: 35%; }
 .col-actions { width: 120px; text-align: center; }
+
+.poster-thumb {
+    width: 40px;
+    height: 60px;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+.no-poster {
+    width: 40px;
+    height: 60px;
+    background: var(--bg-dark);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    color: var(--text-dim);
+}
 
 .library-table th.col-year,
 .library-table td.col-year { text-align: center; }
@@ -657,6 +677,12 @@ function renderLibrary(searchFilter = '') {
 
     tbody.innerHTML = items.map(item => `
         <tr data-folder="${escapeHtml(item.folder_name)}">
+            <td class="col-poster">
+                ${item.poster_url
+                    ? `<img src="${item.poster_url.replace('/w500/', '/w92/')}" class="poster-thumb">`
+                    : `<span class="no-poster">?</span>`
+                }
+            </td>
             <td class="col-title"><span class="cell-title">${escapeHtml(item.title)}</span></td>
             <td class="col-year"><span class="cell-year">${item.year || '?'}</span></td>
             <td class="col-size"><span class="cell-size">${item.size_gb ? item.size_gb.toFixed(1) + ' GB' : '-'}</span></td>
