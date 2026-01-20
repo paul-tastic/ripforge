@@ -1,5 +1,15 @@
 # RipForge Server Deployment
 
+## Claude Instructions
+
+**IMPORTANT: Always read this file when working on this project.**
+
+- **NEVER deploy to the server without explicit user permission**
+- **NEVER restart services without explicit user permission**
+- **NEVER run commands on the server** unless the user specifically asks
+- You may SSH to check status/logs if asked, but do NOT make changes
+- All code changes should be committed to GitHub only - the user will deploy when ready
+
 ## Server Details
 
 | Name | Host | Path |
