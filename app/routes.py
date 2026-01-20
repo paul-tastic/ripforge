@@ -699,8 +699,9 @@ def api_rip_stats():
     # Example: "2026-01-15 22:46:58 | SUCCESS | Rip completed: Expendables 3 (0:34:23)"
     completed_pattern = re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| SUCCESS \| Rip completed: .* \((\d+):(\d{2}):(\d{2})\)')
     error_pattern = re.compile(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \| ERROR \| Rip failed:')
-    # Pattern to get disc type from scan line
+    # Patterns to get disc type from scan or detect lines
     scan_pattern = re.compile(r'Scan completed: .* \((BLURAY|DVD)\)')
+    detect_pattern = re.compile(r'Disc detected: .* \((BLURAY|DVD)\)')
 
     try:
         if activity_log.exists():
@@ -713,8 +714,8 @@ def api_rip_stats():
             for line in lines:
                 line = line.strip()
 
-                # Check for scan completed to get disc type
-                scan_match = scan_pattern.search(line)
+                # Check for scan completed or disc detected to get disc type
+                scan_match = scan_pattern.search(line) or detect_pattern.search(line)
                 if scan_match:
                     current_disc_type = scan_match.group(1)
 
