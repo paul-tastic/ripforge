@@ -18,6 +18,7 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 
 from . import activity
+from . import config
 from . import email as email_utils
 
 
