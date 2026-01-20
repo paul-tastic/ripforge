@@ -756,6 +756,10 @@ class MakeMKV:
         """
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
+        # Check if debug logging is enabled
+        debug_cfg = config.load_config()
+        debug_enabled = debug_cfg.get('ripping', {}).get('debug_logging', False)
+
         args = ["-r", "mkv", f"file:{backup_path}", str(track), output_dir]
 
         activity.log_info(f"RIP FROM BACKUP: Running: makemkvcon {' '.join(args)}")
