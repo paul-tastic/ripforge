@@ -29,14 +29,26 @@
         <span>Scanning library...</span>
     </div>
 
-    <!-- Library grid -->
-    <div class="library-grid" id="library-grid">
-        <!-- Cards will be populated via JS -->
+    <!-- Library list -->
+    <div class="library-list" id="library-list">
+        <table class="library-table">
+            <thead>
+                <tr>
+                    <th class="col-title">Title</th>
+                    <th class="col-year">Year</th>
+                    <th class="col-size">Size</th>
+                    <th class="col-folder">Folder</th>
+                    <th class="col-actions">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="library-tbody">
+                <!-- Rows will be populated via JS -->
+            </tbody>
+        </table>
     </div>
 
     <!-- Empty state -->
     <div class="library-empty" id="library-empty" style="display: none;">
-        <span class="empty-icon">📂</span>
         <p>No items found</p>
         <p class="text-muted">Check your library paths in Settings</p>
     </div>
@@ -230,83 +242,81 @@
     to { transform: rotate(360deg); }
 }
 
-.library-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 1.5rem;
+/* Table styles */
+.library-list {
+    display: none;
 }
 
-.library-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
-    transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.library-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-}
-
-.card-poster {
+.library-table {
     width: 100%;
-    aspect-ratio: 2/3;
-    background: var(--bg-dark);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-dim);
-    font-size: 3rem;
-    position: relative;
-}
-
-.card-poster img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.card-poster .no-poster {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-dark) 100%);
-}
-
-.card-info {
-    padding: 0.75rem;
-}
-
-.card-title {
-    font-weight: 600;
+    border-collapse: collapse;
     font-size: 0.9rem;
-    margin-bottom: 0.25rem;
+}
+
+.library-table th {
+    text-align: left;
+    padding: 0.75rem 1rem;
+    border-bottom: 2px solid var(--border);
+    color: var(--text-muted);
+    font-weight: 500;
     white-space: nowrap;
+}
+
+.library-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+}
+
+.library-table tbody tr:hover {
+    background: var(--bg-card-hover);
+}
+
+.col-title { width: 35%; }
+.col-year { width: 80px; text-align: center; }
+.col-size { width: 100px; text-align: right; }
+.col-folder { width: 35%; }
+.col-actions { width: 120px; text-align: center; }
+
+.library-table th.col-year,
+.library-table td.col-year { text-align: center; }
+
+.library-table th.col-size,
+.library-table td.col-size { text-align: right; }
+
+.library-table th.col-actions,
+.library-table td.col-actions { text-align: center; }
+
+.cell-title {
+    font-weight: 500;
+}
+
+.cell-folder {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    max-width: 300px;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.card-meta {
-    font-size: 0.8rem;
+.cell-year {
     color: var(--text-muted);
-    margin-bottom: 0.5rem;
 }
 
-.card-meta span {
-    margin-right: 0.5rem;
+.cell-size {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
 }
 
-.card-actions {
+.row-actions {
     display: flex;
     gap: 0.25rem;
+    justify-content: center;
 }
 
-.card-actions button {
-    flex: 1;
-    padding: 0.4rem;
+.row-actions button {
+    padding: 0.3rem 0.5rem;
     border: 1px solid var(--border);
     background: var(--bg-dark);
     color: var(--text-muted);
@@ -316,12 +326,12 @@
     transition: all 0.2s;
 }
 
-.card-actions button:hover {
+.row-actions button:hover {
     background: var(--bg-card-hover);
     color: var(--text);
 }
 
-.card-actions .btn-delete:hover {
+.row-actions .btn-delete:hover {
     background: var(--error);
     color: white;
     border-color: var(--error);
@@ -331,12 +341,6 @@
     text-align: center;
     padding: 4rem 2rem;
     color: var(--text-muted);
-}
-
-.empty-icon {
-    font-size: 4rem;
-    display: block;
-    margin-bottom: 1rem;
 }
 
 /* Modal Styles */
@@ -597,11 +601,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function loadLibrary() {
     const loading = document.getElementById('library-loading');
-    const grid = document.getElementById('library-grid');
+    const list = document.getElementById('library-list');
     const empty = document.getElementById('library-empty');
 
     loading.style.display = 'flex';
-    grid.style.display = 'none';
+    list.style.display = 'none';
     empty.style.display = 'none';
 
     try {
@@ -620,7 +624,8 @@ async function loadLibrary() {
 }
 
 function renderLibrary(searchFilter = '') {
-    const grid = document.getElementById('library-grid');
+    const list = document.getElementById('library-list');
+    const tbody = document.getElementById('library-tbody');
     const empty = document.getElementById('library-empty');
     const countEl = document.getElementById('library-count');
     const sizeEl = document.getElementById('library-size');
@@ -642,35 +647,28 @@ function renderLibrary(searchFilter = '') {
     sizeEl.textContent = `${totalSize.toFixed(1)} GB total`;
 
     if (items.length === 0) {
-        grid.style.display = 'none';
+        list.style.display = 'none';
         empty.style.display = 'block';
         return;
     }
 
-    grid.style.display = 'grid';
+    list.style.display = 'block';
     empty.style.display = 'none';
 
-    grid.innerHTML = items.map(item => `
-        <div class="library-card" data-folder="${escapeHtml(item.folder_name)}">
-            <div class="card-poster">
-                ${item.poster_url
-                    ? `<img src="${escapeHtml(item.poster_url)}" alt="${escapeHtml(item.title)}" loading="lazy">`
-                    : `<div class="no-poster">${currentMediaType === 'movies' ? '🎬' : '📺'}</div>`
-                }
-            </div>
-            <div class="card-info">
-                <div class="card-title" title="${escapeHtml(item.folder_name)}">${escapeHtml(item.title)}</div>
-                <div class="card-meta">
-                    <span>${item.year || '?'}</span>
-                    <span>${item.size_gb ? item.size_gb.toFixed(1) + ' GB' : ''}</span>
+    tbody.innerHTML = items.map(item => `
+        <tr data-folder="${escapeHtml(item.folder_name)}">
+            <td class="col-title"><span class="cell-title">${escapeHtml(item.title)}</span></td>
+            <td class="col-year"><span class="cell-year">${item.year || '?'}</span></td>
+            <td class="col-size"><span class="cell-size">${item.size_gb ? item.size_gb.toFixed(1) + ' GB' : '-'}</span></td>
+            <td class="col-folder"><span class="cell-folder" title="${escapeHtml(item.folder_name)}">${escapeHtml(item.folder_name)}</span></td>
+            <td class="col-actions">
+                <div class="row-actions">
+                    <button onclick="openRenameModal('${escapeJs(item.folder_name)}', '${escapeJs(item.title)}', '${item.year || ''}', '${currentMediaType}')" title="Rename">Rename</button>
+                    <button onclick="openIdentifyModal('${escapeJs(item.folder_name)}', '${escapeJs(item.title)}', '${currentMediaType}')" title="Re-identify">ID</button>
+                    <button class="btn-delete" onclick="openDeleteModal('${escapeJs(item.folder_name)}', '${currentMediaType}')" title="Delete">Del</button>
                 </div>
-                <div class="card-actions">
-                    <button onclick="openRenameModal('${escapeJs(item.folder_name)}', '${escapeJs(item.title)}', '${item.year || ''}', '${currentMediaType}')" title="Rename">✏️</button>
-                    <button onclick="openIdentifyModal('${escapeJs(item.folder_name)}', '${escapeJs(item.title)}', '${currentMediaType}')" title="Re-identify">🔍</button>
-                    <button class="btn-delete" onclick="openDeleteModal('${escapeJs(item.folder_name)}', '${currentMediaType}')" title="Delete">🗑️</button>
-                </div>
-            </div>
-        </div>
+            </td>
+        </tr>
     `).join('');
 }
 
@@ -787,13 +785,13 @@ async function searchIdentify() {
             <div class="identify-result" onclick="applyIdentify('${escapeJs(result.folder_name)}', '${escapeJs(result.title)}', '${result.year}')">
                 ${result.poster_url
                     ? `<img src="${escapeHtml(result.poster_url)}" alt="">`
-                    : `<div style="width:60px;height:90px;background:var(--bg-dark);display:flex;align-items:center;justify-content:center;">🎬</div>`
+                    : `<div style="width:60px;height:90px;background:var(--bg-dark);display:flex;align-items:center;justify-content:center;">?</div>`
                 }
                 <div class="identify-result-info">
                     <div class="identify-result-title">${escapeHtml(result.title)}</div>
                     <div class="identify-result-meta">
                         ${result.year || 'Unknown year'}
-                        ${result.runtime_minutes ? ` • ${result.runtime_minutes} min` : ''}
+                        ${result.runtime_minutes ? ` - ${result.runtime_minutes} min` : ''}
                     </div>
                     <div class="identify-result-meta text-muted">${escapeHtml(result.folder_name)}</div>
                 </div>
