@@ -1574,13 +1574,15 @@ class RipEngine:
     def unlock_drive(self, device: str = "/dev/sr0") -> bool:
         """Unlock the drive after I/O errors that may have locked it."""
         try:
-            # Disable software lock
-            result = subprocess.run(["eject", "-i", "off", device], capture_output=True, timeout=5)
+            # Small delay to let MakeMKV fully release the drive
+            time.sleep(1)
+            # Disable software lock (needs sudo for CAP_SYS_ADMIN)
+            result = subprocess.run(["sudo", "eject", "-i", "off", device], capture_output=True, timeout=5)
             if result.returncode == 0:
                 activity.log_info(f"Drive lock disabled on {device}")
                 return True
             else:
-                activity.log_warning(f"Failed to disable drive lock: {result.stderr.decode()}")
+                activity.log_warning(f"Failed to disable drive lock: {result.stderr.decode().strip()}")
                 return False
         except Exception as e:
             activity.log_warning(f"Error unlocking drive: {e}")
