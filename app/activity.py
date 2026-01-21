@@ -483,11 +483,14 @@ def capture_disc_data(
     year: int = None,
     tmdb_id: int = None,
     confidence: int = None,
+    resolution_source: str = None,
     cinfo_raw: dict = None
 ):
     """
     Capture disc data for analysis and future identification database.
     Appends to JSONL file for easy processing.
+
+    resolution_source: Where the identification came from (radarr, sonarr, manual, fallback, etc.)
     """
     # Build fingerprint from disc characteristics
     track_durations = [t.get("duration", 0) for t in tracks]
@@ -507,6 +510,7 @@ def capture_disc_data(
         "year": year,
         "tmdb_id": tmdb_id,
         "confidence": confidence,
+        "resolution_source": resolution_source,
         # Raw CINFO for future analysis
         "cinfo_raw": cinfo_raw or {}
     }

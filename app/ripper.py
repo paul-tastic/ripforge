@@ -1074,6 +1074,7 @@ class RipEngine:
                 year=job.year,
                 tmdb_id=job.tmdb_id,
                 confidence=id_result.confidence,
+                resolution_source="radarr",
                 cinfo_raw=job.disc_cinfo_raw
             )
         else:
@@ -1094,6 +1095,7 @@ class RipEngine:
                 year=None,
                 tmdb_id=None,
                 confidence=None,
+                resolution_source="fallback",
                 cinfo_raw=job.disc_cinfo_raw
             )
 
