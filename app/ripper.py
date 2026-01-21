@@ -1571,10 +1571,28 @@ class RipEngine:
             activity.log_warning(f"Could not determine SCSI ID: {e}")
         return ""
 
+    def unlock_drive(self, device: str = "/dev/sr0") -> bool:
+        """Unlock the drive after I/O errors that may have locked it."""
+        try:
+            # Disable software lock
+            result = subprocess.run(["eject", "-i", "off", device], capture_output=True, timeout=5)
+            if result.returncode == 0:
+                activity.log_info(f"Drive lock disabled on {device}")
+                return True
+            else:
+                activity.log_warning(f"Failed to disable drive lock: {result.stderr.decode()}")
+                return False
+        except Exception as e:
+            activity.log_warning(f"Error unlocking drive: {e}")
+            return False
+
     def force_eject_disc(self, device: str = "/dev/sr0") -> dict:
-        """Eject disc without stopping any jobs."""
+        """Eject disc without stopping any jobs. Unlocks drive first if needed."""
         activity.log_info("Eject disc requested")
         try:
+            # First try to unlock the drive in case it's stuck after I/O errors
+            self.unlock_drive(device)
+
             subprocess.run(["eject", device], capture_output=True, timeout=10)
             activity.log_success("Disc ejected")
             return {"success": True, "message": "Disc ejected"}
@@ -1940,6 +1958,10 @@ class RipEngine:
                         'reason': error_msg or "MakeMKV rip failed",
                         'rip_method': job.rip_method
                     })
+
+                    # Unlock drive after I/O errors to prevent stuck tray
+                    activity.log_info("Unlocking drive after rip failure...")
+                    self.unlock_drive(job.device)
 
                     # Send error email if enabled
                     cfg = cfg_module.load_config()
