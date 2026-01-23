@@ -2365,6 +2365,72 @@ select option {
     color: #000;
 }
 
+.manual-entry-toggle {
+    text-align: center;
+    margin: 12px 0;
+}
+
+.manual-entry-toggle a {
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.manual-entry-toggle a:hover {
+    color: var(--accent);
+}
+
+.manual-entry {
+    background: var(--bg-dark);
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.manual-entry-fields {
+    display: flex;
+    gap: 12px;
+}
+
+.manual-entry .field-group {
+    flex: 1;
+}
+
+.manual-entry .field-group.field-year {
+    flex: 0 0 80px;
+}
+
+.manual-entry label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.manual-entry input {
+    width: 100%;
+    padding: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 14px;
+}
+
+.manual-preview {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.manual-preview .preview-label {
+    margin-right: 4px;
+}
+
+#manual-preview-text {
+    color: var(--text);
+    font-family: monospace;
+}
+
 .review-actions {
     display: flex;
     gap: 12px;

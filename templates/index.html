@@ -329,6 +329,27 @@
                     </div>
                 </div>
 
+                <div class="manual-entry-toggle">
+                    <a href="#" onclick="toggleManualEntry(); return false;">Can't find it? Enter manually</a>
+                </div>
+
+                <div class="manual-entry" id="manual-entry" style="display: none;">
+                    <div class="manual-entry-fields">
+                        <div class="field-group">
+                            <label for="manual-title">Title</label>
+                            <input type="text" id="manual-title" placeholder="Movie or show title">
+                        </div>
+                        <div class="field-group field-year">
+                            <label for="manual-year">Year</label>
+                            <input type="text" id="manual-year" placeholder="2024" maxlength="4">
+                        </div>
+                    </div>
+                    <div class="manual-preview">
+                        <span class="preview-label">Folder name:</span>
+                        <span id="manual-preview-text">-</span>
+                    </div>
+                </div>
+
                 <div class="review-actions">
                     <button class="btn btn-success" id="btn-apply-review" onclick="applyReviewIdentification()" disabled>Apply Identification</button>
                     <button class="btn btn-danger" onclick="deleteReviewItem()">Delete Rip</button>
@@ -1896,13 +1917,52 @@
         // Pre-fill search with fallback title
         document.getElementById('review-search-input').value = item.fallback_title || '';
 
-        // Reset results
+        // Reset results and manual entry
         document.getElementById('review-results').style.display = 'none';
+        document.getElementById('manual-entry').style.display = 'none';
+        document.getElementById('manual-title').value = '';
+        document.getElementById('manual-year').value = '';
+        document.getElementById('manual-preview-text').textContent = '-';
         document.getElementById('btn-apply-review').disabled = true;
 
         // Show modal
         document.getElementById('review-modal').style.display = 'flex';
     }
+
+    function toggleManualEntry() {
+        const el = document.getElementById('manual-entry');
+        const isHidden = el.style.display === 'none';
+        el.style.display = isHidden ? 'block' : 'none';
+        if (isHidden) {
+            document.getElementById('manual-title').focus();
+        }
+    }
+
+    function updateManualPreview() {
+        const title = document.getElementById('manual-title').value.trim();
+        const year = document.getElementById('manual-year').value.trim();
+        const preview = document.getElementById('manual-preview-text');
+        const applyBtn = document.getElementById('btn-apply-review');
+
+        if (title) {
+            preview.textContent = year ? `${title} (${year})` : title;
+            applyBtn.disabled = false;
+        } else {
+            preview.textContent = '-';
+            // Only disable if no search result either
+            if (!currentSearchResult) {
+                applyBtn.disabled = true;
+            }
+        }
+    }
+
+    // Wire up manual entry input events
+    document.addEventListener('DOMContentLoaded', function() {
+        const titleInput = document.getElementById('manual-title');
+        const yearInput = document.getElementById('manual-year');
+        if (titleInput) titleInput.addEventListener('input', updateManualPreview);
+        if (yearInput) yearInput.addEventListener('input', updateManualPreview);
+    });
 
     function closeReviewModal() {
         document.getElementById('review-modal').style.display = 'none';
@@ -1992,7 +2052,40 @@
     }
 
     function applyReviewIdentification() {
-        if (!currentReviewItem || !currentSearchResult) return;
+        if (!currentReviewItem) return;
+
+        // Check for manual entry first
+        const manualTitle = document.getElementById('manual-title').value.trim();
+        const manualYear = document.getElementById('manual-year').value.trim();
+
+        let payload;
+        let folderNameForToast;
+
+        if (manualTitle) {
+            // Use manual entry
+            folderNameForToast = manualYear ? `${manualTitle} (${manualYear})` : manualTitle;
+            payload = {
+                folder_name: currentReviewItem.folder_name,
+                identified_title: folderNameForToast,
+                media_type: 'movie',  // Default to movie for manual entry
+                year: manualYear ? parseInt(manualYear) : 0,
+                tmdb_id: 0,
+                poster_url: ''
+            };
+        } else if (currentSearchResult) {
+            // Use search result
+            folderNameForToast = currentSearchResult.folder_name;
+            payload = {
+                folder_name: currentReviewItem.folder_name,
+                identified_title: currentSearchResult.folder_name,
+                media_type: currentSearchResult.media_type || 'movie',
+                year: currentSearchResult.year || 0,
+                tmdb_id: currentSearchResult.tmdb_id || 0,
+                poster_url: currentSearchResult.poster_url || ''
+            };
+        } else {
+            return;  // Nothing to apply
+        }
 
         const btn = document.getElementById('btn-apply-review');
         btn.disabled = true;
@@ -2001,19 +2094,12 @@
         fetch('/api/review/apply', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                folder_name: currentReviewItem.folder_name,
-                identified_title: currentSearchResult.folder_name,
-                media_type: currentSearchResult.media_type || 'movie',
-                year: currentSearchResult.year || 0,
-                tmdb_id: currentSearchResult.tmdb_id || 0,
-                poster_url: currentSearchResult.poster_url || ''
-            })
+            body: JSON.stringify(payload)
         })
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    const folderName = currentSearchResult.folder_name;  // Save before closing modal
+                    const folderName = folderNameForToast;  // Save before closing modal
                     closeReviewModal();
                     loadReviewQueue();  // Refresh the queue
                     loadActivityLog();  // Refresh activity log
