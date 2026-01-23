@@ -2287,15 +2287,41 @@ select option {
 
 .review-results {
     margin-bottom: 20px;
+    max-height: 300px;
+    overflow-y: auto;
 }
 
 .result-card {
     display: flex;
-    gap: 16px;
-    padding: 12px;
+    gap: 12px;
+    padding: 10px;
     background: var(--bg-dark);
     border-radius: 8px;
-    border: 2px solid var(--success);
+    border: 2px solid transparent;
+    cursor: pointer;
+    margin-bottom: 8px;
+    transition: border-color 0.2s;
+}
+
+.result-card:hover {
+    border-color: var(--border);
+}
+
+.result-card.selected {
+    border-color: var(--success);
+}
+
+.result-poster-placeholder {
+    width: 60px;
+    height: 90px;
+    background: var(--bg-card);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 24px;
+    border-radius: 4px;
+    flex-shrink: 0;
 }
 
 .result-poster {
@@ -2397,6 +2423,16 @@ select option {
 
 .manual-entry .field-group.field-year {
     flex: 0 0 80px;
+}
+
+.manual-entry .field-group.field-tmdb {
+    flex: 0 0 100px;
+}
+
+.btn-tmdb-lookup {
+    margin-left: 8px;
+    padding: 2px 8px;
+    font-size: 12px;
 }
 
 .manual-entry label {

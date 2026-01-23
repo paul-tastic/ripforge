@@ -308,25 +308,7 @@
                 </div>
 
                 <div class="review-results" id="review-results" style="display: none;">
-                    <div class="result-card" id="review-result-card">
-                        <img class="result-poster" id="result-poster" src="" alt="Poster">
-                        <div class="result-info">
-                            <div class="result-title" id="result-title">-</div>
-                            <div class="result-meta">
-                                <span id="result-year">-</span> &bull;
-                                <span id="result-runtime">-</span>
-                            </div>
-                            <div class="result-folder">
-                                <span class="folder-label">Folder:</span>
-                                <span id="result-folder-name">-</span>
-                            </div>
-                            <div class="result-links">
-                                <a href="#" id="result-imdb-link" target="_blank" class="verify-link">IMDB</a>
-                                <a href="#" id="result-tmdb-link" target="_blank" class="verify-link">TMDB</a>
-                                <a href="#" id="result-tvdb-link" target="_blank" class="verify-link" style="display: none;">TVDB</a>
-                            </div>
-                        </div>
-                    </div>
+                    <!-- Results will be dynamically populated -->
                 </div>
 
                 <div class="manual-entry-toggle">
@@ -343,10 +325,15 @@
                             <label for="manual-year">Year</label>
                             <input type="text" id="manual-year" placeholder="2024" maxlength="4">
                         </div>
+                        <div class="field-group field-tmdb">
+                            <label for="manual-tmdb">TMDB ID</label>
+                            <input type="text" id="manual-tmdb" placeholder="Optional" maxlength="10">
+                        </div>
                     </div>
                     <div class="manual-preview">
                         <span class="preview-label">Folder name:</span>
                         <span id="manual-preview-text">-</span>
+                        <button class="btn btn-small btn-tmdb-lookup" id="btn-tmdb-lookup" onclick="lookupTmdbId()" style="display: none;">Fetch Info</button>
                     </div>
                 </div>
 
@@ -1919,11 +1906,16 @@
 
         // Reset results and manual entry
         document.getElementById('review-results').style.display = 'none';
+        document.getElementById('review-results').innerHTML = '';
         document.getElementById('manual-entry').style.display = 'none';
         document.getElementById('manual-title').value = '';
         document.getElementById('manual-year').value = '';
+        document.getElementById('manual-tmdb').value = '';
         document.getElementById('manual-preview-text').textContent = '-';
+        document.getElementById('btn-tmdb-lookup').style.display = 'none';
         document.getElementById('btn-apply-review').disabled = true;
+        window.searchResults = null;
+        window.tmdbLookupResult = null;
 
         // Show modal
         document.getElementById('review-modal').style.display = 'flex';
@@ -1960,9 +1952,57 @@
     document.addEventListener('DOMContentLoaded', function() {
         const titleInput = document.getElementById('manual-title');
         const yearInput = document.getElementById('manual-year');
+        const tmdbInput = document.getElementById('manual-tmdb');
         if (titleInput) titleInput.addEventListener('input', updateManualPreview);
         if (yearInput) yearInput.addEventListener('input', updateManualPreview);
+        if (tmdbInput) tmdbInput.addEventListener('input', function() {
+            updateManualPreview();
+            // Show/hide fetch button based on TMDB ID
+            const fetchBtn = document.getElementById('btn-tmdb-lookup');
+            if (fetchBtn) {
+                fetchBtn.style.display = this.value.trim() ? 'inline-block' : 'none';
+            }
+        });
     });
+
+    function lookupTmdbId() {
+        const tmdbId = document.getElementById('manual-tmdb').value.trim();
+        if (!tmdbId) return;
+
+        const btn = document.getElementById('btn-tmdb-lookup');
+        btn.disabled = true;
+        btn.textContent = 'Fetching...';
+
+        fetch('/api/review/tmdb-lookup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tmdb_id: parseInt(tmdbId) })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    // Fill in the fields from TMDB data
+                    document.getElementById('manual-title').value = data.title || '';
+                    document.getElementById('manual-year').value = data.year || '';
+                    updateManualPreview();
+
+                    // Store the fetched data for apply
+                    window.tmdbLookupResult = data;
+                    showToast(`Found: ${data.title} (${data.year})`, 'success');
+                    document.getElementById('btn-apply-review').disabled = false;
+                } else {
+                    showToast(data.error || 'TMDB lookup failed', 'error');
+                }
+            })
+            .catch(err => {
+                console.error('TMDB lookup error:', err);
+                showToast('TMDB lookup failed', 'error');
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = 'Fetch Info';
+            });
+    }
 
     function closeReviewModal() {
         document.getElementById('review-modal').style.display = 'none';
@@ -1990,55 +2030,40 @@
             .then(r => r.json())
             .then(data => {
                 if (data.results && data.results.length > 0) {
-                    const result = data.results[0];
-                    currentSearchResult = result;
+                    // Store all results
+                    window.searchResults = data.results;
+                    currentSearchResult = null;
 
-                    // Show result
-                    document.getElementById('review-results').style.display = 'block';
-                    document.getElementById('result-title').textContent = result.title || '-';
-                    document.getElementById('result-year').textContent = result.year || '-';
-                    document.getElementById('result-runtime').textContent = result.runtime_minutes ? result.runtime_minutes + ' min' : '-';
-                    document.getElementById('result-folder-name').textContent = result.folder_name || '-';
+                    // Render multiple result cards
+                    const container = document.getElementById('review-results');
+                    container.style.display = 'block';
+                    container.innerHTML = data.results.map((result, idx) => `
+                        <div class="result-card" data-idx="${idx}" onclick="selectSearchResult(${idx})">
+                            ${result.poster_url
+                                ? `<img class="result-poster" src="${result.poster_url}" alt="Poster">`
+                                : `<div class="result-poster-placeholder">?</div>`
+                            }
+                            <div class="result-info">
+                                <div class="result-title">${escapeHtml(result.title || '-')}</div>
+                                <div class="result-meta">
+                                    <span>${result.year || '-'}</span> &bull;
+                                    <span>${result.runtime_minutes ? result.runtime_minutes + ' min' : '-'}</span>
+                                </div>
+                                <div class="result-links">
+                                    ${result.tmdb_id ? `<a href="https://www.themoviedb.org/movie/${result.tmdb_id}" target="_blank" class="verify-link" onclick="event.stopPropagation()">TMDB</a>` : ''}
+                                    ${result.imdb_id ? `<a href="https://www.imdb.com/title/${result.imdb_id}/" target="_blank" class="verify-link" onclick="event.stopPropagation()">IMDB</a>` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
 
-                    if (result.poster_url) {
-                        document.getElementById('result-poster').src = result.poster_url;
-                        document.getElementById('result-poster').style.display = 'block';
-                    } else {
-                        document.getElementById('result-poster').style.display = 'none';
-                    }
-
-                    // Set verification links
-                    const imdbLink = document.getElementById('result-imdb-link');
-                    const tmdbLink = document.getElementById('result-tmdb-link');
-                    const tvdbLink = document.getElementById('result-tvdb-link');
-
-                    if (result.imdb_id) {
-                        imdbLink.href = `https://www.imdb.com/title/${result.imdb_id}/`;
-                        imdbLink.style.display = 'inline';
-                    } else {
-                        imdbLink.style.display = 'none';
-                    }
-
-                    if (result.tmdb_id) {
-                        const tmdbType = result.media_type === 'tv' ? 'tv' : 'movie';
-                        tmdbLink.href = `https://www.themoviedb.org/${tmdbType}/${result.tmdb_id}`;
-                        tmdbLink.style.display = 'inline';
-                    } else {
-                        tmdbLink.style.display = 'none';
-                    }
-
-                    if (result.tvdb_id && result.media_type === 'tv') {
-                        tvdbLink.href = `https://thetvdb.com/series/${result.tvdb_id}`;
-                        tvdbLink.style.display = 'inline';
-                    } else {
-                        tvdbLink.style.display = 'none';
-                    }
-
-                    document.getElementById('btn-apply-review').disabled = false;
+                    // Auto-select first result
+                    selectSearchResult(0);
                 } else {
                     document.getElementById('review-results').style.display = 'none';
+                    currentSearchResult = null;
                     document.getElementById('btn-apply-review').disabled = true;
-                    showToast('No results found. Try a different search term.', 'info');
+                    showToast('No results found. Try a different search or enter manually.', 'info');
                 }
             })
             .catch(err => {
@@ -2049,6 +2074,26 @@
                 btn.disabled = false;
                 btn.textContent = 'Search';
             });
+    }
+
+    function selectSearchResult(idx) {
+        const results = window.searchResults || [];
+        if (idx < 0 || idx >= results.length) return;
+
+        currentSearchResult = results[idx];
+
+        // Update selected state visually
+        document.querySelectorAll('.result-card').forEach((card, i) => {
+            card.classList.toggle('selected', i === idx);
+        });
+
+        // Clear manual entry when selecting a search result
+        document.getElementById('manual-title').value = '';
+        document.getElementById('manual-year').value = '';
+        document.getElementById('manual-tmdb').value = '';
+        updateManualPreview();
+
+        document.getElementById('btn-apply-review').disabled = false;
     }
 
     function applyReviewIdentification() {
@@ -2062,16 +2107,21 @@
         let folderNameForToast;
 
         if (manualTitle) {
-            // Use manual entry
+            // Use manual entry - check if we have TMDB lookup data
+            const tmdbData = window.tmdbLookupResult;
+            const manualTmdbId = document.getElementById('manual-tmdb').value.trim();
+
             folderNameForToast = manualYear ? `${manualTitle} (${manualYear})` : manualTitle;
             payload = {
                 folder_name: currentReviewItem.folder_name,
                 identified_title: folderNameForToast,
-                media_type: 'movie',  // Default to movie for manual entry
+                media_type: 'movie',
                 year: manualYear ? parseInt(manualYear) : 0,
-                tmdb_id: 0,
-                poster_url: ''
+                tmdb_id: (tmdbData && tmdbData.tmdb_id) ? tmdbData.tmdb_id : (manualTmdbId ? parseInt(manualTmdbId) : 0),
+                poster_url: (tmdbData && tmdbData.poster_url) ? tmdbData.poster_url : ''
             };
+            // Clear the lookup result after use
+            window.tmdbLookupResult = null;
         } else if (currentSearchResult) {
             // Use search result
             folderNameForToast = currentSearchResult.folder_name;

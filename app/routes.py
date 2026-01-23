@@ -1150,7 +1150,7 @@ def api_review_queue():
 
 @main.route('/api/review/search', methods=['POST'])
 def api_review_search():
-    """Search for a movie/show title to identify a review item"""
+    """Search for a movie/show title to identify a review item - returns multiple results"""
     data = request.json or {}
     search_term = data.get('query', '')
     runtime_seconds = data.get('runtime_seconds', 0)
@@ -1166,22 +1166,14 @@ def api_review_search():
     results = []
 
     if media_type == 'movie':
-        # Search Radarr/TMDB
-        result = identifier.search_radarr(search_term, runtime_seconds if runtime_seconds else None)
-        if result:
-            results.append({
-                'title': result.title,
-                'year': result.year,
-                'tmdb_id': result.tmdb_id,
-                'imdb_id': result.imdb_id,
-                'runtime_minutes': result.runtime_minutes,
-                'confidence': result.confidence,
-                'folder_name': result.folder_name,
-                'poster_url': result.poster_url,
-                'media_type': 'movie'
-            })
+        # Search Radarr/TMDB - return multiple results
+        results = identifier.search_radarr_multi(
+            search_term,
+            runtime_seconds if runtime_seconds else None,
+            limit=5
+        )
     else:
-        # Search Sonarr for TV
+        # Search Sonarr for TV - still single result for now
         result = identifier.search_sonarr(search_term, [], 0)
         if result:
             results.append({
@@ -1201,6 +1193,63 @@ def api_review_search():
         'results': results,
         'query': search_term
     })
+
+
+@main.route('/api/review/tmdb-lookup', methods=['POST'])
+def api_review_tmdb_lookup():
+    """Look up movie details from TMDB ID to get poster and year"""
+    import requests as req
+
+    data = request.json or {}
+    tmdb_id = data.get('tmdb_id')
+
+    if not tmdb_id:
+        return jsonify({'error': 'TMDB ID required'}), 400
+
+    cfg = config.load_config()
+    radarr_url = cfg.get('radarr', {}).get('url', '')
+    radarr_api = cfg.get('radarr', {}).get('api_key', '')
+
+    if not radarr_url or not radarr_api:
+        return jsonify({'error': 'Radarr not configured'}), 400
+
+    try:
+        # Use Radarr's TMDB lookup endpoint
+        response = req.get(
+            f"{radarr_url}/api/v3/movie/lookup/tmdb",
+            params={'tmdbId': tmdb_id},
+            headers={'X-Api-Key': radarr_api},
+            timeout=15
+        )
+
+        if response.status_code == 200:
+            movie = response.json()
+
+            # Get poster URL
+            poster_url = ""
+            images = movie.get('images', [])
+            for img in images:
+                if img.get('coverType') == 'poster':
+                    poster_url = img.get('remoteUrl', '')
+                    break
+            if not poster_url:
+                poster_url = movie.get('remotePoster', '')
+
+            return jsonify({
+                'success': True,
+                'title': movie.get('title', ''),
+                'year': movie.get('year', 0),
+                'tmdb_id': tmdb_id,
+                'imdb_id': movie.get('imdbId', ''),
+                'runtime_minutes': movie.get('runtime', 0),
+                'poster_url': poster_url,
+                'folder_name': f"{movie.get('title', '')} ({movie.get('year', '')})" if movie.get('year') else movie.get('title', '')
+            })
+        else:
+            return jsonify({'error': f'TMDB lookup failed: {response.status_code}'}), 400
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @main.route('/api/review/apply', methods=['POST'])

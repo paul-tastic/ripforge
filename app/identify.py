@@ -593,6 +593,90 @@ class SmartIdentifier:
                     activity.log_warning(f"RADARR: No suitable match found")
             return None
 
+    def search_radarr_multi(self, title: str, runtime_seconds: Optional[int] = None, limit: int = 5) -> List[dict]:
+        """Search Radarr and return multiple results for user selection"""
+        if not self.radarr_api:
+            return []
+
+        # Build list of search terms to try
+        search_terms = [title]
+        if re.search(r'\s+\d+$', title):
+            search_terms.append(f"{title} movie")
+            base_title = re.sub(r'\s+\d+$', '', title)
+            search_terms.append(base_title)
+
+        all_results = []
+        seen_tmdb_ids = set()
+
+        for search_term in search_terms:
+            results = self._search_radarr_single(search_term, verbose=False)
+            if results:
+                for movie in results:
+                    tmdb_id = movie.get('tmdbId', 0)
+                    if tmdb_id not in seen_tmdb_ids:
+                        seen_tmdb_ids.add(tmdb_id)
+                        all_results.append(movie)
+
+        if not all_results:
+            return []
+
+        # Score all results
+        candidates = []
+        search_title_lower = title.lower().strip()
+
+        for movie in all_results[:20]:
+            score = 0
+            movie_runtime = movie.get('runtime', 0) * 60
+            movie_title = movie.get('title', 'Unknown')
+            movie_year = movie.get('year', 0)
+            movie_title_lower = movie_title.lower().strip()
+
+            # Title scoring
+            if movie_title_lower == search_title_lower:
+                score += 50
+            elif search_title_lower in movie_title_lower:
+                score += 25
+            elif movie_title_lower in search_title_lower:
+                score += 15
+
+            # Runtime scoring
+            if runtime_seconds and movie_runtime > 0 and runtime_seconds >= 600:
+                diff = abs(runtime_seconds - movie_runtime)
+                pct_diff = diff / max(runtime_seconds, movie_runtime) * 100
+                if pct_diff <= 10:
+                    score += 50
+                elif pct_diff <= 20:
+                    score += 25
+
+            # Popularity bonus
+            score += min(movie.get('popularity', 0) / 10, 20)
+
+            # Get poster URL
+            poster_url = ""
+            images = movie.get('images', [])
+            for img in images:
+                if img.get('coverType') == 'poster':
+                    poster_url = img.get('remoteUrl', '')
+                    break
+            if not poster_url:
+                poster_url = movie.get('remotePoster', '')
+
+            candidates.append({
+                'title': movie_title,
+                'year': movie_year,
+                'tmdb_id': movie.get('tmdbId', 0),
+                'imdb_id': movie.get('imdbId', ''),
+                'runtime_minutes': movie.get('runtime', 0),
+                'poster_url': poster_url,
+                'score': score,
+                'folder_name': f"{movie_title} ({movie_year})" if movie_year else movie_title,
+                'media_type': 'movie'
+            })
+
+        # Sort by score and return top N
+        candidates.sort(key=lambda x: x['score'], reverse=True)
+        return candidates[:limit]
+
     def search_radarr_by_runtime(self, runtime_seconds: int, verbose: bool = True) -> Optional[IdentificationResult]:
         """Search Radarr library by runtime only - fallback for generic disc labels"""
         if not self.radarr_api or not runtime_seconds:
