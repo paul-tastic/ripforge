@@ -20,6 +20,7 @@ from enum import Enum
 from . import activity
 from . import config
 from . import email as email_utils
+from . import error_detection
 
 
 def sanitize_folder_name(name: str) -> str:
@@ -75,6 +76,7 @@ class RipJob:
     output_path: str = ""
     identified_title: str = ""
     error_message: str = ""
+    error_details: Optional[Dict] = None  # Structured error from error_detection module
     # Identification metadata for history/email
     year: int = 0
     tmdb_id: int = 0
@@ -131,6 +133,7 @@ class RipJob:
             "output_path": self.output_path,
             "identified_title": self.identified_title,
             "error_message": self.error_message,
+            "error_details": self.error_details,
             "expected_size_bytes": self.expected_size_bytes,
             "current_size_bytes": self.current_size_bytes,
             "rip_output_dir": self.rip_output_dir,
@@ -1932,11 +1935,23 @@ class RipEngine:
                     job.error_message = "Cancelled by user"
                     activity.rip_cancelled(job.identified_title or job.disc_label, "User stopped the drive")
                 else:
-                    self._update_step("rip", "error", error_msg or "Rip failed")
+                    # Use error detection for granular error info
+                    detected = error_detection.detect_error(
+                        output=error_msg or "",
+                        device=job.device,
+                        output_path=output_dir
+                    )
+                    if detected:
+                        final_error = error_detection.format_error_message(detected)
+                        job.error_details = detected.to_dict()
+                    else:
+                        final_error = error_msg or "MakeMKV rip failed"
+
+                    self._update_step("rip", "error", final_error)
                     job.status = RipStatus.ERROR
-                    job.error_message = error_msg or "MakeMKV rip failed"
+                    job.error_message = final_error
                     title = job.identified_title or job.disc_label
-                    activity.rip_failed(title, error_msg or "MakeMKV rip failed")
+                    activity.rip_failed(title, final_error)
 
                     # Log failure for tracking
                     from . import config as cfg_module
@@ -1957,8 +1972,9 @@ class RipEngine:
                         'duration_minutes': duration_mins,
                         'track_info': f"Track {job.tracks_to_rip[0] if job.tracks_to_rip else 'main'}",
                         'output_size': output_size,
-                        'reason': error_msg or "MakeMKV rip failed",
-                        'rip_method': job.rip_method
+                        'reason': final_error,
+                        'rip_method': job.rip_method,
+                        'error_details': job.error_details
                     })
 
                     # Unlock drive after I/O errors to prevent stuck tray
@@ -1971,7 +1987,7 @@ class RipEngine:
                     if email_cfg.get('on_error'):
                         recipients = email_cfg.get('recipients', [])
                         if recipients:
-                            email_utils.send_rip_error(title, error_msg or "MakeMKV rip failed", recipients)
+                            email_utils.send_rip_error(title, final_error, recipients)
                             activity.log_info(f"Error notification sent to {len(recipients)} recipient(s)")
                 return
 
