@@ -145,7 +145,7 @@
         <div class="integration-config">
             <div class="integration-header">
                 <label class="toggle">
-                    <input type="checkbox" id="community-db-enabled" {% if config.community_db and config.community_db.enabled %}checked{% endif %}>
+                    <input type="checkbox" id="community-db-enabled" {% if not config.community_db or config.community_db.enabled != false %}checked{% endif %}>
                     <span class="toggle-slider"></span>
                 </label>
                 <span class="integration-title">Community Database</span>
