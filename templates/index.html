@@ -1319,7 +1319,18 @@
                 document.getElementById("btn-reset-drive").style.display = "none";
                 document.getElementById("btn-restart-service").style.display = "none";
             }
-            document.getElementById("btn-eject-disc").style.display = "inline-block";
+            // Update eject button state
+            const ejectBtn = document.getElementById("btn-eject-disc");
+            ejectBtn.style.display = "inline-block";
+            if (ripData.disc_ejected) {
+                ejectBtn.textContent = "Ejected";
+                ejectBtn.disabled = true;
+                ejectBtn.classList.add("btn-ejected");
+            } else {
+                ejectBtn.textContent = "Eject";
+                ejectBtn.disabled = false;
+                ejectBtn.classList.remove("btn-ejected");
+            }
             ripActions.style.display = 'none';
             stopBtn.style.display = 'none';
             document.getElementById('btn-start-rip').disabled = false;
@@ -1604,6 +1615,13 @@
             .then(data => {
                 if (data.success) {
                     showToast('Disc ejected', 'success');
+                    // Update button state to show ejected
+                    const ejectBtn = document.getElementById("btn-eject-disc");
+                    if (ejectBtn) {
+                        ejectBtn.textContent = "Ejected";
+                        ejectBtn.disabled = true;
+                        ejectBtn.classList.add("btn-ejected");
+                    }
                 } else {
                     showToast('Eject failed: ' + (data.error || 'Unknown error'), 'error');
                 }

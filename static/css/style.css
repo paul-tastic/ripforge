@@ -1325,6 +1325,17 @@ select option {
     background: rgba(248, 113, 113, 0.3);
 }
 
+.btn-ejected {
+    background: var(--bg-dark);
+    color: var(--text-dim);
+    opacity: 0.6;
+    cursor: default;
+}
+
+.btn-ejected:hover {
+    background: var(--bg-dark);
+}
+
 /* Rip Checklist */
 .rip-checklist {
     padding: 8px 0;

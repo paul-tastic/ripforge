@@ -102,6 +102,7 @@ class RipJob:
     rip_method: str = "direct"  # "direct", "backup", or "recovery"
     rip_mode: str = "smart"  # "smart", "always_backup", "direct_only" - from config
     direct_failed: bool = False  # True if direct rip was attempted and failed
+    disc_ejected: bool = False  # True if disc was ejected after rip completed
     rip_started_at: Optional[float] = None  # Unix timestamp when rip phase began (for ETA calc)
     # Disc fingerprint data for capture/analysis
     disc_tracks: List[dict] = field(default_factory=list)
@@ -149,6 +150,7 @@ class RipJob:
             "rip_method": self.rip_method,
             "rip_mode": self.rip_mode,
             "direct_failed": self.direct_failed,
+            "disc_ejected": self.disc_ejected,
             "steps": {k: {"status": v.status, "detail": v.detail} for k, v in self.steps.items()}
         }
 
@@ -1603,6 +1605,9 @@ class RipEngine:
 
             subprocess.run(["eject", device], capture_output=True, timeout=10)
             activity.log_success("Disc ejected")
+            # Mark disc as ejected in current job
+            if self.current_job:
+                self.current_job.disc_ejected = True
             return {"success": True, "message": "Disc ejected"}
         except subprocess.TimeoutExpired:
             activity.log_error("Eject timed out")
@@ -2655,6 +2660,9 @@ class RipEngine:
             )
             if result.returncode == 0:
                 activity.log_success("Disc ejected")
+                # Mark disc as ejected in current job
+                if self.current_job:
+                    self.current_job.disc_ejected = True
                 return True
             else:
                 activity.log_warning(f"Eject failed: {result.stderr}")
