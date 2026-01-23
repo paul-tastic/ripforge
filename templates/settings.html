@@ -138,6 +138,31 @@
         </div>
     </section>
 
+    <!-- Community Disc Database -->
+    <section class="card">
+        <h2>Community Disc Database</h2>
+        <p class="card-description">Shared database of disc label identifications. If you use it, you contribute.</p>
+        <div class="integration-config">
+            <div class="integration-header">
+                <label class="toggle">
+                    <input type="checkbox" id="community-db-enabled" {% if config.community_db and config.community_db.enabled %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="integration-title">Community Database</span>
+                <span class="integration-badge" id="community-db-status">-</span>
+            </div>
+            <div class="community-db-info">
+                <p>Many discs have cryptic labels like <code>SC30NNW1</code> instead of <code>SANTA_CLAUSE_3</code>.</p>
+                <p>When enabled:</p>
+                <ul>
+                    <li>Cryptic disc labels are auto-identified from community contributions</li>
+                    <li>Your manual identifications are shared back to help others</li>
+                </ul>
+                <p class="privacy-note">Only shares: disc label, type, duration, title, year, TMDB ID. No personal data.</p>
+            </div>
+        </div>
+    </section>
+
     <!-- Ripping Settings -->
     <section class="card">
         <h2>Ripping Settings</h2>
@@ -872,6 +897,9 @@
                 raw_rips: document.getElementById('path-raw').value,
                 movies: document.getElementById('path-movies').value,
                 tv: document.getElementById('path-tv').value
+            },
+            community_db: {
+                enabled: document.getElementById('community-db-enabled').checked
             }
         };
 

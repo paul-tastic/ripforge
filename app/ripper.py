@@ -2540,6 +2540,8 @@ class RipEngine:
                 "disc_type": job.disc_type,
                 "fallback_title": job.identified_title,
                 "runtime_seconds": runtime_seconds,
+                "duration_secs": runtime_seconds if runtime_seconds else 0,  # For community DB
+                "track_count": len(job.disc_tracks) if job.disc_tracks else 0,     # For community DB
                 "runtime_str": f"{runtime_seconds // 60}m {runtime_seconds % 60}s" if runtime_seconds else "",
                 "size_gb": round(size_gb, 2),
                 "files": [os.path.basename(f) for f in moved_files],

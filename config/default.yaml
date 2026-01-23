@@ -79,3 +79,11 @@ identification:
   use_radarr_wanted: true
   runtime_tolerance: 300         # 5 min tolerance for matching
   confidence_threshold: 75       # Auto-accept above this score
+
+# Community Disc Database - shared disc label identifications
+# If you use it, you contribute. No freeloading.
+community_db:
+  enabled: false                 # Opt-in: enable to use AND contribute
+  # When enabled:
+  # - Lookups: Cryptic disc labels are auto-identified from community data
+  # - Contributions: Your manual identifications are shared back

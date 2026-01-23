@@ -48,3 +48,69 @@ ssh paul@192.168.0.104 "sudo systemctl restart ripforge"
 - App checks GitHub **releases** (not tags) for updates via `/releases/latest` API
 - Version is stored in `app/__init__.py` as `__version__`
 - Service runs as systemd unit: `ripforge.service`
+
+---
+
+## Community Disc Database
+
+A shared database of disc fingerprints → movie titles for automatic identification of cryptic disc labels.
+
+### How It Works
+
+```
+User enables community DB
+         ↓
+    RipForge ←→ API (Cloudflare Worker) ←→ GitHub Repo
+         ↓                                    ↓
+  Auto-identifies discs              ripforge-disc-db
+```
+
+### Components
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| **ripforge-disc-db** | github.com/paul-tastic/ripforge-disc-db | Public repo storing disc mappings |
+| **API Worker** | Cloudflare Workers | Handles read/write, no user tokens needed |
+| **RipForge Integration** | `app/community_db.py` | Client code in RipForge |
+
+### User Experience
+
+1. Go to Settings
+2. Toggle "Community Disc Database" ON
+3. Done - auto-syncs both ways
+
+**Rule: If you use it, you contribute. No freeloading.**
+- Enabled = you contribute your manual IDs AND get access to community data
+- Disabled = no contribution, no access
+
+### Data Format
+
+Each entry in the database:
+```json
+{
+  "disc_label": "SC30NNW1",
+  "disc_type": "dvd",
+  "duration_secs": 5501,
+  "track_count": 12,
+  "title": "The Santa Clause 3: The Escape Clause",
+  "year": 2006,
+  "tmdb_id": 10431,
+  "contributed_at": "2026-01-23T14:23:13Z"
+}
+```
+
+### API Endpoints
+
+- `GET /db` - Returns full database (JSONL)
+- `POST /contribute` - Submit a new disc mapping
+- `GET /lookup?label=SC30NNW1&duration=5501` - Look up a specific disc
+
+### Privacy
+
+Only shares: disc_label, disc_type, duration, track_count, title, year, tmdb_id
+Does NOT share: file paths, usernames, IP addresses, or any personal data
+
+### Local Files
+
+- `logs/disc_captures.jsonl` - Local capture of all scanned discs (detailed)
+- `config/community_db_cache.json` - Cached copy of community database

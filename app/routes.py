@@ -14,6 +14,7 @@ from . import config
 from . import ripper
 from . import email as email_utils
 from . import activity
+from . import community_db
 
 main = Blueprint('main', __name__)
 
@@ -1271,6 +1272,19 @@ def api_review_apply():
             runtime_str=metadata.get('runtime_str', ''),
             content_type=media_type,
             rip_method="review"
+        )
+
+        # Contribute to community disc database (if enabled)
+        # Manual identifications are valuable contributions
+        community_db.contribute_disc(
+            disc_label=folder_name,  # Original disc label
+            disc_type=metadata.get('disc_type', 'dvd'),
+            duration_secs=metadata.get('duration_secs', 0),
+            track_count=metadata.get('track_count', 0),
+            title=identified_title.split(' (')[0],  # Strip year from title
+            year=year,
+            tmdb_id=tmdb_id,
+            config=cfg
         )
 
         # Trigger Plex scan

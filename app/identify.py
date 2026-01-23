@@ -13,6 +13,7 @@ from typing import Optional, Dict, List, Tuple, Any
 from dataclasses import dataclass
 
 from . import activity
+from . import community_db
 
 
 @dataclass
@@ -1002,8 +1003,22 @@ class SmartIdentifier:
         # Parse into search term
         search_term = self.parse_disc_label(disc_label)
 
-        # Get video runtime
+        # Get video runtime (in seconds)
         runtime = self.get_video_runtime(folder)
+        runtime_secs = runtime if runtime else 0
+
+        # Try community database first (if enabled)
+        community_match = community_db.lookup_disc(disc_label, runtime_secs, self.config)
+        if community_match:
+            activity.log_success(f"IDENTIFY: Community DB match for '{disc_label}' -> '{community_match['title']}'")
+            return IdentificationResult(
+                title=community_match.get('title', ''),
+                year=community_match.get('year', 0) or 0,
+                tmdb_id=community_match.get('tmdb_id', 0) or 0,
+                runtime_minutes=community_match.get('duration_secs', 0) // 60,
+                confidence=90,  # High confidence from community DB
+                media_type='movie' if community_match.get('disc_type') in ['dvd', 'bluray'] else 'movie'
+            )
 
         # Search Radarr (movies)
         result = self.search_radarr(search_term, runtime)

@@ -2386,3 +2386,46 @@ select option {
 .confirm-actions .btn {
     min-width: 100px;
 }
+
+
+/* Community Disc Database */
+.community-db-info {
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    margin-top: 12px;
+}
+
+.community-db-info p {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.community-db-info ul {
+    margin: 8px 0 12px 16px;
+    padding: 0;
+}
+
+.community-db-info ul li {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.community-db-info code {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: monospace;
+    color: var(--accent);
+    font-size: 12px;
+}
+
+.community-db-info .privacy-note {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+    margin-top: 8px;
+    margin-bottom: 0;
+}
