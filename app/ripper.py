@@ -1146,7 +1146,7 @@ class RipEngine:
                     pass
 
                 activity.file_moved(dest_folder_name, dest_path)
-                self._update_step("move", "complete", "Moved to movies/")
+                self._update_step("move", "complete", "Moved to movies")
                 job.output_path = dest_path
             else:
                 self._update_step("move", "error", "No MKV files found")
@@ -1311,8 +1311,11 @@ class RipEngine:
                                 self.current_job.eta = f"{100 - pct}% remaining"
 
                     # Check if MakeMKV finished (process gone but we're still in ripping state)
-                    if not self._is_makemkv_running():
-                        # MakeMKV finished - check if we have output
+                    # IMPORTANT: Only trigger post-processing if we have actual MKV output.
+                    # During backup mode, there's a gap between backup completion and rip_from_backup
+                    # where MakeMKV isn't running but we don't have MKV files yet.
+                    if not self._is_makemkv_running() and raw_has_mkv:
+                        # MakeMKV finished AND we have MKV output - safe to post-process
                         if self.current_job.current_size_bytes > 0:
                             # Rip completed, trigger post-processing
                             activity.log_info("MakeMKV finished, starting post-processing")
@@ -1635,6 +1638,24 @@ class RipEngine:
             self.current_job.progress = percent
             self.current_job.eta = eta
 
+    def _cleanup_old_backups(self):
+        """Clean up backup folders from previous rips.
+
+        Backups are kept until the next rip starts as a safety net.
+        This cleans them up at the start of a new rip.
+        """
+        try:
+            if not os.path.isdir(self.backup_path):
+                return
+
+            for item in os.listdir(self.backup_path):
+                item_path = os.path.join(self.backup_path, item)
+                if os.path.isdir(item_path):
+                    activity.log_info(f"Cleaning up old backup: {item}")
+                    shutil.rmtree(item_path, ignore_errors=True)
+        except Exception as e:
+            activity.log_warning(f"Could not clean up old backups: {e}")
+
     def start_rip(self, device: str = "/dev/sr0", custom_title: str = None,
                   media_type: str = "movie", season_number: int = 0,
                   selected_tracks: List[int] = None, episode_mapping: Dict[int, dict] = None,
@@ -1692,6 +1713,9 @@ class RipEngine:
             job = self.current_job
             if not job:
                 return
+
+            # Clean up old backups from previous rips (keep backup folder tidy)
+            self._cleanup_old_backups()
 
             # Step 1: Disc inserted
             self._update_step("insert", "complete", "Disc detected")
@@ -1913,14 +1937,10 @@ class RipEngine:
                         expected_size=job.expected_size_bytes
                     )
 
-                    # Clean up backup folder on success
+                    # Keep backup until next rip starts (safety net for move/identify issues)
                     if success:
                         job.rip_method = "backup"
-                        activity.log_info(f"Cleaning up backup folder: {backup_dir}")
-                        try:
-                            shutil.rmtree(backup_dir, ignore_errors=True)
-                        except Exception as e:
-                            activity.log_warning(f"Could not clean up backup: {e}")
+                        activity.log_info(f"Backup kept at: {backup_dir} (will clean on next rip)")
                 else:
                     if rip_mode == 'smart':
                         error_msg = f"Both direct and backup methods failed. Direct: {error_msg}. Backup: {backup_error}"
@@ -2157,7 +2177,7 @@ class RipEngine:
 
                     activity.file_moved(dest_folder_name, dest_path)
                     activity.log_success(f"=== MOVE COMPLETE: {dest_folder_name} -> movies/ ===")
-                    self._update_step("move", "complete", f"Moved to movies/")
+                    self._update_step("move", "complete", f"Moved to movies")
 
                 # Update job output path
                 job.output_path = dest_path
@@ -2234,6 +2254,9 @@ class RipEngine:
             job = self.current_job
             if not job:
                 return
+
+            # Clean up old backups from previous rips
+            self._cleanup_old_backups()
 
             activity.log_info(f"=== TV RIP PIPELINE START ===")
             activity.log_info(f"Series: {job.series_title or job.identified_title}")

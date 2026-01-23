@@ -1406,21 +1406,34 @@ def api_library_list():
 
     def get_folder_info(folder_path, folder_name):
         """Get info about a library folder"""
+        from datetime import datetime
+
         title, year = parse_folder_name(folder_name)
 
-        # Calculate total size of MKV files
+        # Calculate total size of MKV files and get most recent modification time
         size_bytes = 0
         has_mkv = False
+        latest_mtime = 0
+
         for mkv in glob.glob(os.path.join(folder_path, '*.mkv')):
-            size_bytes += os.path.getsize(mkv)
+            stat = os.stat(mkv)
+            size_bytes += stat.st_size
+            latest_mtime = max(latest_mtime, stat.st_mtime)
             has_mkv = True
 
         # Also check subdirectories for TV shows
         for root, dirs, files in os.walk(folder_path):
             for f in files:
                 if f.endswith('.mkv'):
-                    size_bytes += os.path.getsize(os.path.join(root, f))
+                    fpath = os.path.join(root, f)
+                    stat = os.stat(fpath)
+                    size_bytes += stat.st_size
+                    latest_mtime = max(latest_mtime, stat.st_mtime)
                     has_mkv = True
+
+        # Fall back to folder mtime if no MKV files
+        if latest_mtime == 0:
+            latest_mtime = os.path.getmtime(folder_path)
 
         # Look up poster URL from rip history
         poster_url = poster_lookup.get(folder_name) or poster_lookup.get(title.lower())
@@ -1431,7 +1444,9 @@ def api_library_list():
             'year': year,
             'size_gb': round(size_bytes / (1024**3), 2) if size_bytes else 0,
             'has_mkv': has_mkv,
-            'poster_url': poster_url
+            'poster_url': poster_url,
+            'added_at': datetime.fromtimestamp(latest_mtime).isoformat(),
+            'added_ts': latest_mtime
         }
 
     movies = []
