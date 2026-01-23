@@ -2564,7 +2564,7 @@ class RipEngine:
 
             # Update job
             job.output_path = dest_path
-            self._update_step("move", "complete", f"Moved to review/")
+            self._update_step("move", "complete", "Moved to review")
             activity.log_warning(f"=== MOVED TO REVIEW QUEUE: {folder_name} ===")
 
             # Skip Plex scan for review items
