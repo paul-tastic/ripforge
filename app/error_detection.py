@@ -110,7 +110,7 @@ MAKEMKV_ERROR_MAP = {
 
 # Patterns for parsing MakeMKV output
 ERROR_PATTERNS = [
-    (r'AACS.*error|libaacs', ErrorCode.AACS_DECRYPT_FAILED, "AACS decryption failed"),
+    (r'AACS.*(?:error|fail)|libaacs', ErrorCode.AACS_DECRYPT_FAILED, "AACS decryption failed"),
     (r'CSS.*error|libdvdcss', ErrorCode.CSS_DECRYPT_FAILED, "CSS decryption failed"),
     (r'fake.*playlist|playlist.*obfuscation', ErrorCode.FAKE_PLAYLIST, "Fake playlist protection detected"),
     (r'BD\+|bdplus', ErrorCode.BDPLUS_FAILED, "BD+ protection failed"),
