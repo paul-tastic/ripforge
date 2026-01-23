@@ -51,6 +51,29 @@ ssh paul@192.168.0.104 "sudo systemctl restart ripforge"
 
 ---
 
+## Website (ripforge.org)
+
+The marketing site is hosted via **GitHub Pages** from the `docs/` folder.
+
+| URL | Source |
+|-----|--------|
+| https://ripforge.org | `docs/index.html` |
+
+### Updating the Website
+
+1. Edit `docs/index.html`
+2. Commit and push to `main`
+3. GitHub Pages auto-deploys (usually within 1-2 minutes)
+
+### Screenshot Updates
+
+Dashboard screenshots are hosted via GitHub's user-attachments. To update:
+1. Go to any GitHub issue/PR and drag-drop the new image
+2. Copy the generated URL (e.g., `https://github.com/user-attachments/assets/...`)
+3. Update the `<img src="...">` in `docs/index.html`
+
+---
+
 ## Community Disc Database
 
 A shared database of disc fingerprints → movie titles for automatic identification of cryptic disc labels.

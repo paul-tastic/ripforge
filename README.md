@@ -44,7 +44,7 @@
 - **Ned Integration** - Auto-detects Ned monitoring agent if installed
 
 ## Dashboard
-<img width="1167" height="738" alt="image" src="https://github.com/user-attachments/assets/844ac471-8001-46ee-b618-a72995967e22" />
+<img width="1348" height="1152" alt="RipForge Dashboard" src="https://github.com/user-attachments/assets/c0c27def-3434-4c6e-a3d8-458fc8f53256" />
 
 
 
