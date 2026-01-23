@@ -50,7 +50,7 @@
                 <span class="stat-label">All Time</span>
                 <span class="stat-value" id="stat-total">0</span>
             </div>
-            <div class="sidebar-stat-row">
+            <div class="sidebar-stat-row clickable" id="errors-row" onclick="showErrorsModal()" title="Click to view error details">
                 <span class="stat-label">Errors</span>
                 <span class="stat-value error" id="stat-errors">0</span>
             </div>
@@ -62,6 +62,9 @@
             <div class="sidebar-stat-row">
                 <span class="stat-label">Avg DVD</span>
                 <span class="stat-value" id="stat-avg-dvd">--</span>
+            </div>
+            <div class="sidebar-stat-clear">
+                <a href="#" onclick="clearStats(); return false;">Clear Stats</a>
             </div>
         </div>
 
@@ -83,7 +86,73 @@
         </div>
     </main>
 
+    <!-- Errors Modal -->
+    <div class="modal-overlay" id="errors-modal" style="display: none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Rip Errors</h3>
+                <button class="modal-close" onclick="closeErrorsModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="errors-modal-body">
+                <p>Loading...</p>
+            </div>
+        </div>
+    </div>
+
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script>
+    function showErrorsModal() {
+        const modal = document.getElementById('errors-modal');
+        const body = document.getElementById('errors-modal-body');
+        modal.style.display = 'flex';
+        body.innerHTML = '<p>Loading...</p>';
+
+        fetch('/api/stats/errors')
+            .then(r => r.json())
+            .then(data => {
+                if (data.errors.length === 0) {
+                    body.innerHTML = '<p style="color: var(--text-muted);">No errors recorded.</p>';
+                    return;
+                }
+                let html = '<div class="errors-list">';
+                data.errors.forEach(err => {
+                    html += `<div class="error-item">
+                        <span class="error-time">${err.timestamp}</span>
+                        <span class="error-msg">${err.message}</span>
+                    </div>`;
+                });
+                html += '</div>';
+                body.innerHTML = html;
+            })
+            .catch(() => {
+                body.innerHTML = '<p style="color: var(--error);">Failed to load errors.</p>';
+            });
+    }
+
+    function closeErrorsModal() {
+        document.getElementById('errors-modal').style.display = 'none';
+    }
+
+    function clearStats() {
+        if (!confirm('Clear all activity stats? This cannot be undone.')) return;
+        fetch('/api/stats/clear', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    // Refresh stats
+                    document.getElementById('stat-today').textContent = '0';
+                    document.getElementById('stat-week').textContent = '0';
+                    document.getElementById('stat-total').textContent = '0';
+                    document.getElementById('stat-errors').textContent = '0';
+                }
+            });
+    }
+
+    // Close modal on overlay click
+    document.getElementById('errors-modal').addEventListener('click', function(e) {
+        if (e.target === this) closeErrorsModal();
+    });
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

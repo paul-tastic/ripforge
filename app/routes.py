@@ -760,6 +760,20 @@ def api_rip_stats():
     return jsonify(stats)
 
 
+@main.route('/api/stats/clear', methods=['POST'])
+def api_stats_clear():
+    """Clear the activity log (resets all stats)"""
+    activity.clear_activity_log()
+    return jsonify({'success': True, 'message': 'Activity log cleared'})
+
+
+@main.route('/api/stats/errors')
+def api_stats_errors():
+    """Get detailed list of rip errors"""
+    errors = activity.get_rip_errors()
+    return jsonify({'errors': errors, 'count': len(errors)})
+
+
 @main.route('/api/newsletter/queue')
 def api_newsletter_queue():
     """Get content queued for the next newsletter"""

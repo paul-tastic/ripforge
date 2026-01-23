@@ -521,3 +521,31 @@ def capture_disc_data(
         log_info(f"Disc data captured: {disc_label} -> {identified_title or 'unidentified'}")
     except Exception as e:
         log_warning(f"Failed to capture disc data: {e}")
+
+
+def clear_activity_log():
+    """Clear the activity log file"""
+    if ACTIVITY_LOG.exists():
+        ACTIVITY_LOG.unlink()
+    log_info("Activity log cleared")
+
+
+def get_rip_errors() -> list:
+    """Get all rip errors from activity log with details"""
+    errors = []
+    error_pattern = re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| ERROR \| Rip failed: (.+)$')
+
+    try:
+        if ACTIVITY_LOG.exists():
+            with open(ACTIVITY_LOG) as f:
+                for line in f:
+                    match = error_pattern.match(line.strip())
+                    if match:
+                        errors.append({
+                            'timestamp': match.group(1),
+                            'message': match.group(2)
+                        })
+    except Exception:
+        pass
+
+    return errors

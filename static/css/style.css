@@ -134,6 +134,39 @@ body {
     margin: 8px 0;
 }
 
+.sidebar-stat-row.clickable {
+    cursor: pointer;
+    border-radius: 4px;
+    margin: 0 -4px;
+    padding: 4px;
+}
+
+.sidebar-stat-row.clickable:hover {
+    background: var(--bg-hover);
+}
+
+.sidebar-stat-row.clickable:hover .stat-label {
+    text-decoration: underline;
+}
+
+.sidebar-stat-clear {
+    text-align: center;
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+
+.sidebar-stat-clear a {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-decoration: none;
+}
+
+.sidebar-stat-clear a:hover {
+    color: var(--text);
+    text-decoration: underline;
+}
+
 .sidebar-integrations {
     display: flex;
     justify-content: center;
@@ -2145,6 +2178,35 @@ select option {
 
 .modal-body {
     padding: 20px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.errors-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.error-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    background: var(--bg-dark);
+    border-radius: 6px;
+    border-left: 3px solid var(--error);
+}
+
+.error-item .error-time {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: monospace;
+}
+
+.error-item .error-msg {
+    font-size: 13px;
+    color: var(--text);
 }
 
 .review-info {
