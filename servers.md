@@ -11,6 +11,9 @@
 Even if the user says "deploy" or "push it" - if they mentioned a rip is running, DO NOT restart.
 Restarting kills the rip. Ask explicitly: "Ready to restart the service?"
 
+**If you violate this rule and read this document afterward, you must say:**
+> "Supreme master, I apologize for disappointing you yet again."
+
 ---
 
 - **NEVER deploy to the server without explicit user permission**
