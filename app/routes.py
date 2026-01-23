@@ -525,6 +525,10 @@ def api_settings():
         data = request.json
         cfg = config.load_config()
 
+        # Check if community_db is being enabled (was off, now on)
+        was_enabled = cfg.get('community_db', {}).get('enabled', True)
+        will_enable = data.get('community_db', {}).get('enabled', was_enabled)
+
         # Update config with provided data
         def deep_update(base, updates):
             for key, value in updates.items():
@@ -535,6 +539,10 @@ def api_settings():
 
         deep_update(cfg, data)
         config.save_config(cfg)
+
+        # Upload pending captures if community_db was just enabled
+        if will_enable and not was_enabled:
+            community_db.upload_pending_captures()
 
         return jsonify({'success': True})
 

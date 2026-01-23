@@ -22,7 +22,7 @@ CACHE_MAX_AGE = 3600  # Refresh cache every hour
 
 def is_enabled(config: dict) -> bool:
     """Check if community DB is enabled in config."""
-    return config.get('community_db', {}).get('enabled', False)
+    return config.get('community_db', {}).get('enabled', True)  # Default ON
 
 
 def lookup_disc(disc_label: str, duration_secs: int, config: dict) -> Optional[Dict]:
@@ -208,3 +208,72 @@ def get_cache_stats() -> Dict:
         }
     except Exception:
         return {'exists': False, 'count': 0, 'updated_at': None}
+
+
+def upload_pending_captures() -> Dict:
+    """
+    Upload any pending disc captures that have identifications.
+    Called when community DB is enabled to upload backlog.
+    Returns stats about what was uploaded.
+    """
+    from . import activity as act
+
+    captures_file = Path(__file__).parent.parent / "logs" / "disc_captures.jsonl"
+
+    if not captures_file.exists():
+        return {'uploaded': 0, 'skipped': 0, 'errors': 0}
+
+    uploaded = 0
+    skipped = 0
+    errors = 0
+
+    try:
+        with open(captures_file) as f:
+            for line in f:
+                try:
+                    entry = json.loads(line.strip())
+
+                    # Only upload entries with identified titles
+                    if not entry.get('identified_title'):
+                        skipped += 1
+                        continue
+
+                    # Build payload
+                    payload = {
+                        'disc_label': entry.get('disc_label'),
+                        'disc_type': entry.get('disc_type', 'dvd'),
+                        'duration_secs': entry.get('main_duration_secs', 0),
+                        'track_count': entry.get('track_count', 0),
+                        'title': entry.get('identified_title', '').split(' (')[0],  # Strip year
+                        'year': entry.get('year'),
+                        'tmdb_id': entry.get('tmdb_id')
+                    }
+
+                    # Skip if missing required fields
+                    if not payload['disc_label'] or not payload['title']:
+                        skipped += 1
+                        continue
+
+                    # Upload
+                    response = requests.post(
+                        f"{API_URL}/contribute",
+                        json=payload,
+                        timeout=15
+                    )
+
+                    if response.status_code == 200:
+                        uploaded += 1
+                    else:
+                        errors += 1
+
+                except (json.JSONDecodeError, KeyError):
+                    errors += 1
+                    continue
+
+    except Exception as e:
+        act.log_warning(f"COMMUNITY DB: Error uploading backlog - {e}")
+
+    if uploaded > 0:
+        act.log_success(f"COMMUNITY DB: Uploaded {uploaded} pending captures")
+
+    return {'uploaded': uploaded, 'skipped': skipped, 'errors': errors}
