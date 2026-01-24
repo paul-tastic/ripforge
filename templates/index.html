@@ -115,6 +115,7 @@
         <div class="rip-checklist" id="rip-checklist" style="display: none;">
             <div class="rip-title" id="rip-title">
                 <span class="disc-label">Processing disc...</span>
+                <span class="disc-type-badge" id="rip-disc-type"></span>
                 <span class="current-step" id="current-step"></span>
             </div>
 
@@ -1331,6 +1332,15 @@
             displayTitle = `${ripData.series_title || ripData.identified_title} S${ripData.season_number.toString().padStart(2, '0')}`;
         }
         document.querySelector('.disc-label').textContent = displayTitle;
+
+        // Show disc type badge (DVD/Blu-ray)
+        const discTypeBadge = document.getElementById('rip-disc-type');
+        if (ripData.disc_type) {
+            discTypeBadge.textContent = ripData.disc_type.toUpperCase();
+            discTypeBadge.style.display = 'inline-block';
+        } else {
+            discTypeBadge.style.display = 'none';
+        }
 
         // Show duplicate warning badge if applicable
         let dupBadge = document.getElementById('duplicate-badge');
