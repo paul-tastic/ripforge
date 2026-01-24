@@ -435,7 +435,7 @@ class TestCheckForDuplicate:
         history_file = tmp_path / "rip_history.json"
         history_file.write_text("[]")
 
-        with patch.object(activity, 'RIP_HISTORY_FILE', history_file):
+        with patch.object(activity, 'HISTORY_FILE', history_file):
             with patch.object(activity, 'DISC_CAPTURES_FILE', tmp_path / "nonexistent.jsonl"):
                 result = activity.check_for_duplicate(
                     title="Test Movie",
@@ -468,7 +468,7 @@ class TestCheckForDuplicate:
         movies_path = tmp_path / "movies"
         movies_path.mkdir()
 
-        with patch.object(activity, 'RIP_HISTORY_FILE', history_file):
+        with patch.object(activity, 'HISTORY_FILE', history_file):
             with patch.object(activity, 'DISC_CAPTURES_FILE', tmp_path / "nonexistent.jsonl"):
                 with patch.object(activity, 'log_info'):
                     result = activity.check_for_duplicate(
@@ -501,7 +501,7 @@ class TestCheckForDuplicate:
         # Add a fake MKV file
         (existing_folder / "Test Movie (2024).mkv").write_bytes(b"x" * 1000)
 
-        with patch.object(activity, 'RIP_HISTORY_FILE', history_file):
+        with patch.object(activity, 'HISTORY_FILE', history_file):
             with patch.object(activity, 'DISC_CAPTURES_FILE', tmp_path / "nonexistent.jsonl"):
                 with patch.object(activity, 'log_info'):
                     result = activity.check_for_duplicate(
@@ -541,7 +541,7 @@ class TestCheckForDuplicate:
         movies_path = tmp_path / "movies"
         movies_path.mkdir()
 
-        with patch.object(activity, 'RIP_HISTORY_FILE', history_file):
+        with patch.object(activity, 'HISTORY_FILE', history_file):
             with patch.object(activity, 'DISC_CAPTURES_FILE', captures_file):
                 with patch.object(activity, 'log_info'):
                     result = activity.check_for_duplicate(
@@ -574,7 +574,7 @@ class TestCheckForDuplicate:
         movies_path = tmp_path / "movies"
         movies_path.mkdir()
 
-        with patch.object(activity, 'RIP_HISTORY_FILE', history_file):
+        with patch.object(activity, 'HISTORY_FILE', history_file):
             with patch.object(activity, 'DISC_CAPTURES_FILE', tmp_path / "nonexistent.jsonl"):
                 result = activity.check_for_duplicate(
                     title="Test Movie",

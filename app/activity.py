@@ -578,8 +578,8 @@ def check_for_duplicate(
     # Check 1: TMDB ID match in rip history (most reliable)
     if tmdb_id:
         try:
-            if RIP_HISTORY_FILE.exists():
-                with open(RIP_HISTORY_FILE) as f:
+            if HISTORY_FILE.exists():
+                with open(HISTORY_FILE) as f:
                     history = json.load(f)
                 for rip in history:
                     if rip.get('tmdb_id') == tmdb_id:
