@@ -40,7 +40,7 @@
                     <label for="custom-title">Title:</label>
                     <input type="text" id="custom-title" class="title-input" placeholder="Movie Title (Year)">
                     <span class="confidence-badge" id="confidence-badge" style="display: none;">HIGH</span>
-                    <a href="#" id="imdb-search-btn" class="btn btn-small" target="_blank" title="Search IMDB">IMDB</a>
+                    <a href="#" id="imdb-search-btn" class="btn btn-small" target="_blank" title="Search IMDB">IMDB ↗</a>
                 </div>
 
                 <!-- TV Season selector (shown for TV discs) -->
@@ -2061,8 +2061,8 @@
                                     <span>${result.runtime_minutes ? result.runtime_minutes + ' min' : '-'}</span>
                                 </div>
                                 <div class="result-links">
-                                    ${result.tmdb_id ? `<a href="https://www.themoviedb.org/movie/${result.tmdb_id}" target="_blank" class="verify-link" onclick="event.stopPropagation()">TMDB</a>` : ''}
-                                    ${result.imdb_id ? `<a href="https://www.imdb.com/title/${result.imdb_id}/" target="_blank" class="verify-link" onclick="event.stopPropagation()">IMDB</a>` : ''}
+                                    ${result.tmdb_id ? `<a href="https://www.themoviedb.org/movie/${result.tmdb_id}" target="_blank" class="verify-link" onclick="event.stopPropagation()">TMDB ↗</a>` : ''}
+                                    ${result.imdb_id ? `<a href="https://www.imdb.com/title/${result.imdb_id}/" target="_blank" class="verify-link" onclick="event.stopPropagation()">IMDB ↗</a>` : ''}
                                 </div>
                             </div>
                         </div>
