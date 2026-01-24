@@ -686,12 +686,9 @@
             });
             methodsList.innerHTML = html;
 
-            // Store TMDB data if initial title matches a method with TMDB info
-            const matchedMethod = sortedMethods.find(m => m.result === titleInput.value && m.tmdb_id);
-            if (matchedMethod) {
-                window.selectedTmdbId = matchedMethod.tmdb_id;
-                window.selectedYear = matchedMethod.year;
-                window.selectedPosterUrl = matchedMethod.poster_url;
+            // Auto-select the highest confidence method (first in sorted list)
+            if (sortedMethods.length > 0) {
+                selectIdMethod(0, true);  // true = auto-selection, don't cancel countdown
             }
         } else {
             methodsContainer.style.display = 'none';
@@ -1122,7 +1119,8 @@
     }
 
     // Select an identification method by clicking its card
-    function selectIdMethod(idx) {
+    // autoSelect=true means this is auto-selection on load, don't cancel countdown
+    function selectIdMethod(idx, autoSelect = false) {
         const methods = window.idMethods || [];
         if (idx < 0 || idx >= methods.length) return;
 
@@ -1155,8 +1153,8 @@
             imdbBtn.href = `https://www.imdb.com/find/?q=${encodeURIComponent(searchTerm)}&s=tt&ttype=ft`;
         }
 
-        // Cancel auto-rip countdown since user is interacting
-        cancelCountdown();
+        // Cancel auto-rip countdown since user is interacting (but not for auto-selection)
+        if (!autoSelect) cancelCountdown();
 
         showToast(`Selected: ${method.result}`, 'success');
     }
