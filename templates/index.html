@@ -507,17 +507,38 @@
         return div.innerHTML;
     }
 
-    // Restore scan results from sessionStorage (persists across tab switches)
+    // Restore scan results from backend (persists across page navigation)
     function restoreScanResults() {
+        // First try sessionStorage (faster)
         const saved = sessionStorage.getItem('scanResults');
         if (saved) {
             try {
                 const data = JSON.parse(saved);
                 displayScanResults(data);
+                return;
             } catch (e) {
-                console.error('Error restoring scan results:', e);
+                console.error('Error restoring scan results from session:', e);
             }
         }
+
+        // Fall back to backend API (survives page navigation)
+        fetch('/api/disc/last-scan')
+            .then(r => r.json())
+            .then(data => {
+                if (data && data.disc_label) {
+                    // Verify disc is still present
+                    fetch('/api/disc/check')
+                        .then(r => r.json())
+                        .then(discInfo => {
+                            if (discInfo.present && discInfo.label === data.disc_label) {
+                                // Same disc still in drive - restore results
+                                saveScanResults(data);  // Cache in sessionStorage
+                                displayScanResults(data);
+                            }
+                        });
+                }
+            })
+            .catch(() => {});
     }
 
     // Save scan results to sessionStorage

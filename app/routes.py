@@ -134,6 +134,14 @@ def api_rip_start():
     if not engine:
         return jsonify({'success': False, 'error': 'Rip engine not initialized'}), 500
 
+    # Clear saved scan results - rip is starting
+    try:
+        scan_file = Path(__file__).parent.parent / "logs" / "last_scan.json"
+        if scan_file.exists():
+            scan_file.unlink()
+    except Exception:
+        pass
+
     data = request.json or {}
     device = data.get('device', '/dev/sr0')
     custom_title = data.get('custom_title')  # User-specified title from scan
@@ -257,6 +265,15 @@ def api_drive_eject():
         return jsonify({'success': False, 'error': 'Engine not initialized'}), 500
 
     result = engine.force_eject_disc()
+
+    # Clear saved scan results on eject
+    try:
+        scan_file = Path(__file__).parent.parent / "logs" / "last_scan.json"
+        if scan_file.exists():
+            scan_file.unlink()
+    except Exception:
+        pass
+
     return jsonify(result)
 
 
@@ -269,6 +286,32 @@ def api_service_restart():
 
     result = engine.restart_service()
     return jsonify(result)
+
+@main.route('/api/disc/last-scan')
+def api_disc_last_scan():
+    """Get the last saved scan results (persists across page navigation)"""
+    from datetime import datetime, timedelta
+
+    scan_file = Path(__file__).parent.parent / "logs" / "last_scan.json"
+    if scan_file.exists():
+        try:
+            with open(scan_file) as f:
+                data = json.load(f)
+
+            # Check if stale (older than 30 minutes)
+            saved_at = data.get('_saved_at')
+            if saved_at:
+                saved_time = datetime.fromisoformat(saved_at)
+                if datetime.now() - saved_time > timedelta(minutes=30):
+                    # Stale - delete and return nothing
+                    scan_file.unlink()
+                    return jsonify(None)
+
+            return jsonify(data)
+        except Exception:
+            pass
+    return jsonify(None)
+
 
 @main.route('/api/disc/check')
 def api_disc_check():
@@ -495,6 +538,17 @@ def api_disc_scan_identify():
 
     # Don't send uncertain email here - user may correct the title before ripping
     # Email will be sent from /api/rip/start if title wasn't corrected
+
+    # Save scan results for persistence across page navigation
+    try:
+        from datetime import datetime
+        logs_dir = Path(__file__).parent.parent / "logs"
+        logs_dir.mkdir(exist_ok=True)
+        response['_saved_at'] = datetime.now().isoformat()
+        with open(logs_dir / "last_scan.json", 'w') as f:
+            json.dump(response, f)
+    except Exception as e:
+        activity.log_warning(f"Failed to save scan results: {e}")
 
     return jsonify(response)
 
