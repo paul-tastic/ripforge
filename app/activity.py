@@ -548,4 +548,4 @@ def get_rip_errors() -> list:
     except Exception:
         pass
 
-    return errors
+    return errors[::-1]  # Newest first
