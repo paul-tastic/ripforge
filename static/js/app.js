@@ -78,29 +78,20 @@ class RipForgeSocket {
 
 // Load rip statistics for sidebar
 function loadRipStats() {
-    fetch('/api/rip-stats')
+    fetch('/api/library-stats')
         .then(r => r.json())
         .then(data => {
-            const today = document.getElementById('stat-today');
-            const week = document.getElementById('stat-week');
-            const total = document.getElementById('stat-total');
+            const movies = document.getElementById('stat-movies');
+            const tv = document.getElementById('stat-tv');
+            const size = document.getElementById('stat-size');
             const errors = document.getElementById('stat-errors');
-            const avgBluray = document.getElementById('stat-avg-bluray');
-            const avgDvd = document.getElementById('stat-avg-dvd');
 
-            if (today) today.textContent = data.today || 0;
-            if (week) week.textContent = data.week || 0;
-            if (total) total.textContent = data.total || 0;
+            if (movies) movies.textContent = data.movies || 0;
+            if (tv) tv.textContent = data.tv || 0;
+            if (size) size.textContent = data.total_size || '--';
             if (errors) errors.textContent = data.errors || 0;
-
-            if (avgBluray) {
-                avgBluray.textContent = data.avg_bluray_mins !== null ? data.avg_bluray_mins + 'm' : '--';
-            }
-            if (avgDvd) {
-                avgDvd.textContent = data.avg_dvd_mins !== null ? data.avg_dvd_mins + 'm' : '--';
-            }
         })
-        .catch(err => console.error('Error loading rip stats:', err));
+        .catch(err => console.error('Error loading library stats:', err));
 }
 
 // Load integration status for sidebar

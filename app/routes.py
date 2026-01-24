@@ -679,9 +679,65 @@ def api_update():
     return jsonify(result)
 
 
+@main.route('/api/library-stats')
+def api_library_stats():
+    """Get library statistics (movie/TV counts and total size)"""
+    import os
+
+    cfg = config.load_config()
+    movies_path = cfg.get('paths', {}).get('movies', '/mnt/media/movies')
+    tv_path = cfg.get('paths', {}).get('tv', '/mnt/media/tv')
+
+    stats = {
+        'movies': 0,
+        'tv': 0,
+        'total_size': '--',
+        'errors': 0
+    }
+
+    total_bytes = 0
+
+    # Count movies
+    if os.path.exists(movies_path):
+        for item in os.listdir(movies_path):
+            if os.path.isdir(os.path.join(movies_path, item)) and not item.startswith('.'):
+                stats['movies'] += 1
+                # Sum up MKV sizes
+                folder = os.path.join(movies_path, item)
+                for f in os.listdir(folder):
+                    if f.endswith('.mkv'):
+                        total_bytes += os.path.getsize(os.path.join(folder, f))
+
+    # Count TV shows
+    if os.path.exists(tv_path):
+        for item in os.listdir(tv_path):
+            if os.path.isdir(os.path.join(tv_path, item)) and not item.startswith('.'):
+                stats['tv'] += 1
+                # Sum up MKV sizes (recursively for seasons)
+                show_path = os.path.join(tv_path, item)
+                for root, dirs, files in os.walk(show_path):
+                    for f in files:
+                        if f.endswith('.mkv'):
+                            total_bytes += os.path.getsize(os.path.join(root, f))
+
+    # Format total size
+    if total_bytes > 0:
+        tb = total_bytes / (1024 ** 4)
+        gb = total_bytes / (1024 ** 3)
+        if tb >= 1:
+            stats['total_size'] = f"{tb:.1f} TB"
+        else:
+            stats['total_size'] = f"{gb:.0f} GB"
+
+    # Count errors from activity log
+    stats['errors'] = len(activity.get_rip_errors())
+
+    return jsonify(stats)
+
+
 @main.route('/api/rip-stats')
 def api_rip_stats():
-    """Get rip statistics from activity log"""
+    """Get rip statistics from activity log (legacy)"""
     from pathlib import Path
     from datetime import datetime, timedelta
     import re

@@ -37,34 +37,22 @@
 
         <!-- Quick Stats in Sidebar -->
         <div class="sidebar-stats">
-            <div class="sidebar-stats-header">Quick Stats</div>
+            <div class="sidebar-stats-header">Library</div>
             <div class="sidebar-stat-row">
-                <span class="stat-label">Today</span>
-                <span class="stat-value" id="stat-today">0</span>
+                <span class="stat-label">Movies</span>
+                <span class="stat-value" id="stat-movies">0</span>
             </div>
             <div class="sidebar-stat-row">
-                <span class="stat-label">This Week</span>
-                <span class="stat-value" id="stat-week">0</span>
+                <span class="stat-label">TV Shows</span>
+                <span class="stat-value" id="stat-tv">0</span>
             </div>
             <div class="sidebar-stat-row">
-                <span class="stat-label">All Time</span>
-                <span class="stat-value" id="stat-total">0</span>
+                <span class="stat-label">Total Size</span>
+                <span class="stat-value" id="stat-size">--</span>
             </div>
             <div class="sidebar-stat-row clickable" id="errors-row" onclick="showErrorsModal()" title="Click to view error details">
                 <span class="stat-label">Errors</span>
                 <span class="stat-value error" id="stat-errors">0</span>
-            </div>
-            <div class="sidebar-stat-divider"></div>
-            <div class="sidebar-stat-row">
-                <span class="stat-label">Avg Blu-ray</span>
-                <span class="stat-value" id="stat-avg-bluray">--</span>
-            </div>
-            <div class="sidebar-stat-row">
-                <span class="stat-label">Avg DVD</span>
-                <span class="stat-value" id="stat-avg-dvd">--</span>
-            </div>
-            <div class="sidebar-stat-clear">
-                <a href="#" onclick="clearStats(); return false;">Clear Stats</a>
             </div>
         </div>
 
@@ -131,21 +119,6 @@
 
     function closeErrorsModal() {
         document.getElementById('errors-modal').style.display = 'none';
-    }
-
-    function clearStats() {
-        if (!confirm('Clear all activity stats? This cannot be undone.')) return;
-        fetch('/api/stats/clear', { method: 'POST' })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    // Refresh stats
-                    document.getElementById('stat-today').textContent = '0';
-                    document.getElementById('stat-week').textContent = '0';
-                    document.getElementById('stat-total').textContent = '0';
-                    document.getElementById('stat-errors').textContent = '0';
-                }
-            });
     }
 
     // Close modal on overlay click
