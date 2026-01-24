@@ -2306,7 +2306,7 @@ select option {
 
 .review-results {
     margin-bottom: 20px;
-    max-height: 300px;
+    max-height: 180px;  /* ~1.5 cards to hint there are more */
     overflow-y: auto;
 }
 
