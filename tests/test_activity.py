@@ -491,3 +491,384 @@ class TestCheckForDuplicate:
                 movies_path=str(movies_path)
             )
             assert result['is_duplicate'] is False
+
+    def test_duplicate_by_folder_without_year(self, tmp_path):
+        """Test detects duplicate when folder exists without year"""
+        from app import activity
+
+        movies_path = tmp_path / "movies"
+        movies_path.mkdir()
+        # Folder without year
+        existing_folder = movies_path / "Test Movie"
+        existing_folder.mkdir()
+        (existing_folder / "Test Movie.mkv").write_bytes(b"x" * 2000)
+
+        with patch.object(activity, 'log_info'):
+            result = activity.check_for_duplicate(
+                title="Test Movie",
+                year=None,  # No year
+                tmdb_id=99999,
+                disc_label="TEST_DISC",
+                disc_type="dvd",
+                movies_path=str(movies_path)
+            )
+            assert result['is_duplicate'] is True
+            assert result['match_type'] == 'folder'
+
+    def test_no_duplicate_when_no_movies_path(self):
+        """Test returns no duplicate when movies_path is None"""
+        from app import activity
+
+        result = activity.check_for_duplicate(
+            title="Test Movie",
+            year=2024,
+            tmdb_id=12345,
+            disc_label="TEST_DISC",
+            disc_type="dvd",
+            movies_path=None
+        )
+        assert result['is_duplicate'] is False
+
+
+class TestClearActivityLog:
+    """Tests for clear_activity_log function"""
+
+    def test_clear_activity_log_when_exists(self, tmp_path):
+        """Test clearing activity log when file exists"""
+        from app import activity
+
+        log_file = tmp_path / "activity.log"
+        log_file.write_text("some log content")
+
+        with patch.object(activity, 'ACTIVITY_LOG', log_file):
+            with patch.object(activity, 'log_info'):
+                activity.clear_activity_log()
+                assert not log_file.exists()
+
+    def test_clear_activity_log_when_not_exists(self, tmp_path):
+        """Test clearing activity log when file doesn't exist"""
+        from app import activity
+
+        log_file = tmp_path / "nonexistent.log"
+
+        with patch.object(activity, 'ACTIVITY_LOG', log_file):
+            with patch.object(activity, 'log_info'):
+                # Should not raise
+                activity.clear_activity_log()
+
+
+class TestGetRipErrors:
+    """Tests for get_rip_errors function"""
+
+    def test_get_rip_errors_returns_errors(self, tmp_path):
+        """Test extracting errors from activity log"""
+        from app import activity
+
+        log_file = tmp_path / "activity.log"
+        log_file.write_text(
+            "2024-01-15 10:30:00 | INFO | Rip started\n"
+            "2024-01-15 10:45:00 | ERROR | Rip failed: Copy protection detected\n"
+            "2024-01-15 11:00:00 | SUCCESS | Rip completed\n"
+            "2024-01-15 11:30:00 | ERROR | Rip failed: Disc read error\n"
+        )
+
+        with patch.object(activity, 'ACTIVITY_LOG', log_file):
+            errors = activity.get_rip_errors()
+            assert len(errors) == 2
+            # Newest first
+            assert "Disc read error" in errors[0]['message']
+            assert "Copy protection detected" in errors[1]['message']
+
+    def test_get_rip_errors_empty_log(self, tmp_path):
+        """Test get_rip_errors when log is empty"""
+        from app import activity
+
+        log_file = tmp_path / "activity.log"
+        log_file.write_text("")
+
+        with patch.object(activity, 'ACTIVITY_LOG', log_file):
+            errors = activity.get_rip_errors()
+            assert errors == []
+
+    def test_get_rip_errors_no_log_file(self, tmp_path):
+        """Test get_rip_errors when log doesn't exist"""
+        from app import activity
+
+        log_file = tmp_path / "nonexistent.log"
+
+        with patch.object(activity, 'ACTIVITY_LOG', log_file):
+            errors = activity.get_rip_errors()
+            assert errors == []
+
+
+class TestCaptureDiscData:
+    """Tests for capture_disc_data function"""
+
+    def test_capture_disc_data_writes_jsonl(self, tmp_path):
+        """Test capture_disc_data writes to JSONL file"""
+        from app import activity
+
+        captures_file = tmp_path / "disc_captures.jsonl"
+
+        with patch.object(activity, 'DISC_CAPTURES_FILE', captures_file):
+            with patch.object(activity, 'log_info'):
+                activity.capture_disc_data(
+                    disc_label="TEST_DISC_2024",
+                    disc_type="bluray",
+                    tracks=[{"duration": 7200}, {"duration": 300}],
+                    track_sizes={0: 25000000000, 1: 500000000},
+                    identified_title="Test Movie",
+                    year=2024,
+                    tmdb_id=12345,
+                    confidence=95,
+                    resolution_source="radarr"
+                )
+
+                assert captures_file.exists()
+                content = captures_file.read_text()
+                data = json.loads(content.strip())
+                assert data['disc_label'] == "TEST_DISC_2024"
+                assert data['disc_type'] == "bluray"
+                assert data['track_count'] == 2
+                assert data['main_duration_secs'] == 7200
+                assert data['identified_title'] == "Test Movie"
+                assert data['confidence'] == 95
+
+    def test_capture_disc_data_handles_empty_tracks(self, tmp_path):
+        """Test capture_disc_data with empty tracks"""
+        from app import activity
+
+        captures_file = tmp_path / "disc_captures.jsonl"
+
+        with patch.object(activity, 'DISC_CAPTURES_FILE', captures_file):
+            with patch.object(activity, 'log_info'):
+                activity.capture_disc_data(
+                    disc_label="EMPTY_DISC",
+                    disc_type="dvd",
+                    tracks=[],
+                    track_sizes={},
+                    identified_title=None
+                )
+
+                content = captures_file.read_text()
+                data = json.loads(content.strip())
+                assert data['track_count'] == 0
+                assert data['main_duration_secs'] == 0
+                assert data['identified_title'] is None
+
+
+class TestRipCompletedVariations:
+    """Additional tests for rip_completed"""
+
+    def test_rip_completed_without_duration(self):
+        """Test rip_completed without duration"""
+        from app import activity
+
+        with patch.object(activity, 'log_success') as mock_log:
+            activity.rip_completed("The Matrix (1999)")
+            mock_log.assert_called_once_with("Rip completed: The Matrix (1999)")
+
+
+class TestLogFailure:
+    """Tests for log function error handling"""
+
+    def test_log_handles_write_failure(self, capsys):
+        """Test log function handles file write failure gracefully"""
+        from app import activity
+
+        with patch('builtins.open', side_effect=IOError("Permission denied")):
+            # Should not raise, should print error
+            activity.log("Test message", "INFO")
+            captured = capsys.readouterr()
+            assert "Failed to write activity log" in captured.out
+
+
+class TestFetchMetadataByTmdbId:
+    """Tests for fetch_metadata_by_tmdb_id function"""
+
+    def test_fetch_metadata_returns_empty_when_no_id(self):
+        """Test returns empty result when no tmdb_id provided"""
+        from app import activity
+
+        result = activity.fetch_metadata_by_tmdb_id(0)
+        assert result['year'] == 0
+        assert result['poster_url'] == ""
+        assert result['runtime_str'] == ""
+
+    def test_fetch_metadata_success(self):
+        """Test successful metadata fetch"""
+        from app import activity, config
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            'title': 'Test Movie',
+            'year': 2024,
+            'overview': 'A test movie',
+            'runtime': 125,
+            'ratings': {
+                'rottenTomatoes': {'value': 85},
+                'imdb': {'value': 7.5}
+            },
+            'images': [
+                {'coverType': 'poster', 'remoteUrl': 'https://image.tmdb.org/original/abc.jpg'}
+            ]
+        }
+
+        with patch.object(config, 'load_config', return_value={
+            'integrations': {'radarr': {'url': 'http://localhost:7878', 'api_key': 'test'}}
+        }):
+            with patch('requests.get', return_value=mock_response):
+                with patch.object(activity, 'log_info'):
+                    result = activity.fetch_metadata_by_tmdb_id(12345)
+                    assert result['year'] == 2024
+                    assert result['runtime_str'] == "2h 5m"
+                    assert result['rt_rating'] == 85
+                    assert result['imdb_rating'] == 7.5
+                    assert 'w500' in result['poster_url']
+
+    def test_fetch_metadata_handles_api_error(self):
+        """Test handles API errors gracefully"""
+        from app import activity, config
+
+        with patch.object(config, 'load_config', return_value={
+            'integrations': {'radarr': {'url': 'http://localhost:7878', 'api_key': 'test'}}
+        }):
+            with patch('requests.get', side_effect=Exception("Connection error")):
+                with patch.object(activity, 'log_warning'):
+                    result = activity.fetch_metadata_by_tmdb_id(12345)
+                    # Should return empty defaults, not raise
+                    assert result['year'] == 0
+
+
+class TestEnrichAndSaveRip:
+    """Tests for enrich_and_save_rip function"""
+
+    def test_enrich_and_save_with_tmdb_id(self):
+        """Test enrich_and_save_rip fetches metadata by TMDB ID"""
+        from app import activity
+
+        mock_metadata = {
+            'year': 2024,
+            'poster_url': 'https://example.com/poster.jpg',
+            'runtime_str': '2h 0m',
+            'overview': 'Test overview',
+            'rt_rating': 80,
+            'imdb_rating': 7.0
+        }
+
+        with patch.object(activity, 'log_info'):
+            with patch.object(activity, 'fetch_metadata_by_tmdb_id', return_value=mock_metadata):
+                with patch.object(activity, 'save_rip_to_history') as mock_save:
+                    activity.enrich_and_save_rip(
+                        title="Test Movie",
+                        disc_type="bluray",
+                        tmdb_id=12345
+                    )
+                    mock_save.assert_called_once()
+                    call_args = mock_save.call_args
+                    assert call_args.kwargs['poster_url'] == 'https://example.com/poster.jpg'
+
+    def test_enrich_and_save_falls_back_to_radarr_search(self):
+        """Test falls back to Radarr search when no TMDB ID"""
+        from app import activity
+
+        empty_metadata = {
+            'year': 0,
+            'poster_url': '',
+            'runtime_str': '',
+            'overview': '',
+            'rt_rating': 0,
+            'imdb_rating': 0.0
+        }
+        radarr_metadata = {
+            'year': 2024,
+            'tmdb_id': 99999,
+            'poster_url': 'https://example.com/radarr-poster.jpg',
+            'runtime_str': '1h 45m'
+        }
+
+        with patch.object(activity, 'log_info'):
+            with patch.object(activity, 'fetch_metadata_by_tmdb_id', return_value=empty_metadata):
+                with patch.object(activity, 'fetch_metadata_from_radarr', return_value=radarr_metadata):
+                    with patch.object(activity, 'save_rip_to_history') as mock_save:
+                        activity.enrich_and_save_rip(
+                            title="Test Movie",
+                            disc_type="dvd",
+                            tmdb_id=0,
+                            content_type="movie"
+                        )
+                        mock_save.assert_called_once()
+
+
+class TestFetchMetadataFromRadarr:
+    """Tests for fetch_metadata_from_radarr function"""
+
+    def test_fetch_from_radarr_parses_year_from_title(self):
+        """Test extracts year from title like 'Movie (2024)'"""
+        from app import activity, config
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = [{
+            'title': 'Test Movie',
+            'year': 2024,
+            'tmdbId': 12345,
+            'runtime': 90,
+            'images': []
+        }]
+
+        with patch.object(config, 'load_config', return_value={
+            'radarr': {'url': 'http://localhost:7878', 'api_key': 'test'}
+        }):
+            with patch('requests.get', return_value=mock_response):
+                with patch.object(activity, 'log_info'):
+                    result = activity.fetch_metadata_from_radarr("Test Movie (2024)")
+                    assert result['year'] == 2024
+                    assert result['tmdb_id'] == 12345
+                    assert result['runtime_str'] == "1h 30m"
+
+    def test_fetch_from_radarr_handles_no_results(self):
+        """Test handles empty search results"""
+        from app import activity, config
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = []
+
+        with patch.object(config, 'load_config', return_value={
+            'radarr': {'url': 'http://localhost:7878', 'api_key': 'test'}
+        }):
+            with patch('requests.get', return_value=mock_response):
+                result = activity.fetch_metadata_from_radarr("Unknown Movie")
+                assert result['tmdb_id'] == 0
+                assert result['poster_url'] == ""
+
+
+class TestGetRecentRipsWithDigestReset:
+    """Tests for get_recent_rips with digest reset filtering"""
+
+    def test_respects_digest_reset_timestamp(self):
+        """Test filters rips after digest reset"""
+        from app import activity, config
+        from datetime import datetime, timedelta
+
+        # Rip before digest reset
+        before_reset = (datetime.now() - timedelta(days=2)).isoformat()
+        # Rip after digest reset
+        after_reset = (datetime.now() - timedelta(hours=12)).isoformat()
+        # Digest reset was 1 day ago
+        digest_reset = (datetime.now() - timedelta(days=1)).isoformat()
+
+        history = [
+            {'title': 'Old Movie', 'completed_at': before_reset},
+            {'title': 'New Movie', 'completed_at': after_reset}
+        ]
+
+        with patch.object(activity, 'load_rip_history', return_value=history):
+            with patch.object(config, 'load_config', return_value={
+                'notifications': {'email': {'digest_reset_at': digest_reset}}
+            }):
+                result = activity.get_recent_rips(days=7, respect_digest_reset=True)
+                assert len(result) == 1
+                assert result[0]['title'] == 'New Movie'
