@@ -1011,6 +1011,55 @@ select option {
     gap: 20px;
 }
 
+.paths-flow {
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+}
+
+.path-group {
+    flex: 1;
+    background: var(--bg-dark);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.path-group-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+}
+
+.path-group .field {
+    margin-bottom: 12px;
+}
+
+.path-group .field:last-child {
+    margin-bottom: 0;
+}
+
+.path-arrow {
+    color: var(--accent);
+    font-size: 24px;
+    font-weight: bold;
+    padding-top: 45px;
+    flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+    .paths-flow {
+        flex-direction: column;
+    }
+    .path-arrow {
+        transform: rotate(90deg);
+        padding: 10px 0;
+        text-align: center;
+    }
+}
+
 .settings-actions {
     margin-top: 30px;
     text-align: right;

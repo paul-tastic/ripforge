@@ -264,18 +264,27 @@
     <!-- Paths -->
     <section class="card">
         <h2>Paths</h2>
-        <div class="settings-grid">
-            <div class="field">
-                <label>Raw Rips</label>
-                <input type="text" id="path-raw" value="{{ config.paths.raw_rips }}">
+        <p class="card-description">Disc → Raw Rips (temp) → Identified & renamed → Moved to Library</p>
+        <div class="paths-flow">
+            <div class="path-group">
+                <div class="path-group-label">Staging</div>
+                <div class="field">
+                    <label>Raw Rips</label>
+                    <input type="text" id="path-raw" value="{{ config.paths.raw_rips }}">
+                    <small>Temporary location for ripped files before moving</small>
+                </div>
             </div>
-            <div class="field">
-                <label>Movies Library</label>
-                <input type="text" id="path-movies" value="{{ config.paths.movies }}">
-            </div>
-            <div class="field">
-                <label>TV Library</label>
-                <input type="text" id="path-tv" value="{{ config.paths.tv }}">
+            <div class="path-arrow">→</div>
+            <div class="path-group">
+                <div class="path-group-label">Library</div>
+                <div class="field">
+                    <label>Movies</label>
+                    <input type="text" id="path-movies" value="{{ config.paths.movies }}">
+                </div>
+                <div class="field">
+                    <label>TV Shows</label>
+                    <input type="text" id="path-tv" value="{{ config.paths.tv }}">
+                </div>
             </div>
         </div>
     </section>
