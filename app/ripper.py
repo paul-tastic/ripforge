@@ -1067,8 +1067,7 @@ class RipEngine:
             job.runtime_str = f"{id_result.runtime_minutes}m" if id_result.runtime_minutes else ""
             confidence_str = "HIGH" if id_result.is_confident else "MEDIUM"
             self._update_step("identify", "complete", f"{job.identified_title} [{confidence_str}]")
-            display_conf = min(id_result.confidence, 100)  # Cap at 100%
-            activity.log_success(f"=== IDENTIFICATION COMPLETE: {job.identified_title} ({display_conf}% confidence) ===")
+            activity.log_success(f"=== IDENTIFICATION COMPLETE: {job.identified_title} ({id_result.confidence}% confidence) ===")
             activity.rip_identified(job.disc_label, job.identified_title, id_result.confidence)
             # Capture disc data for identification database
             activity.capture_disc_data(

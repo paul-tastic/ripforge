@@ -15,6 +15,21 @@ from dataclasses import dataclass
 from . import activity
 from . import community_db
 
+# Max possible scores for percentage calculation
+# Movie: title(50) + runtime(100) + popularity(20) + recent(10) = 180
+# Sequel bonus (+40) can exceed this, but we use 180 as the "excellent" baseline
+MAX_SCORE_MOVIE = 180
+# TV: runtime(50) + popular(20) + recent(15) + exact_title(20) = 105
+MAX_SCORE_TV = 105
+
+
+def score_to_confidence(score: float, max_score: float) -> int:
+    """Convert raw score to confidence percentage (0-100)"""
+    if score <= 0:
+        return 0
+    pct = int((score / max_score) * 100)
+    return min(pct, 100)  # Cap at 100%
+
 
 @dataclass
 class IdentificationResult:
@@ -578,12 +593,12 @@ class SmartIdentifier:
                 tmdb_id=best_match.get('tmdbId', 0),
                 imdb_id=best_match.get('imdbId', ''),
                 runtime_minutes=best_match.get('runtime', 0),
-                confidence=int(best_score),
+                confidence=score_to_confidence(best_score, MAX_SCORE_MOVIE),
                 media_type='movie',
                 poster_url=poster_url
             )
             if verbose:
-                activity.log_success(f"RADARR: Selected '{result.title}' ({result.year}) with {int(best_score)} pts")
+                activity.log_success(f"RADARR: Selected '{result.title}' ({result.year}) with {int(best_score)} pts ({result.confidence}%)")
             return result
         else:
             if verbose:
@@ -917,7 +932,7 @@ class SmartIdentifier:
                     year=best_match.get('year', 0),
                     tmdb_id=best_match.get('tvdbId', 0),  # Store TVDB ID here
                     runtime_minutes=best_match.get('runtime', 0),
-                    confidence=int(best_score),
+                    confidence=score_to_confidence(best_score, MAX_SCORE_TV),
                     media_type='tv',
                     sonarr_id=best_match.get('id'),
                     poster_url=poster_url,
@@ -926,7 +941,7 @@ class SmartIdentifier:
                 )
 
                 if verbose:
-                    activity.log_success(f"SONARR: Selected '{result.title}' ({result.year}) with {best_score:.0f} pts")
+                    activity.log_success(f"SONARR: Selected '{result.title}' ({result.year}) with {best_score:.0f} pts ({result.confidence}%)")
                 return result
             else:
                 if verbose:
