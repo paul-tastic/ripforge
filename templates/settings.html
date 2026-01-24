@@ -326,15 +326,13 @@
     <!-- Save Button -->
 
     <!-- CLI Cheatsheet -->
-    <section class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <h2 style="margin: 0;">CLI Cheatsheet</h2>
+    <section class="card cli-cheatsheet">
+        <div class="cheatsheet-header">
+            <h2>CLI Cheatsheet</h2>
             <span class="os-badge" id="os-badge">Loading...</span>
         </div>
-        <p style="color: var(--text-muted); margin-bottom: 16px;">
-            Commands customized for this server. Click to copy.
-        </p>
-        <div style="margin-bottom: 16px;">
+        <p class="card-description">Commands customized for this server</p>
+        <div style="margin-bottom: 20px;">
             <button class="btn btn-secondary" id="btn-restart-service" onclick="restartService()">
                 🔄 Restart Service
             </button>
@@ -342,43 +340,73 @@
         <div class="cheatsheet-grid">
             <div class="cheatsheet-item">
                 <div class="cheatsheet-label">Restart Service</div>
-                <code class="cheatsheet-code" onclick="copyToClipboard(this)">sudo systemctl restart ripforge</code>
+                <div class="cheatsheet-code-wrap">
+                    <code class="cheatsheet-code">sudo systemctl restart ripforge</code>
+                    <button class="copy-btn" onclick="copyCommand(this)" title="Copy to clipboard">📋</button>
+                </div>
             </div>
             <div class="cheatsheet-item">
                 <div class="cheatsheet-label">Service Status</div>
-                <code class="cheatsheet-code" onclick="copyToClipboard(this)">systemctl status ripforge</code>
+                <div class="cheatsheet-code-wrap">
+                    <code class="cheatsheet-code">systemctl status ripforge</code>
+                    <button class="copy-btn" onclick="copyCommand(this)" title="Copy to clipboard">📋</button>
+                </div>
             </div>
             <div class="cheatsheet-item">
                 <div class="cheatsheet-label">View Logs (live)</div>
-                <code class="cheatsheet-code" onclick="copyToClipboard(this)">tail -f ~/ripforge/logs/activity.log</code>
+                <div class="cheatsheet-code-wrap">
+                    <code class="cheatsheet-code">tail -f ~/ripforge/logs/activity.log</code>
+                    <button class="copy-btn" onclick="copyCommand(this)" title="Copy to clipboard">📋</button>
+                </div>
             </div>
             <div class="cheatsheet-item">
                 <div class="cheatsheet-label">View Logs (last 50)</div>
-                <code class="cheatsheet-code" onclick="copyToClipboard(this)">tail -50 ~/ripforge/logs/activity.log</code>
+                <div class="cheatsheet-code-wrap">
+                    <code class="cheatsheet-code">tail -50 ~/ripforge/logs/activity.log</code>
+                    <button class="copy-btn" onclick="copyCommand(this)" title="Copy to clipboard">📋</button>
+                </div>
             </div>
             <div class="cheatsheet-item">
                 <div class="cheatsheet-label">Pull Updates</div>
-                <code class="cheatsheet-code" onclick="copyToClipboard(this)">cd ~/ripforge && git pull</code>
+                <div class="cheatsheet-code-wrap">
+                    <code class="cheatsheet-code">cd ~/ripforge && git pull</code>
+                    <button class="copy-btn" onclick="copyCommand(this)" title="Copy to clipboard">📋</button>
+                </div>
             </div>
             <div class="cheatsheet-item">
                 <div class="cheatsheet-label">Edit Config</div>
-                <code class="cheatsheet-code" onclick="copyToClipboard(this)">nano ~/ripforge/config/settings.yaml</code>
+                <div class="cheatsheet-code-wrap">
+                    <code class="cheatsheet-code">nano ~/ripforge/config/settings.yaml</code>
+                    <button class="copy-btn" onclick="copyCommand(this)" title="Copy to clipboard">📋</button>
+                </div>
             </div>
             <div class="cheatsheet-item">
                 <div class="cheatsheet-label">Check Drive</div>
-                <code class="cheatsheet-code" onclick="copyToClipboard(this)">lsblk | grep sr</code>
+                <div class="cheatsheet-code-wrap">
+                    <code class="cheatsheet-code">lsblk | grep sr</code>
+                    <button class="copy-btn" onclick="copyCommand(this)" title="Copy to clipboard">📋</button>
+                </div>
             </div>
             <div class="cheatsheet-item">
                 <div class="cheatsheet-label">Eject Disc</div>
-                <code class="cheatsheet-code" onclick="copyToClipboard(this)">eject /dev/sr0</code>
+                <div class="cheatsheet-code-wrap">
+                    <code class="cheatsheet-code">eject /dev/sr0</code>
+                    <button class="copy-btn" onclick="copyCommand(this)" title="Copy to clipboard">📋</button>
+                </div>
             </div>
             <div class="cheatsheet-item">
                 <div class="cheatsheet-label">MakeMKV Info</div>
-                <code class="cheatsheet-code" onclick="copyToClipboard(this)">makemkvcon -r info disc:0</code>
+                <div class="cheatsheet-code-wrap">
+                    <code class="cheatsheet-code">makemkvcon -r info disc:0</code>
+                    <button class="copy-btn" onclick="copyCommand(this)" title="Copy to clipboard">📋</button>
+                </div>
             </div>
             <div class="cheatsheet-item">
                 <div class="cheatsheet-label">Disk Space</div>
-                <code class="cheatsheet-code" onclick="copyToClipboard(this)">df -h /mnt/media</code>
+                <div class="cheatsheet-code-wrap">
+                    <code class="cheatsheet-code">df -h /mnt/media</code>
+                    <button class="copy-btn" onclick="copyCommand(this)" title="Copy to clipboard">📋</button>
+                </div>
             </div>
         </div>
     </section>
@@ -391,37 +419,75 @@
 {% endblock %}
 
 <style>
+.cli-cheatsheet .cheatsheet-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.cli-cheatsheet .cheatsheet-header h2 {
+    margin: 0;
+}
 .cheatsheet-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+@media (max-width: 900px) {
+    .cheatsheet-grid {
+        grid-template-columns: 1fr;
+    }
 }
 .cheatsheet-item {
-    padding: 4px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 .cheatsheet-label {
     font-size: 12px;
+    font-weight: 600;
     color: var(--text-muted);
-    margin-bottom: 6px;
     text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
-.cheatsheet-code {
-    display: block;
-    font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
-    font-size: 13px;
-    color: #e2e8f0;
-    cursor: pointer;
-    padding: 10px 14px;
+.cheatsheet-code-wrap {
+    display: flex;
+    align-items: stretch;
     background: #0d1117;
     border: 1px solid #30363d;
     border-radius: 6px;
+    overflow: hidden;
+}
+.cheatsheet-code {
+    flex: 1;
+    font-family: 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace;
+    font-size: 13px;
+    color: #e2e8f0;
+    padding: 10px 14px;
+    background: transparent;
+    border: none;
     overflow-x: auto;
-    box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
+    white-space: nowrap;
 }
-.cheatsheet-code:hover {
-    background: var(--border);
+.copy-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    background: rgba(255, 255, 255, 0.05);
+    border: none;
+    border-left: 1px solid #30363d;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.15s ease;
 }
-.cheatsheet-code.copied {
+.copy-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text);
+}
+.copy-btn.copied {
+    background: rgba(74, 222, 128, 0.2);
     color: var(--success);
 }
 .os-badge {
@@ -517,6 +583,20 @@
             setTimeout(() => {
                 el.textContent = original;
                 el.classList.remove("copied");
+            }, 1500);
+        });
+    }
+
+    function copyCommand(btn) {
+        const codeEl = btn.parentElement.querySelector('.cheatsheet-code');
+        if (!codeEl) return;
+
+        navigator.clipboard.writeText(codeEl.textContent).then(() => {
+            btn.classList.add("copied");
+            btn.textContent = "✓";
+            setTimeout(() => {
+                btn.textContent = "📋";
+                btn.classList.remove("copied");
             }, 1500);
         });
     }
