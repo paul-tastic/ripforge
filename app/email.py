@@ -255,6 +255,9 @@ def send_uncertain_identification(
     """Send notification that a disc couldn't be confidently identified"""
     subject = f"RipForge: Help identify disc - {disc_label}"
 
+    # Cap confidence at 100% for display
+    confidence = min(confidence, 100)
+
     # Confidence color
     if confidence >= 50:
         conf_color = "#f59e0b"  # Amber

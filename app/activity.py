@@ -89,12 +89,14 @@ def rip_progress(title: str, percent: int):
 
 
 def rip_identified(original: str, identified: str, confidence: int):
-    log_success(f"Identified: {original} -> {identified} ({confidence}% confidence)")
+    display_conf = min(confidence, 100)  # Cap at 100% for display
+    log_success(f"Identified: {original} -> {identified} ({display_conf}% confidence)")
 
 
 def id_method_result(method: str, result: str, confidence: int, details: str = None):
     """Log an identification method's guess"""
-    msg = f"ID Method: {method} -> \"{result}\" ({confidence}%)"
+    display_conf = min(confidence, 100)  # Cap at 100% for display
+    msg = f"ID Method: {method} -> \"{result}\" ({display_conf}%)"
     if details:
         msg += f" [{details}]"
     log_info(msg)

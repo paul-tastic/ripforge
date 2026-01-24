@@ -8,6 +8,14 @@
     <!-- Current Rip Status -->
     <section class="card rip-status">
         <h2>Current Status</h2>
+        <div class="auto-mode-status">
+            <span class="auto-mode-item {% if config.ripping.auto_scan_on_insert != false %}active{% endif %}">
+                Auto-scan: {% if config.ripping.auto_scan_on_insert != false %}ON{% else %}OFF{% endif %}
+            </span>
+            <span class="auto-mode-item {% if config.ripping.auto_rip != false %}active{% endif %}">
+                Auto-rip: {% if config.ripping.auto_rip != false %}ON{% else %}OFF{% endif %}
+            </span>
+        </div>
 
         <!-- Idle State -->
         <div class="status-idle" id="status-idle">

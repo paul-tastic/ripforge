@@ -264,6 +264,25 @@ body {
     grid-column: span 2;
 }
 
+.auto-mode-status {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 15px;
+    font-size: 12px;
+}
+
+.auto-mode-item {
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--bg-dark);
+    color: var(--text-dim);
+}
+
+.auto-mode-item.active {
+    background: rgba(76, 175, 80, 0.15);
+    color: var(--success);
+}
+
 .status-display {
     display: flex;
     align-items: center;
