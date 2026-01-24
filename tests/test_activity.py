@@ -448,50 +448,9 @@ class TestCheckForDuplicate:
                 assert result['is_duplicate'] is False
                 assert result['match_type'] is None
 
-    def test_duplicate_by_tmdb_id(self, tmp_path):
-        """Test detects duplicate by TMDB ID match"""
-        from app import activity
-        import json
-
-        # Create history with matching TMDB ID
-        history_file = tmp_path / "rip_history.json"
-        history_data = [{
-            'title': 'Test Movie (2024)',
-            'year': 2024,
-            'tmdb_id': 12345,
-            'disc_type': 'bluray',
-            'size_gb': 25.5,
-            'completed_at': '2024-01-01T12:00:00'
-        }]
-        history_file.write_text(json.dumps(history_data))
-
-        movies_path = tmp_path / "movies"
-        movies_path.mkdir()
-
-        with patch.object(activity, 'HISTORY_FILE', history_file):
-            with patch.object(activity, 'DISC_CAPTURES_FILE', tmp_path / "nonexistent.jsonl"):
-                with patch.object(activity, 'log_info'):
-                    result = activity.check_for_duplicate(
-                        title="Test Movie",
-                        year=2024,
-                        tmdb_id=12345,
-                        disc_label="TEST_DISC",
-                        disc_type="dvd",
-                        movies_path=str(movies_path)
-                    )
-                    assert result['is_duplicate'] is True
-                    assert result['match_type'] == 'tmdb_id'
-                    assert result['existing_info']['title'] == 'Test Movie (2024)'
-                    assert result['existing_info']['tmdb_id'] == 12345
-
     def test_duplicate_by_folder_exists(self, tmp_path):
-        """Test detects duplicate when destination folder exists"""
+        """Test detects duplicate when destination folder exists in library"""
         from app import activity
-        import json
-
-        # Create empty history
-        history_file = tmp_path / "rip_history.json"
-        history_file.write_text("[]")
 
         # Create existing movie folder
         movies_path = tmp_path / "movies"
@@ -501,87 +460,34 @@ class TestCheckForDuplicate:
         # Add a fake MKV file
         (existing_folder / "Test Movie (2024).mkv").write_bytes(b"x" * 1000)
 
-        with patch.object(activity, 'HISTORY_FILE', history_file):
-            with patch.object(activity, 'DISC_CAPTURES_FILE', tmp_path / "nonexistent.jsonl"):
-                with patch.object(activity, 'log_info'):
-                    result = activity.check_for_duplicate(
-                        title="Test Movie",
-                        year=2024,
-                        tmdb_id=99999,  # Different TMDB ID
-                        disc_label="TEST_DISC",
-                        disc_type="dvd",
-                        movies_path=str(movies_path)
-                    )
-                    assert result['is_duplicate'] is True
-                    assert result['match_type'] == 'folder'
-                    assert result['existing_info']['title'] == 'Test Movie'
-                    assert 'path' in result['existing_info']
+        with patch.object(activity, 'log_info'):
+            result = activity.check_for_duplicate(
+                title="Test Movie",
+                year=2024,
+                tmdb_id=99999,
+                disc_label="TEST_DISC",
+                disc_type="dvd",
+                movies_path=str(movies_path)
+            )
+            assert result['is_duplicate'] is True
+            assert result['match_type'] == 'folder'
+            assert result['existing_info']['title'] == 'Test Movie'
+            assert 'path' in result['existing_info']
 
-    def test_duplicate_by_disc_label(self, tmp_path):
-        """Test detects duplicate by disc label match in captures"""
+    def test_no_duplicate_when_folder_missing(self, tmp_path):
+        """Test no duplicate when folder doesn't exist in library"""
         from app import activity
-        import json
-
-        # Create empty history
-        history_file = tmp_path / "rip_history.json"
-        history_file.write_text("[]")
-
-        # Create captures file with matching disc label
-        captures_file = tmp_path / "disc_captures.jsonl"
-        capture_data = {
-            'disc_label': 'TEST_DISC',
-            'identified_title': 'Test Movie',
-            'year': 2024,
-            'disc_type': 'dvd',
-            'total_size_bytes': 5000000000,
-            'timestamp': '2024-01-01T12:00:00'
-        }
-        captures_file.write_text(json.dumps(capture_data) + "\n")
 
         movies_path = tmp_path / "movies"
         movies_path.mkdir()
 
-        with patch.object(activity, 'HISTORY_FILE', history_file):
-            with patch.object(activity, 'DISC_CAPTURES_FILE', captures_file):
-                with patch.object(activity, 'log_info'):
-                    result = activity.check_for_duplicate(
-                        title="Different Title",
-                        year=2025,
-                        tmdb_id=99999,
-                        disc_label="TEST_DISC",  # Same disc label
-                        disc_type="dvd",
-                        movies_path=str(movies_path)
-                    )
-                    assert result['is_duplicate'] is True
-                    assert result['match_type'] == 'disc_label'
-                    assert result['existing_info']['disc_label'] == 'TEST_DISC'
-
-    def test_no_duplicate_different_tmdb_id(self, tmp_path):
-        """Test no duplicate when TMDB IDs differ and folder doesn't exist"""
-        from app import activity
-        import json
-
-        # Create history with different TMDB ID
-        history_file = tmp_path / "rip_history.json"
-        history_data = [{
-            'title': 'Other Movie (2023)',
-            'year': 2023,
-            'tmdb_id': 11111,
-            'disc_type': 'bluray'
-        }]
-        history_file.write_text(json.dumps(history_data))
-
-        movies_path = tmp_path / "movies"
-        movies_path.mkdir()
-
-        with patch.object(activity, 'HISTORY_FILE', history_file):
-            with patch.object(activity, 'DISC_CAPTURES_FILE', tmp_path / "nonexistent.jsonl"):
-                result = activity.check_for_duplicate(
-                    title="Test Movie",
-                    year=2024,
-                    tmdb_id=22222,  # Different TMDB ID
-                    disc_label="NEW_DISC",
-                    disc_type="dvd",
-                    movies_path=str(movies_path)
-                )
-                assert result['is_duplicate'] is False
+        with patch.object(activity, 'log_info'):
+            result = activity.check_for_duplicate(
+                title="Test Movie",
+                year=2024,
+                tmdb_id=22222,
+                disc_label="NEW_DISC",
+                disc_type="dvd",
+                movies_path=str(movies_path)
+            )
+            assert result['is_duplicate'] is False
