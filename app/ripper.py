@@ -19,6 +19,7 @@ from enum import Enum
 
 from . import activity
 from . import config
+from . import community_db
 from . import email as email_utils
 from . import error_detection
 
@@ -1081,6 +1082,19 @@ class RipEngine:
                 confidence=id_result.confidence,
                 resolution_source="radarr",
                 cinfo_raw=job.disc_cinfo_raw
+            )
+            # Contribute to community disc database (if enabled)
+            track_durations = [t.get("duration", 0) for t in (job.disc_tracks or [])]
+            main_duration = max(track_durations) if track_durations else 0
+            community_db.contribute_disc(
+                disc_label=job.disc_label,
+                disc_type=job.disc_type,
+                duration_secs=main_duration,
+                track_count=len(job.disc_tracks or []),
+                title=id_result.title,
+                year=id_result.year,
+                tmdb_id=id_result.tmdb_id,
+                config=config.load_config()
             )
         else:
             # Fall back to disc label - mark for review
