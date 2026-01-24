@@ -704,9 +704,13 @@ def api_rip_stats():
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today_start - timedelta(days=today_start.weekday())
 
-    # Pattern to match completed rips with duration
-    # Example: "2026-01-15 22:46:58 | SUCCESS | Rip completed: Expendables 3 (0:34:23)"
-    completed_pattern = re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| SUCCESS \| Rip completed: .* \((\d+):(\d{2}):(\d{2})\)')
+    # Pattern to match completed rips (for counting)
+    # Matches both "Rip completed: Title (0:34:23)" and "Rip completed: Title (recovered)"
+    completed_count_pattern = re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| SUCCESS \| Rip completed: ')
+    # Pattern to extract duration when available
+    duration_pattern = re.compile(r'\((\d+):(\d{2}):(\d{2})\)$')
+    # Pattern for review queue completions (also count these)
+    review_completed_pattern = re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| WARN \| Rip completed but needs manual identification:')
     error_pattern = re.compile(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \| ERROR \| Rip failed:')
     # Patterns to get disc type from scan or detect lines
     scan_pattern = re.compile(r'Scan completed: .* \((BLURAY|DVD)\)')
@@ -728,8 +732,8 @@ def api_rip_stats():
                 if scan_match:
                     current_disc_type = scan_match.group(1)
 
-                # Check for completed rips
-                match = completed_pattern.match(line)
+                # Check for completed rips (both fully identified and review queue)
+                match = completed_count_pattern.match(line) or review_completed_pattern.match(line)
                 if match:
                     stats['total'] += 1
 
@@ -740,17 +744,19 @@ def api_rip_stats():
                     if timestamp >= week_start:
                         stats['week'] += 1
 
-                    # Parse duration (H:MM:SS)
-                    hours = int(match.group(2))
-                    mins = int(match.group(3))
-                    secs = int(match.group(4))
-                    total_mins = hours * 60 + mins + secs / 60
+                    # Try to parse duration if available (H:MM:SS)
+                    duration_match = duration_pattern.search(line)
+                    if duration_match:
+                        hours = int(duration_match.group(1))
+                        mins = int(duration_match.group(2))
+                        secs = int(duration_match.group(3))
+                        total_mins = hours * 60 + mins + secs / 60
 
-                    # Add to appropriate list based on disc type
-                    if current_disc_type == 'BLURAY':
-                        bluray_times.append(total_mins)
-                    elif current_disc_type == 'DVD':
-                        dvd_times.append(total_mins)
+                        # Add to appropriate list based on disc type
+                        if current_disc_type == 'BLURAY':
+                            bluray_times.append(total_mins)
+                        elif current_disc_type == 'DVD':
+                            dvd_times.append(total_mins)
 
                 # Check for errors
                 if error_pattern.match(line):
