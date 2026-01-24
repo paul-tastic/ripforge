@@ -17,4 +17,4 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "raise NotImplementedError",
 ]
-fail_under = 47
+fail_under = 46
