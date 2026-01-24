@@ -509,30 +509,43 @@
 
     // Restore scan results from backend (persists across page navigation)
     function restoreScanResults() {
-        // First try sessionStorage (faster)
-        const saved = sessionStorage.getItem('scanResults');
-        if (saved) {
+        // Try sessionStorage first, then backend API
+        let savedData = null;
+        const sessionSaved = sessionStorage.getItem('scanResults');
+        if (sessionSaved) {
             try {
-                const data = JSON.parse(saved);
-                displayScanResults(data);
-                return;
+                savedData = JSON.parse(sessionSaved);
             } catch (e) {
-                console.error('Error restoring scan results from session:', e);
+                sessionStorage.removeItem('scanResults');
             }
         }
 
-        // Fall back to backend API (survives page navigation)
+        // Always verify disc label matches before displaying
+        if (savedData && savedData.disc_label) {
+            fetch('/api/disc/check')
+                .then(r => r.json())
+                .then(discInfo => {
+                    if (discInfo.present && discInfo.label === savedData.disc_label) {
+                        displayScanResults(savedData);
+                    } else {
+                        // Disc changed - clear stale data
+                        sessionStorage.removeItem('scanResults');
+                    }
+                })
+                .catch(() => {});
+            return;
+        }
+
+        // No sessionStorage - try backend API
         fetch('/api/disc/last-scan')
             .then(r => r.json())
             .then(data => {
                 if (data && data.disc_label) {
-                    // Verify disc is still present
                     fetch('/api/disc/check')
                         .then(r => r.json())
                         .then(discInfo => {
                             if (discInfo.present && discInfo.label === data.disc_label) {
-                                // Same disc still in drive - restore results
-                                saveScanResults(data);  // Cache in sessionStorage
+                                saveScanResults(data);
                                 displayScanResults(data);
                             }
                         });
