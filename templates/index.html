@@ -1728,8 +1728,10 @@
     // Scan disc info and identify
     function scanDisc() {
         const btn = document.getElementById('btn-scan-disc');
+        const startBtn = document.getElementById('btn-start-rip');
         btn.disabled = true;
         btn.textContent = 'Scanning...';
+        startBtn.disabled = true;  // Can't start rip while scanning
         scanInProgress = true;
 
         // Update status area to show scanning with spinner
@@ -1773,6 +1775,7 @@
             .finally(() => {
                 btn.disabled = false;
                 btn.textContent = 'Scan Disc';
+                startBtn.disabled = false;  // Re-enable Start Rip
                 // Reset icon
                 statusIcon.classList.remove('scanning');
                 statusIcon.innerHTML = '📀';
