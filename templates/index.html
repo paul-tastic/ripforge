@@ -93,14 +93,17 @@
                 <button class="btn btn-secondary" id="btn-scan-disc" onclick="scanDisc()">
                     Scan Disc
                 </button>
+                <button class="btn btn-danger" id="btn-stop" onclick="confirmStopDrive()" style="display: none;" title="Stop current operation">
+                    Stop
+                </button>
+                <button class="btn btn-secondary" id="btn-eject" onclick="ejectDisc()" disabled title="Eject the disc from the drive">
+                    Eject
+                </button>
                 <button class="btn btn-danger" id="btn-reset-rip" onclick="resetRip()" style="display: none;" title="Clear current job state">
                     Reset
                 </button>
                 <button class="btn btn-secondary" id="btn-reset-drive" onclick="resetDriveState()" style="display: none;" title="Kill lingering MakeMKV processes and clear stale state. Use when scans fail after errors.">
                     Reset Drive
-                </button>
-                <button class="btn btn-secondary" id="btn-eject-disc" onclick="ejectDisc()" style="display: none;" title="Eject the disc from the drive">
-                    Eject
                 </button>
                 <button class="btn btn-warning" id="btn-restart-service" onclick="restartService()" style="display: none;" title="Restart the RipForge service. Use as last resort if other options fail.">
                     Restart Service
@@ -171,15 +174,9 @@
                 </div>
             </div>
 
-            <!-- Actions for rip in progress -->
-            <div class="rip-actions" id="rip-actions" style="display: none; margin-top: 1rem; text-align: center;">
-                <button class="btn btn-danger" id="btn-stop-rip" onclick="confirmStopDrive()">Stop Drive</button>
-            </div>
-            
             <!-- Post-rip actions (shown on complete/error) -->
             <div class="post-rip-actions" id="post-rip-actions" style="display: none; margin-top: 1rem; text-align: center;">
                 <button class="btn btn-danger" onclick="resetRip()">Reset</button>
-                <button class="btn btn-secondary" onclick="ejectDisc()">Eject</button>
             </div>
         </div>
     </section>
@@ -1441,56 +1438,44 @@
             document.getElementById('rip-progress').style.display = 'none';
         }
 
-        // Show stop button during rip, reset button on error/complete
+        // Manage button visibility based on status
         const resetBtn = document.getElementById('btn-reset-rip');
-        const ripActions = document.getElementById('rip-actions');
-        const stopBtn = document.getElementById('btn-stop-rip');
+        const stopBtn = document.getElementById('btn-stop');
+        const ejectBtn = document.getElementById('btn-eject');
+        const isActive = ['detecting', 'scanning', 'ripping', 'identifying', 'moving'].includes(ripData.status);
+
         if (ripData.status === 'error' || ripData.status === 'complete') {
-            // Rip finished - show Reset, hide Stop Drive
+            // Rip finished - show Reset, hide Stop
             resetBtn.style.display = 'inline-block';
+            stopBtn.style.display = 'none';
             document.getElementById('post-rip-actions').style.display = 'block';
             // Show recovery buttons on error
             if (ripData.status === "error") {
                 document.getElementById("btn-reset-drive").style.display = "inline-block";
-                document.getElementById("btn-eject-disc").style.display = "inline-block";
                 document.getElementById("btn-restart-service").style.display = "inline-block";
             } else {
                 document.getElementById("btn-reset-drive").style.display = "none";
                 document.getElementById("btn-restart-service").style.display = "none";
             }
-            // Update eject button state
-            const ejectBtn = document.getElementById("btn-eject-disc");
-            ejectBtn.style.display = "inline-block";
-            if (ripData.disc_ejected) {
-                ejectBtn.textContent = "Ejected";
-                ejectBtn.disabled = true;
-                ejectBtn.classList.add("btn-ejected");
-            } else {
-                ejectBtn.textContent = "Eject";
-                ejectBtn.disabled = false;
-                ejectBtn.classList.remove("btn-ejected");
-            }
-            ripActions.style.display = 'none';
-            stopBtn.style.display = 'none';
+            // Eject enabled unless disc already ejected
+            ejectBtn.disabled = ripData.disc_ejected === true;
             document.getElementById('btn-start-rip').disabled = false;
             document.getElementById('btn-start-rip').textContent = 'Start Rip';
-        } else if (['detecting', 'scanning', 'ripping', 'identifying', 'moving'].includes(ripData.status)) {
-            // Process in progress - show Stop Drive, hide Reset
+        } else if (isActive) {
+            // Process in progress - show Stop, hide Reset, disable Eject
             resetBtn.style.display = 'none';
-            if (document.getElementById("btn-reset-drive")) document.getElementById("btn-reset-drive").style.display = "none";
-            if (document.getElementById("btn-eject-disc")) document.getElementById("btn-eject-disc").style.display = "none";
-            if (document.getElementById("btn-restart-service")) document.getElementById("btn-restart-service").style.display = "none";
-            ripActions.style.display = 'block';
-            if (document.getElementById('post-rip-actions')) document.getElementById('post-rip-actions').style.display = 'none';
             stopBtn.style.display = 'inline-block';
+            ejectBtn.disabled = true;
+            document.getElementById("btn-reset-drive").style.display = "none";
+            document.getElementById("btn-restart-service").style.display = "none";
+            if (document.getElementById('post-rip-actions')) document.getElementById('post-rip-actions').style.display = 'none';
         } else {
-            // Idle or unknown - hide everything
+            // Idle - hide Stop and Reset, enable Eject if disc present
             resetBtn.style.display = 'none';
-            if (document.getElementById("btn-reset-drive")) document.getElementById("btn-reset-drive").style.display = "none";
-            if (document.getElementById("btn-eject-disc")) document.getElementById("btn-eject-disc").style.display = "none";
-            if (document.getElementById("btn-restart-service")) document.getElementById("btn-restart-service").style.display = "none";
-            ripActions.style.display = 'none';
             stopBtn.style.display = 'none';
+            ejectBtn.disabled = !ripData.disc_present;
+            document.getElementById("btn-reset-drive").style.display = "none";
+            document.getElementById("btn-restart-service").style.display = "none";
         }
     }
 
@@ -1712,7 +1697,7 @@
                     document.getElementById('btn-start-rip').disabled = false;
                     document.getElementById('btn-start-rip').textContent = 'Start Rip';
                     document.getElementById('btn-reset-rip').style.display = 'none';
-                    document.getElementById('rip-actions').style.display = 'none';
+                    document.getElementById('btn-stop').style.display = 'none';
                     document.getElementById('rip-checklist').style.display = 'none';
                     document.getElementById('rip-progress').style.display = 'none';
                     document.getElementById('status-idle').style.display = 'block';
@@ -1755,13 +1740,8 @@
             .then(data => {
                 if (data.success) {
                     showToast('Disc ejected', 'success');
-                    // Update button state to show ejected
-                    const ejectBtn = document.getElementById("btn-eject-disc");
-                    if (ejectBtn) {
-                        ejectBtn.textContent = "Ejected";
-                        ejectBtn.disabled = true;
-                        ejectBtn.classList.add("btn-ejected");
-                    }
+                    // Disable eject button since disc is now ejected
+                    document.getElementById("btn-eject").disabled = true;
                 } else {
                     showToast('Eject failed: ' + (data.error || 'Unknown error'), 'error');
                 }
@@ -1811,7 +1791,7 @@
     }
 
     function stopDrive() {
-        const btn = document.getElementById('btn-stop-rip');
+        const btn = document.getElementById('btn-stop');
         btn.disabled = true;
         btn.textContent = 'Stopping...';
 
@@ -1822,30 +1802,31 @@
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    const msg = data.ejected ? 'Drive stopped and disc ejected' : 'Drive stopped';
+                    const msg = data.ejected ? 'Stopped and disc ejected' : 'Stopped';
                     showToast(msg, 'info');
                     // Reset UI
                     document.getElementById('btn-start-rip').disabled = false;
                     document.getElementById('btn-start-rip').textContent = 'Start Rip';
-                    document.getElementById('rip-actions').style.display = 'none';
+                    document.getElementById('btn-stop').style.display = 'none';
                     document.getElementById('rip-checklist').style.display = 'none';
                     document.getElementById('rip-progress').style.display = 'none';
                     document.getElementById('status-idle').style.display = 'block';
+                    document.getElementById('btn-eject').disabled = data.ejected === true;
                     showingScanResults = false;
                     // Reset all steps
                     ['insert', 'detect', 'scan', 'rip', 'identify', 'library', 'move', 'scan-plex'].forEach(step => {
                         updateStep(step, 'pending', '');
                     });
                 } else {
-                    showToast('Failed to stop drive', 'error');
+                    showToast('Failed to stop', 'error');
                 }
             })
             .catch(err => {
-                showToast('Error stopping drive', 'error');
+                showToast('Error stopping', 'error');
             })
             .finally(() => {
                 btn.disabled = false;
-                btn.textContent = 'Stop Drive';
+                btn.textContent = 'Stop';
             });
     }
 
@@ -1858,11 +1839,9 @@
         startBtn.disabled = true;  // Can't start rip while scanning
         scanInProgress = true;
 
-        // Show stop button during scan
-        const ripActions = document.getElementById('rip-actions');
-        const stopBtn = document.getElementById('btn-stop-rip');
-        ripActions.style.display = 'block';
-        stopBtn.style.display = 'inline-block';
+        // Show stop button and disable eject during scan
+        document.getElementById('btn-stop').style.display = 'inline-block';
+        document.getElementById('btn-eject').disabled = true;
 
         // Update status area to show scanning with spinner
         const statusTitle = document.querySelector('.status-title');
