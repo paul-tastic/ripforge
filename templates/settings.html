@@ -835,6 +835,10 @@
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
+                    // Clear update cache so stale versions don't show after update
+                    localStorage.removeItem('ripforge_update_available');
+                    localStorage.removeItem('ripforge_latest_version');
+                    localStorage.removeItem('ripforge_last_update_check');
                     showToast('Update installed!', 'success');
                     countdownReload(updateBtn, 5);
                 } else {
@@ -864,6 +868,19 @@
         }, 1000);
     }
 
+    // Simple semver comparison: returns true if v1 > v2
+    function isNewerVersion(v1, v2) {
+        if (!v1 || !v2) return false;
+        const p1 = v1.replace(/^v/, '').split('.').map(Number);
+        const p2 = v2.replace(/^v/, '').split('.').map(Number);
+        for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+            const a = p1[i] || 0, b = p2[i] || 0;
+            if (a > b) return true;
+            if (a < b) return false;
+        }
+        return false;
+    }
+
     // Load cached data on page load (no API call)
     function loadCachedVersion() {
         const lastCheck = localStorage.getItem('ripforge_last_update_check');
@@ -881,8 +898,8 @@
             .then(data => {
                 document.getElementById('current-version').textContent = 'v' + data.current_version;
 
-                // Use cached update status, but verify it's still valid
-                const updateAvailable = cachedUpdate === 'true' && cachedLatest && cachedLatest !== data.current_version;
+                // Use cached update status, but verify cached version is actually NEWER
+                const updateAvailable = cachedUpdate === 'true' && cachedLatest && isNewerVersion(cachedLatest, data.current_version);
 
                 if (updateAvailable) {
                     dotEl.className = 'version-dot update-available';
@@ -895,6 +912,11 @@
                     dotEl.title = 'Up to date';
                     document.getElementById('latest-version-row').style.display = 'none';
                     document.getElementById('btn-settings-update').style.display = 'none';
+                    // Clear stale cache
+                    if (cachedUpdate === 'true' && cachedLatest && !isNewerVersion(cachedLatest, data.current_version)) {
+                        localStorage.removeItem('ripforge_update_available');
+                        localStorage.removeItem('ripforge_latest_version');
+                    }
                 }
             });
     }

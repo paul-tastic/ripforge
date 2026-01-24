@@ -972,6 +972,19 @@
             }
         }
 
+        // Simple semver comparison: returns true if v1 > v2
+        function isNewerVersion(v1, v2) {
+            if (!v1 || !v2) return false;
+            const p1 = v1.replace(/^v/, '').split('.').map(Number);
+            const p2 = v2.replace(/^v/, '').split('.').map(Number);
+            for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+                const a = p1[i] || 0, b = p2[i] || 0;
+                if (a > b) return true;
+                if (a < b) return false;
+            }
+            return false;
+        }
+
         if (shouldCheck) {
             fetch('/api/version')
                 .then(r => r.json())
@@ -983,16 +996,19 @@
                 })
                 .catch(err => console.error('Error loading version:', err));
         } else {
-            // Use cached status, but verify it's still valid
+            // Use cached status, but verify cached version is actually newer than current
             fetch('/api/version')
                 .then(r => r.json())
                 .then(data => {
-                    // Only show update if cached latest is actually newer than current
-                    if (cachedUpdate === 'true' && cachedLatest && cachedLatest !== data.current_version) {
+                    // Only show update if cached latest is actually NEWER than current
+                    if (cachedUpdate === 'true' && cachedLatest && isNewerVersion(cachedLatest, data.current_version)) {
                         data.update_available = true;
                         data.latest_version = cachedLatest;
                     } else {
                         data.update_available = false;
+                        // Clear stale cache
+                        localStorage.removeItem('ripforge_update_available');
+                        localStorage.removeItem('ripforge_latest_version');
                     }
                     updateVersionUI(data);
                 })
@@ -1009,6 +1025,10 @@
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
+                    // Clear update cache so stale versions don't show after update
+                    localStorage.removeItem('ripforge_update_available');
+                    localStorage.removeItem('ripforge_latest_version');
+                    localStorage.removeItem('ripforge_last_update_check');
                     showToast('Update installed!', 'success');
                     countdownReload(updateBtn, 5);
                 } else {
