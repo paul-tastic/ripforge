@@ -559,13 +559,21 @@ def api_import_keys():
     return jsonify(keys)
 
 
-@main.route('/api/activity-log')
+@main.route('/api/activity-log', methods=['GET', 'DELETE'])
 def api_activity_log():
-    """Get recent activity log entries (newest first)"""
+    """Get or clear activity log entries"""
     from pathlib import Path
 
     logs_dir = Path(__file__).parent.parent / "logs"
     activity_log = logs_dir / "activity.log"
+
+    if request.method == 'DELETE':
+        try:
+            if activity_log.exists():
+                activity_log.write_text('')
+            return jsonify({'success': True})
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
 
     lines = []
     try:

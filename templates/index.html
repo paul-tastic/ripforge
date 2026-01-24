@@ -665,11 +665,12 @@
         const methodsContainer = document.getElementById('id-methods');
         const methodsList = document.getElementById('id-methods-list');
         if (data.identification_methods && data.identification_methods.length > 0) {
-            // Store methods for click handling
-            window.idMethods = data.identification_methods;
+            // Sort by confidence (highest first) and store for click handling
+            const sortedMethods = [...data.identification_methods].sort((a, b) => b.confidence - a.confidence);
+            window.idMethods = sortedMethods;
             methodsContainer.style.display = 'block';
             let html = '';
-            data.identification_methods.forEach((method, idx) => {
+            sortedMethods.forEach((method, idx) => {
                 const confClass = method.confidence >= 75 ? 'high' : (method.confidence >= 50 ? 'medium' : 'low');
                 const isSelected = method.result === titleInput.value;
                 html += `
@@ -686,7 +687,7 @@
             methodsList.innerHTML = html;
 
             // Store TMDB data if initial title matches a method with TMDB info
-            const matchedMethod = data.identification_methods.find(m => m.result === titleInput.value && m.tmdb_id);
+            const matchedMethod = sortedMethods.find(m => m.result === titleInput.value && m.tmdb_id);
             if (matchedMethod) {
                 window.selectedTmdbId = matchedMethod.tmdb_id;
                 window.selectedYear = matchedMethod.year;
@@ -1126,7 +1127,7 @@
         if (idx < 0 || idx >= methods.length) return;
 
         const method = methods[idx];
-        const titleInput = document.getElementById('title-input');
+        const titleInput = document.getElementById('custom-title');
 
         // Update title input with the result
         titleInput.value = method.result;

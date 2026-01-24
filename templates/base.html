@@ -54,6 +54,7 @@
                 <span class="stat-label">Errors</span>
                 <span class="stat-value error" id="stat-errors">0</span>
             </div>
+            <button class="btn-clear-logs" onclick="clearAllLogs()" title="Clear activity log and errors">Clear Logs</button>
         </div>
 
         <div class="sidebar-footer">
@@ -125,6 +126,24 @@
     document.getElementById('errors-modal').addEventListener('click', function(e) {
         if (e.target === this) closeErrorsModal();
     });
+
+    function clearAllLogs() {
+        if (!confirm('Clear activity log and all error records?')) return;
+
+        Promise.all([
+            fetch('/api/activity-log', { method: 'DELETE' }),
+            fetch('/api/failures', { method: 'DELETE' })
+        ])
+        .then(() => {
+            document.getElementById('stat-errors').textContent = '0';
+            document.getElementById('errors-row').classList.remove('has-errors');
+            // Show brief feedback
+            const btn = document.querySelector('.btn-clear-logs');
+            btn.textContent = 'Cleared!';
+            setTimeout(() => btn.textContent = 'Clear Logs', 1500);
+        })
+        .catch(err => console.error('Error clearing logs:', err));
+    }
     </script>
     {% block scripts %}{% endblock %}
 </body>
