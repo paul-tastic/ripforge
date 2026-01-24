@@ -1372,6 +1372,18 @@ select option {
     color: var(--accent);
 }
 
+.duplicate-badge {
+    display: none;
+    margin-left: 10px;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    background: rgba(245, 158, 11, 0.2);
+    color: #f59e0b;
+    border-radius: 4px;
+    vertical-align: middle;
+}
+
 .checklist {
     display: flex;
     flex-direction: column;
@@ -1663,6 +1675,23 @@ select option {
     border-radius: 6px;
     padding: 8px 10px;
     margin-bottom: 6px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.15s ease;
+}
+
+.id-method:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(229, 160, 13, 0.3);
+}
+
+.id-method.selected {
+    background: rgba(229, 160, 13, 0.15);
+    border-color: var(--warning);
+}
+
+.id-method.selected .id-method-result {
+    color: var(--warning);
 }
 
 .id-method:last-child {
@@ -2264,6 +2293,78 @@ select option {
 .review-detail .value {
     font-weight: 600;
     color: var(--text);
+}
+
+/* Duplicate Comparison */
+.duplicate-comparison {
+    margin-bottom: 20px;
+    padding: 16px;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 8px;
+}
+
+.duplicate-header {
+    margin-bottom: 12px;
+}
+
+.duplicate-warning {
+    font-size: 14px;
+    font-weight: 600;
+    color: #f59e0b;
+}
+
+.duplicate-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 16px;
+}
+
+.duplicate-col {
+    padding: 12px;
+    background: var(--bg-dark);
+    border-radius: 6px;
+}
+
+.duplicate-col h4 {
+    margin: 0 0 10px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.dup-detail {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.dup-detail:last-child {
+    border-bottom: none;
+}
+
+.dup-detail span:first-child {
+    color: var(--text-muted);
+}
+
+.dup-detail span:last-child {
+    color: var(--text);
+    font-weight: 500;
+}
+
+.duplicate-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.duplicate-actions .btn {
+    flex: 1;
+    min-width: 140px;
 }
 
 .review-search {

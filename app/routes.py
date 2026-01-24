@@ -381,7 +381,12 @@ def api_disc_scan_identify():
             'result': result.folder_name,
             'confidence': result.confidence,
             'details': f"TMDB: {result.title} ({result.year}) - {result.runtime_minutes}min" +
-                      (f" ({runtime_diff})" if runtime_diff else "")
+                      (f" ({runtime_diff})" if runtime_diff else ""),
+            # Include TMDB data for selection
+            'tmdb_id': result.tmdb_id,
+            'year': result.year,
+            'poster_url': result.poster_url,
+            'title': result.title
         })
 
     # Log each identification method to activity log
@@ -1459,6 +1464,223 @@ def api_review_delete():
         return jsonify({'success': True, 'message': f'Deleted {folder_name}'})
     except Exception as e:
         activity.log_error(f"REVIEW: Delete failed - {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@main.route('/api/review/duplicate/keep-new', methods=['POST'])
+def api_review_duplicate_keep_new():
+    """Keep new rip, replace existing in library"""
+    import os
+    import shutil
+    import json
+    import glob
+    from pathlib import Path
+
+    data = request.json or {}
+    folder_name = data.get('folder_name')
+    existing_path = data.get('existing_path', '')
+
+    if not folder_name:
+        return jsonify({'error': 'folder_name required'}), 400
+
+    cfg = config.load_config()
+    review_path = cfg.get('paths', {}).get('review', '/mnt/media/rips/review')
+    movies_path = cfg.get('paths', {}).get('movies', '/mnt/media/movies')
+
+    source_path = os.path.join(review_path, folder_name)
+
+    if not os.path.isdir(source_path):
+        return jsonify({'error': f'Review folder not found: {folder_name}'}), 404
+
+    try:
+        # Read metadata
+        metadata_file = os.path.join(source_path, 'review_metadata.json')
+        metadata = {}
+        if os.path.exists(metadata_file):
+            with open(metadata_file) as f:
+                metadata = json.load(f)
+
+        # Get title info from metadata
+        title = metadata.get('title', folder_name)
+        year = metadata.get('year', 0)
+        tmdb_id = metadata.get('tmdb_id', 0)
+        poster_url = metadata.get('poster_url', '')
+        disc_type = metadata.get('disc_type', 'unknown')
+
+        # Build identified title
+        identified_title = f"{title} ({year})" if year else title
+
+        # Delete existing if path provided
+        if existing_path and os.path.isdir(existing_path):
+            activity.log_warning(f"DUPLICATE: Removing existing: {existing_path}")
+            shutil.rmtree(existing_path)
+
+        # Determine destination
+        dest_path = os.path.join(movies_path, identified_title)
+
+        # Find MKV files
+        mkv_files = glob.glob(os.path.join(source_path, '*.mkv'))
+        if not mkv_files:
+            return jsonify({'error': 'No MKV files found in review folder'}), 400
+
+        activity.log_info(f"DUPLICATE: Replacing with new rip: {identified_title}")
+
+        # Create destination and move files
+        Path(dest_path).mkdir(parents=True, exist_ok=True)
+
+        for mkv_file in mkv_files:
+            new_filename = f"{identified_title}.mkv"
+            if len(mkv_files) > 1:
+                idx = mkv_files.index(mkv_file) + 1
+                new_filename = f"{identified_title} - Part {idx}.mkv"
+
+            dest_file = os.path.join(dest_path, new_filename)
+            shutil.move(mkv_file, dest_file)
+
+        # Calculate file size
+        total_size = sum(os.path.getsize(f) for f in glob.glob(os.path.join(dest_path, '*.mkv')))
+        size_gb = total_size / (1024**3)
+
+        # Remove review folder
+        shutil.rmtree(source_path)
+
+        activity.file_moved(identified_title, dest_path)
+        activity.log_success(f"DUPLICATE: Replaced existing with: {identified_title}")
+
+        # Save to rip history
+        activity.enrich_and_save_rip(
+            title=identified_title,
+            disc_type=disc_type,
+            duration_str='',
+            size_gb=size_gb,
+            year=year,
+            tmdb_id=tmdb_id,
+            poster_url=poster_url,
+            runtime_str=metadata.get('runtime_str', ''),
+            content_type='movie',
+            rip_method="duplicate-replace"
+        )
+
+        # Trigger Plex scan
+        activity.plex_scan_triggered("Movies")
+
+        return jsonify({
+            'success': True,
+            'message': f'Replaced with {identified_title}',
+            'destination': dest_path
+        })
+
+    except Exception as e:
+        activity.log_error(f"DUPLICATE: Keep-new failed - {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@main.route('/api/review/duplicate/keep-both', methods=['POST'])
+def api_review_duplicate_keep_both():
+    """Keep both rips - add new with disc type suffix"""
+    import os
+    import shutil
+    import json
+    import glob
+    from pathlib import Path
+
+    data = request.json or {}
+    folder_name = data.get('folder_name')
+
+    if not folder_name:
+        return jsonify({'error': 'folder_name required'}), 400
+
+    cfg = config.load_config()
+    review_path = cfg.get('paths', {}).get('review', '/mnt/media/rips/review')
+    movies_path = cfg.get('paths', {}).get('movies', '/mnt/media/movies')
+
+    source_path = os.path.join(review_path, folder_name)
+
+    if not os.path.isdir(source_path):
+        return jsonify({'error': f'Review folder not found: {folder_name}'}), 404
+
+    try:
+        # Read metadata
+        metadata_file = os.path.join(source_path, 'review_metadata.json')
+        metadata = {}
+        if os.path.exists(metadata_file):
+            with open(metadata_file) as f:
+                metadata = json.load(f)
+
+        # Get title info from metadata
+        title = metadata.get('title', folder_name)
+        year = metadata.get('year', 0)
+        tmdb_id = metadata.get('tmdb_id', 0)
+        poster_url = metadata.get('poster_url', '')
+        disc_type = metadata.get('disc_type', 'unknown').upper()
+
+        # Build identified title with disc type suffix to differentiate
+        base_title = f"{title} ({year})" if year else title
+        identified_title = f"{base_title} [{disc_type}]"
+
+        # Check if this would also conflict - add date if so
+        dest_path = os.path.join(movies_path, identified_title)
+        if os.path.exists(dest_path):
+            from datetime import datetime
+            date_suffix = datetime.now().strftime("%Y%m%d")
+            identified_title = f"{base_title} [{disc_type}-{date_suffix}]"
+            dest_path = os.path.join(movies_path, identified_title)
+
+        # Find MKV files
+        mkv_files = glob.glob(os.path.join(source_path, '*.mkv'))
+        if not mkv_files:
+            return jsonify({'error': 'No MKV files found in review folder'}), 400
+
+        activity.log_info(f"DUPLICATE: Keeping both, adding: {identified_title}")
+
+        # Create destination and move files
+        Path(dest_path).mkdir(parents=True, exist_ok=True)
+
+        for mkv_file in mkv_files:
+            new_filename = f"{identified_title}.mkv"
+            if len(mkv_files) > 1:
+                idx = mkv_files.index(mkv_file) + 1
+                new_filename = f"{identified_title} - Part {idx}.mkv"
+
+            dest_file = os.path.join(dest_path, new_filename)
+            shutil.move(mkv_file, dest_file)
+
+        # Calculate file size
+        total_size = sum(os.path.getsize(f) for f in glob.glob(os.path.join(dest_path, '*.mkv')))
+        size_gb = total_size / (1024**3)
+
+        # Remove review folder
+        shutil.rmtree(source_path)
+
+        activity.file_moved(identified_title, dest_path)
+        activity.log_success(f"DUPLICATE: Added alongside existing: {identified_title}")
+
+        # Save to rip history
+        activity.enrich_and_save_rip(
+            title=identified_title,
+            disc_type=disc_type.lower(),
+            duration_str='',
+            size_gb=size_gb,
+            year=year,
+            tmdb_id=tmdb_id,
+            poster_url=poster_url,
+            runtime_str=metadata.get('runtime_str', ''),
+            content_type='movie',
+            rip_method="duplicate-keep-both"
+        )
+
+        # Trigger Plex scan
+        activity.plex_scan_triggered("Movies")
+
+        return jsonify({
+            'success': True,
+            'message': f'Added as {identified_title}',
+            'new_title': identified_title,
+            'destination': dest_path
+        })
+
+    except Exception as e:
+        activity.log_error(f"DUPLICATE: Keep-both failed - {e}")
         return jsonify({'error': str(e)}), 500
 
 

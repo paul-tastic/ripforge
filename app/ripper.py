@@ -104,6 +104,10 @@ class RipJob:
     rip_mode: str = "smart"  # "smart", "always_backup", "direct_only" - from config
     direct_failed: bool = False  # True if direct rip was attempted and failed
     disc_ejected: bool = False  # True if disc was ejected after rip completed
+    # Duplicate detection
+    possible_duplicate: bool = False  # True if duplicate detected
+    duplicate_match_type: str = ""  # 'tmdb_id', 'folder', or 'disc_label'
+    duplicate_info: Optional[Dict] = None  # Info about existing rip
     rip_started_at: Optional[float] = None  # Unix timestamp when rip phase began (for ETA calc)
     # Disc fingerprint data for capture/analysis
     disc_tracks: List[dict] = field(default_factory=list)
@@ -152,6 +156,10 @@ class RipJob:
             "rip_mode": self.rip_mode,
             "direct_failed": self.direct_failed,
             "disc_ejected": self.disc_ejected,
+            # Duplicate detection
+            "possible_duplicate": self.possible_duplicate,
+            "duplicate_match_type": self.duplicate_match_type,
+            "duplicate_info": self.duplicate_info,
             "steps": {k: {"status": v.status, "detail": v.detail} for k, v in self.steps.items()}
         }
 
@@ -1096,6 +1104,22 @@ class RipEngine:
                 tmdb_id=id_result.tmdb_id,
                 config=config.load_config()
             )
+            # Check for duplicate - don't block rip, but flag for review
+            dup_check = activity.check_for_duplicate(
+                title=id_result.title,
+                year=id_result.year,
+                tmdb_id=id_result.tmdb_id,
+                disc_label=job.disc_label,
+                disc_type=job.disc_type,
+                movies_path=self.movies_path
+            )
+            if dup_check['is_duplicate']:
+                job.possible_duplicate = True
+                job.duplicate_match_type = dup_check['match_type']
+                job.duplicate_info = dup_check['existing_info']
+                job.needs_review = True  # Send to review queue after rip
+                activity.log_warning(f"DUPLICATE: Possible duplicate detected ({dup_check['match_type']})")
+                self._update_step("identify", "complete", f"{job.identified_title} [POSSIBLE DUPLICATE]")
         else:
             # Fall back to disc label - mark for review
             fallback_title = job.disc_label.replace("_", " ").title()
@@ -2604,7 +2628,14 @@ class RipEngine:
                 "size_gb": round(size_gb, 2),
                 "files": [os.path.basename(f) for f in moved_files],
                 "created_at": datetime.now().isoformat(),
-                "media_type": job.media_type
+                "media_type": job.media_type,
+                # Duplicate detection info
+                "possible_duplicate": job.possible_duplicate,
+                "duplicate_match_type": job.duplicate_match_type,
+                "duplicate_info": job.duplicate_info,
+                "year": job.year,
+                "tmdb_id": job.tmdb_id,
+                "poster_url": job.poster_url
             }
 
             metadata_file = os.path.join(dest_path, "review_metadata.json")

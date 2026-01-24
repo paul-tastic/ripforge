@@ -306,6 +306,36 @@
                     </div>
                 </div>
 
+                <!-- Duplicate Comparison (shown only for duplicates) -->
+                <div class="duplicate-comparison" id="duplicate-comparison" style="display: none;">
+                    <div class="duplicate-header">
+                        <span class="duplicate-warning">⚠ Possible Duplicate Detected</span>
+                    </div>
+                    <div class="duplicate-grid">
+                        <div class="duplicate-col">
+                            <h4>Existing in Library</h4>
+                            <div class="dup-detail"><span>Title:</span> <span id="dup-existing-title">-</span></div>
+                            <div class="dup-detail"><span>Year:</span> <span id="dup-existing-year">-</span></div>
+                            <div class="dup-detail"><span>Type:</span> <span id="dup-existing-type">-</span></div>
+                            <div class="dup-detail"><span>Size:</span> <span id="dup-existing-size">-</span></div>
+                            <div class="dup-detail"><span>Ripped:</span> <span id="dup-existing-date">-</span></div>
+                        </div>
+                        <div class="duplicate-col">
+                            <h4>New Rip</h4>
+                            <div class="dup-detail"><span>Title:</span> <span id="dup-new-title">-</span></div>
+                            <div class="dup-detail"><span>Year:</span> <span id="dup-new-year">-</span></div>
+                            <div class="dup-detail"><span>Type:</span> <span id="dup-new-type">-</span></div>
+                            <div class="dup-detail"><span>Size:</span> <span id="dup-new-size">-</span></div>
+                            <div class="dup-detail"><span>Disc:</span> <span id="dup-new-disc">-</span></div>
+                        </div>
+                    </div>
+                    <div class="duplicate-actions">
+                        <button class="btn btn-success" onclick="keepNewRip()">Keep New (Replace)</button>
+                        <button class="btn btn-secondary" onclick="keepExistingRip()">Keep Existing (Delete New)</button>
+                        <button class="btn btn-primary" onclick="keepBothRips()">Keep Both</button>
+                    </div>
+                </div>
+
                 <div class="review-search">
                     <label for="review-search-input">Search for title:</label>
                     <div class="search-row">
@@ -631,26 +661,37 @@
             badge.style.display = 'none';
         }
 
-        // Show identification methods debug info
+        // Show identification methods as clickable cards
         const methodsContainer = document.getElementById('id-methods');
         const methodsList = document.getElementById('id-methods-list');
         if (data.identification_methods && data.identification_methods.length > 0) {
+            // Store methods for click handling
+            window.idMethods = data.identification_methods;
             methodsContainer.style.display = 'block';
             let html = '';
-            data.identification_methods.forEach(method => {
+            data.identification_methods.forEach((method, idx) => {
                 const confClass = method.confidence >= 75 ? 'high' : (method.confidence >= 50 ? 'medium' : 'low');
+                const isSelected = method.result === titleInput.value;
                 html += `
-                    <div class="id-method">
+                    <div class="id-method ${isSelected ? 'selected' : ''}" onclick="selectIdMethod(${idx})" title="Click to use this title">
                         <div class="id-method-header">
                             <span class="id-method-name">${method.method}</span>
                             <span class="id-method-conf ${confClass}">${method.confidence}%</span>
                         </div>
-                        <div class="id-method-result">${method.result}</div>
-                        <div class="id-method-details">${method.details}</div>
+                        <div class="id-method-result">${escapeHtml(method.result)}</div>
+                        <div class="id-method-details">${escapeHtml(method.details)}</div>
                     </div>
                 `;
             });
             methodsList.innerHTML = html;
+
+            // Store TMDB data if initial title matches a method with TMDB info
+            const matchedMethod = data.identification_methods.find(m => m.result === titleInput.value && m.tmdb_id);
+            if (matchedMethod) {
+                window.selectedTmdbId = matchedMethod.tmdb_id;
+                window.selectedYear = matchedMethod.year;
+                window.selectedPosterUrl = matchedMethod.poster_url;
+            }
         } else {
             methodsContainer.style.display = 'none';
         }
@@ -676,6 +717,12 @@
             updateRipButtonText(this.value.trim(), isTVDisc);
             // Cancel countdown if user is editing
             cancelCountdown();
+            // Clear card selection when user types manually
+            document.querySelectorAll('.id-method').forEach(el => el.classList.remove('selected'));
+            // Clear stored TMDB data since user is entering custom title
+            window.selectedTmdbId = null;
+            window.selectedYear = null;
+            window.selectedPosterUrl = null;
         });
 
         // Set initial button text
@@ -1053,6 +1100,46 @@
         }
     }
 
+    // Select an identification method by clicking its card
+    function selectIdMethod(idx) {
+        const methods = window.idMethods || [];
+        if (idx < 0 || idx >= methods.length) return;
+
+        const method = methods[idx];
+        const titleInput = document.getElementById('title-input');
+
+        // Update title input with the result
+        titleInput.value = method.result;
+
+        // Store TMDB data if available (for when rip starts)
+        if (method.tmdb_id) {
+            window.selectedTmdbId = method.tmdb_id;
+            window.selectedYear = method.year;
+            window.selectedPosterUrl = method.poster_url;
+        }
+
+        // Update visual selection
+        document.querySelectorAll('.id-method').forEach((el, i) => {
+            el.classList.toggle('selected', i === idx);
+        });
+
+        // Update rip button and IMDB link
+        const isTVDisc = window.currentMediaType === 'tv';
+        updateRipButtonText(method.result, isTVDisc);
+        const imdbBtn = document.getElementById('imdb-search-btn');
+        const searchTerm = method.title || method.result;
+        if (isTVDisc) {
+            imdbBtn.href = `https://www.imdb.com/find/?q=${encodeURIComponent(searchTerm)}&s=tt&ttype=tv`;
+        } else {
+            imdbBtn.href = `https://www.imdb.com/find/?q=${encodeURIComponent(searchTerm)}&s=tt&ttype=ft`;
+        }
+
+        // Cancel auto-rip countdown since user is interacting
+        cancelCountdown();
+
+        showToast(`Selected: ${method.result}`, 'success');
+    }
+
     // Checklist UI Functions
     // Track if we're showing scan results (don't overwrite with idle)
     let showingScanResults = false;
@@ -1229,6 +1316,23 @@
         }
         document.querySelector('.disc-label').textContent = displayTitle;
 
+        // Show duplicate warning badge if applicable
+        let dupBadge = document.getElementById('duplicate-badge');
+        if (!dupBadge) {
+            // Create badge element if it doesn't exist
+            dupBadge = document.createElement('span');
+            dupBadge.id = 'duplicate-badge';
+            dupBadge.className = 'duplicate-badge';
+            document.querySelector('.disc-label').parentElement.appendChild(dupBadge);
+        }
+        if (ripData.possible_duplicate) {
+            dupBadge.textContent = '⚠ Possible Duplicate';
+            dupBadge.style.display = 'inline-block';
+            dupBadge.title = `Match type: ${ripData.duplicate_match_type}`;
+        } else {
+            dupBadge.style.display = 'none';
+        }
+
         // Update each step and find current active step
         const steps = ['insert', 'detect', 'scan', 'rip', 'identify', 'library', 'move', 'scan-plex'];
         const stepNames = {
@@ -1351,8 +1455,8 @@
             stopBtn.style.display = 'none';
             document.getElementById('btn-start-rip').disabled = false;
             document.getElementById('btn-start-rip').textContent = 'Start Rip';
-        } else if (ripData.status === 'ripping' || ripData.status === 'moving' || ripData.status === 'scanning') {
-            // Rip in progress - show Stop Drive, hide Reset
+        } else if (['detecting', 'scanning', 'ripping', 'identifying', 'moving'].includes(ripData.status)) {
+            // Process in progress - show Stop Drive, hide Reset
             resetBtn.style.display = 'none';
             if (document.getElementById("btn-reset-drive")) document.getElementById("btn-reset-drive").style.display = "none";
             if (document.getElementById("btn-eject-disc")) document.getElementById("btn-eject-disc").style.display = "none";
@@ -1361,12 +1465,13 @@
             if (document.getElementById('post-rip-actions')) document.getElementById('post-rip-actions').style.display = 'none';
             stopBtn.style.display = 'inline-block';
         } else {
+            // Idle or unknown - hide everything
             resetBtn.style.display = 'none';
             if (document.getElementById("btn-reset-drive")) document.getElementById("btn-reset-drive").style.display = "none";
             if (document.getElementById("btn-eject-disc")) document.getElementById("btn-eject-disc").style.display = "none";
             if (document.getElementById("btn-restart-service")) document.getElementById("btn-restart-service").style.display = "none";
             ripActions.style.display = 'none';
-            stopBtn.style.display = 'inline-block';
+            stopBtn.style.display = 'none';
         }
     }
 
@@ -1915,6 +2020,27 @@
         // Pre-fill search with fallback title
         document.getElementById('review-search-input').value = item.fallback_title || '';
 
+        // Handle duplicate comparison section
+        const dupSection = document.getElementById('duplicate-comparison');
+        if (item.possible_duplicate && item.duplicate_info) {
+            const existing = item.duplicate_info;
+            document.getElementById('dup-existing-title').textContent = existing.title || '-';
+            document.getElementById('dup-existing-year').textContent = existing.year || '-';
+            document.getElementById('dup-existing-type').textContent = (existing.disc_type || 'unknown').toUpperCase();
+            document.getElementById('dup-existing-size').textContent = existing.size_gb ? existing.size_gb + ' GB' : '-';
+            document.getElementById('dup-existing-date').textContent = existing.ripped_date ? new Date(existing.ripped_date).toLocaleDateString() : '-';
+
+            document.getElementById('dup-new-title').textContent = item.fallback_title || '-';
+            document.getElementById('dup-new-year').textContent = item.year || '-';
+            document.getElementById('dup-new-type').textContent = (item.disc_type || 'unknown').toUpperCase();
+            document.getElementById('dup-new-size').textContent = item.size_gb ? item.size_gb + ' GB' : '-';
+            document.getElementById('dup-new-disc').textContent = item.disc_label || '-';
+
+            dupSection.style.display = 'block';
+        } else {
+            dupSection.style.display = 'none';
+        }
+
         // Reset results and manual entry
         document.getElementById('review-results').style.display = 'none';
         document.getElementById('review-results').innerHTML = '';
@@ -2019,6 +2145,103 @@
         document.getElementById('review-modal').style.display = 'none';
         currentReviewItem = null;
         currentSearchResult = null;
+    }
+
+    // Duplicate resolution actions
+    function keepNewRip() {
+        if (!currentReviewItem) return;
+
+        // Keep new = delete existing and move new to library
+        // We need to pass the existing path so backend can remove it
+        const dupInfo = currentReviewItem.duplicate_info || {};
+
+        if (!confirm(`This will REPLACE the existing "${dupInfo.title || 'item'}" in your library with the new rip. Continue?`)) {
+            return;
+        }
+
+        fetch('/api/review/duplicate/keep-new', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                folder_name: currentReviewItem.folder_name,
+                existing_path: dupInfo.path || ''
+            })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('Replaced existing with new rip', 'success');
+                    closeReviewModal();
+                    loadReviewQueue();
+                } else {
+                    showToast(data.error || 'Failed to replace', 'error');
+                }
+            })
+            .catch(err => {
+                console.error('Keep new error:', err);
+                showToast('Failed to replace existing rip', 'error');
+            });
+    }
+
+    function keepExistingRip() {
+        if (!currentReviewItem) return;
+
+        if (!confirm('This will DELETE the new rip and keep your existing library item. Continue?')) {
+            return;
+        }
+
+        // Keep existing = just delete the new rip from review queue
+        fetch('/api/review/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                folder_name: currentReviewItem.folder_name
+            })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('Kept existing, new rip deleted', 'success');
+                    closeReviewModal();
+                    loadReviewQueue();
+                } else {
+                    showToast(data.error || 'Failed to delete new rip', 'error');
+                }
+            })
+            .catch(err => {
+                console.error('Keep existing error:', err);
+                showToast('Failed to delete new rip', 'error');
+            });
+    }
+
+    function keepBothRips() {
+        if (!currentReviewItem) return;
+
+        // Keep both = move new to library with a suffix (e.g., disc type or date)
+        const dupInfo = currentReviewItem.duplicate_info || {};
+        const discType = (currentReviewItem.disc_type || 'unknown').toUpperCase();
+
+        fetch('/api/review/duplicate/keep-both', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                folder_name: currentReviewItem.folder_name
+            })
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(`Added to library as: ${data.new_title || 'new copy'}`, 'success');
+                    closeReviewModal();
+                    loadReviewQueue();
+                } else {
+                    showToast(data.error || 'Failed to keep both', 'error');
+                }
+            })
+            .catch(err => {
+                console.error('Keep both error:', err);
+                showToast('Failed to add new rip to library', 'error');
+            });
     }
 
     function searchReviewTitle() {

@@ -549,3 +549,123 @@ def get_rip_errors() -> list:
         pass
 
     return errors[::-1]  # Newest first
+
+
+def check_for_duplicate(
+    title: str,
+    year: int,
+    tmdb_id: int,
+    disc_label: str,
+    disc_type: str,
+    movies_path: str = None
+) -> dict:
+    """
+    Check if this disc might be a duplicate of something already ripped.
+
+    Returns dict with:
+        - is_duplicate: bool
+        - match_type: 'tmdb_id' | 'folder' | 'disc_label' | None
+        - existing_info: dict with details about existing rip (if found)
+    """
+    import os
+
+    result = {
+        'is_duplicate': False,
+        'match_type': None,
+        'existing_info': None
+    }
+
+    # Check 1: TMDB ID match in rip history (most reliable)
+    if tmdb_id:
+        try:
+            if RIP_HISTORY_FILE.exists():
+                with open(RIP_HISTORY_FILE) as f:
+                    history = json.load(f)
+                for rip in history:
+                    if rip.get('tmdb_id') == tmdb_id:
+                        # Build path to existing folder
+                        existing_path = ''
+                        if movies_path:
+                            existing_title = rip.get('title', 'Unknown')
+                            existing_path = os.path.join(movies_path, existing_title)
+
+                        result['is_duplicate'] = True
+                        result['match_type'] = 'tmdb_id'
+                        result['existing_info'] = {
+                            'title': rip.get('title', 'Unknown'),
+                            'year': rip.get('year'),
+                            'disc_type': rip.get('disc_type', 'unknown'),
+                            'size_gb': rip.get('size_gb', 0),
+                            'ripped_date': rip.get('completed_at', ''),
+                            'tmdb_id': rip.get('tmdb_id'),
+                            'path': existing_path
+                        }
+                        log_info(f"DUPLICATE CHECK: TMDB ID {tmdb_id} found in rip history")
+                        return result
+        except Exception as e:
+            log_warning(f"DUPLICATE CHECK: Error reading rip history - {e}")
+
+    # Check 2: Destination folder already exists
+    if movies_path and title:
+        folder_name = f"{title} ({year})" if year else title
+        # Sanitize folder name same way ripper does
+        folder_name = folder_name.replace(':', ' -')
+        dest_path = os.path.join(movies_path, folder_name)
+
+        if os.path.exists(dest_path):
+            # Get size of existing
+            existing_size = 0
+            for f in os.listdir(dest_path):
+                if f.endswith('.mkv'):
+                    existing_size += os.path.getsize(os.path.join(dest_path, f))
+
+            result['is_duplicate'] = True
+            result['match_type'] = 'folder'
+            result['existing_info'] = {
+                'title': title,
+                'year': year,
+                'disc_type': 'unknown',  # Can't tell from folder
+                'size_gb': round(existing_size / (1024**3), 1),
+                'ripped_date': '',
+                'path': dest_path
+            }
+            log_info(f"DUPLICATE CHECK: Folder '{folder_name}' already exists")
+            return result
+
+    # Check 3: Same disc label in captures (exact same disc)
+    if disc_label:
+        try:
+            if DISC_CAPTURES_FILE.exists():
+                with open(DISC_CAPTURES_FILE) as f:
+                    for line in f:
+                        try:
+                            capture = json.loads(line.strip())
+                            if capture.get('disc_label') == disc_label and capture.get('identified_title'):
+                                # Build path to existing folder
+                                existing_path = ''
+                                if movies_path:
+                                    cap_title = capture.get('identified_title', 'Unknown')
+                                    cap_year = capture.get('year')
+                                    folder_name = f"{cap_title} ({cap_year})" if cap_year else cap_title
+                                    folder_name = folder_name.replace(':', ' -')
+                                    existing_path = os.path.join(movies_path, folder_name)
+
+                                result['is_duplicate'] = True
+                                result['match_type'] = 'disc_label'
+                                result['existing_info'] = {
+                                    'title': capture.get('identified_title', 'Unknown'),
+                                    'year': capture.get('year'),
+                                    'disc_type': capture.get('disc_type', 'unknown'),
+                                    'size_gb': round(capture.get('total_size_bytes', 0) / (1024**3), 1),
+                                    'ripped_date': capture.get('timestamp', ''),
+                                    'disc_label': disc_label,
+                                    'path': existing_path
+                                }
+                                log_info(f"DUPLICATE CHECK: Disc label '{disc_label}' found in captures")
+                                return result
+                        except json.JSONDecodeError:
+                            continue
+        except Exception as e:
+            log_warning(f"DUPLICATE CHECK: Error reading disc captures - {e}")
+
+    return result
