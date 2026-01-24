@@ -579,28 +579,38 @@ def check_for_duplicate(
     }
 
     # Check if destination folder already exists in library
+    # Try multiple folder name formats since libraries vary
     if movies_path and title:
-        folder_name = f"{title} ({year})" if year else title
-        # Sanitize folder name same way ripper does
-        folder_name = folder_name.replace(':', ' -')
-        dest_path = os.path.join(movies_path, folder_name)
+        # Sanitize title same way ripper does
+        clean_title = title.replace(':', ' -')
 
-        if os.path.exists(dest_path):
-            # Get size of existing MKV files
-            existing_size = 0
-            for f in os.listdir(dest_path):
-                if f.endswith('.mkv'):
-                    existing_size += os.path.getsize(os.path.join(dest_path, f))
+        # Check these folder name variations
+        candidates = [
+            f"{clean_title} ({year})" if year else None,  # Title (Year)
+            clean_title,                                    # Title (no year)
+        ]
 
-            result['is_duplicate'] = True
-            result['match_type'] = 'folder'
-            result['existing_info'] = {
-                'title': title,
-                'year': year,
-                'size_gb': round(existing_size / (1024**3), 1),
-                'path': dest_path
-            }
-            log_info(f"DUPLICATE CHECK: '{folder_name}' already exists in library")
-            return result
+        for folder_name in candidates:
+            if not folder_name:
+                continue
+            dest_path = os.path.join(movies_path, folder_name)
+
+            if os.path.exists(dest_path):
+                # Get size of existing MKV files
+                existing_size = 0
+                for f in os.listdir(dest_path):
+                    if f.endswith('.mkv'):
+                        existing_size += os.path.getsize(os.path.join(dest_path, f))
+
+                result['is_duplicate'] = True
+                result['match_type'] = 'folder'
+                result['existing_info'] = {
+                    'title': title,
+                    'year': year,
+                    'size_gb': round(existing_size / (1024**3), 1),
+                    'path': dest_path
+                }
+                log_info(f"DUPLICATE CHECK: '{folder_name}' already exists in library")
+                return result
 
     return result
