@@ -1726,17 +1726,26 @@ def api_library_list():
     except Exception:
         pass
 
-    # Build lookup by title and title+year for matching
+    # Build lookup by title and title+year for matching (case-insensitive)
     poster_lookup = {}
+    def normalize_title(t):
+        """Normalize title for matching: lowercase, remove 'the ' prefix"""
+        t = t.lower().strip()
+        if t.startswith('the '):
+            t = t[4:]
+        return t
+
     for rip in rip_history:
         title = rip.get('title', '')
         year = rip.get('year')
         poster_url = rip.get('poster_url', '')
         if title and poster_url:
-            # Key by "Title (Year)" format to match folder names
+            # Key by multiple variations for better matching
             if year:
-                poster_lookup[f"{title} ({year})"] = poster_url
+                poster_lookup[f"{title} ({year})".lower()] = poster_url
+                poster_lookup[f"{normalize_title(title)} ({year})"] = poster_url
             poster_lookup[title.lower()] = poster_url
+            poster_lookup[normalize_title(title)] = poster_url
 
     def parse_folder_name(folder_name):
         """Parse 'Title (Year)' format from folder name"""
@@ -1776,8 +1785,14 @@ def api_library_list():
         if latest_mtime == 0:
             latest_mtime = os.path.getmtime(folder_path)
 
-        # Look up poster URL from rip history
-        poster_url = poster_lookup.get(folder_name) or poster_lookup.get(title.lower())
+        # Look up poster URL from rip history (try multiple variations)
+        poster_url = poster_lookup.get(folder_name.lower())
+        if not poster_url and year:
+            poster_url = poster_lookup.get(f"{normalize_title(title)} ({year})")
+        if not poster_url:
+            poster_url = poster_lookup.get(title.lower())
+        if not poster_url:
+            poster_url = poster_lookup.get(normalize_title(title))
 
         return {
             'folder_name': folder_name,
