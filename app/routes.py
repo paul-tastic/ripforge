@@ -134,14 +134,6 @@ def api_rip_start():
     if not engine:
         return jsonify({'success': False, 'error': 'Rip engine not initialized'}), 500
 
-    # Clear saved scan results - rip is starting
-    try:
-        scan_file = Path(__file__).parent.parent / "logs" / "last_scan.json"
-        if scan_file.exists():
-            scan_file.unlink()
-    except Exception:
-        pass
-
     data = request.json or {}
     device = data.get('device', '/dev/sr0')
     custom_title = data.get('custom_title')  # User-specified title from scan
