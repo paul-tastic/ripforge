@@ -1839,6 +1839,12 @@
         startBtn.disabled = true;  // Can't start rip while scanning
         scanInProgress = true;
 
+        // Show stop button during scan
+        const ripActions = document.getElementById('rip-actions');
+        const stopBtn = document.getElementById('btn-stop-rip');
+        ripActions.style.display = 'block';
+        stopBtn.style.display = 'inline-block';
+
         // Update status area to show scanning with spinner
         const statusTitle = document.querySelector('.status-title');
         const statusSubtitle = document.querySelector('.status-subtitle');
@@ -1884,6 +1890,9 @@
                 // Reset icon
                 statusIcon.classList.remove('scanning');
                 statusIcon.innerHTML = '📀';
+                // Hide stop button after scan completes (rip status will show it again if needed)
+                ripActions.style.display = 'none';
+                stopBtn.style.display = 'none';
             });
     }
 
