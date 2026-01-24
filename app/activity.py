@@ -632,40 +632,7 @@ def check_for_duplicate(
             log_info(f"DUPLICATE CHECK: Folder '{folder_name}' already exists")
             return result
 
-    # Check 3: Same disc label in captures (exact same disc)
-    if disc_label:
-        try:
-            if DISC_CAPTURES_FILE.exists():
-                with open(DISC_CAPTURES_FILE) as f:
-                    for line in f:
-                        try:
-                            capture = json.loads(line.strip())
-                            if capture.get('disc_label') == disc_label and capture.get('identified_title'):
-                                # Build path to existing folder
-                                existing_path = ''
-                                if movies_path:
-                                    cap_title = capture.get('identified_title', 'Unknown')
-                                    cap_year = capture.get('year')
-                                    folder_name = f"{cap_title} ({cap_year})" if cap_year else cap_title
-                                    folder_name = folder_name.replace(':', ' -')
-                                    existing_path = os.path.join(movies_path, folder_name)
-
-                                result['is_duplicate'] = True
-                                result['match_type'] = 'disc_label'
-                                result['existing_info'] = {
-                                    'title': capture.get('identified_title', 'Unknown'),
-                                    'year': capture.get('year'),
-                                    'disc_type': capture.get('disc_type', 'unknown'),
-                                    'size_gb': round(capture.get('total_size_bytes', 0) / (1024**3), 1),
-                                    'ripped_date': capture.get('timestamp', ''),
-                                    'disc_label': disc_label,
-                                    'path': existing_path
-                                }
-                                log_info(f"DUPLICATE CHECK: Disc label '{disc_label}' found in captures")
-                                return result
-                        except json.JSONDecodeError:
-                            continue
-        except Exception as e:
-            log_warning(f"DUPLICATE CHECK: Error reading disc captures - {e}")
+    # Note: Removed disc_captures check - it flagged duplicates for scans that were never ripped
+    # The folder check (Check 2) is sufficient for detecting actual duplicates in the library
 
     return result
