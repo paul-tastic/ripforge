@@ -560,12 +560,15 @@ def check_for_duplicate(
     movies_path: str = None
 ) -> dict:
     """
-    Check if this disc might be a duplicate of something already ripped.
+    Check if this movie already exists in the library folder.
+
+    Only checks actual library contents - works regardless of how movies
+    were added (RipForge, other tools, manual copies, etc.)
 
     Returns dict with:
         - is_duplicate: bool
-        - match_type: 'tmdb_id' | 'folder' | 'disc_label' | None
-        - existing_info: dict with details about existing rip (if found)
+        - match_type: 'folder' | None
+        - existing_info: dict with details about existing content (if found)
     """
     import os
 
@@ -575,37 +578,7 @@ def check_for_duplicate(
         'existing_info': None
     }
 
-    # Check 1: TMDB ID match in rip history (most reliable)
-    if tmdb_id:
-        try:
-            if HISTORY_FILE.exists():
-                with open(HISTORY_FILE) as f:
-                    history = json.load(f)
-                for rip in history:
-                    if rip.get('tmdb_id') == tmdb_id:
-                        # Build path to existing folder
-                        existing_path = ''
-                        if movies_path:
-                            existing_title = rip.get('title', 'Unknown')
-                            existing_path = os.path.join(movies_path, existing_title)
-
-                        result['is_duplicate'] = True
-                        result['match_type'] = 'tmdb_id'
-                        result['existing_info'] = {
-                            'title': rip.get('title', 'Unknown'),
-                            'year': rip.get('year'),
-                            'disc_type': rip.get('disc_type', 'unknown'),
-                            'size_gb': rip.get('size_gb', 0),
-                            'ripped_date': rip.get('completed_at', ''),
-                            'tmdb_id': rip.get('tmdb_id'),
-                            'path': existing_path
-                        }
-                        log_info(f"DUPLICATE CHECK: TMDB ID {tmdb_id} found in rip history")
-                        return result
-        except Exception as e:
-            log_warning(f"DUPLICATE CHECK: Error reading rip history - {e}")
-
-    # Check 2: Destination folder already exists
+    # Check if destination folder already exists in library
     if movies_path and title:
         folder_name = f"{title} ({year})" if year else title
         # Sanitize folder name same way ripper does
@@ -613,7 +586,7 @@ def check_for_duplicate(
         dest_path = os.path.join(movies_path, folder_name)
 
         if os.path.exists(dest_path):
-            # Get size of existing
+            # Get size of existing MKV files
             existing_size = 0
             for f in os.listdir(dest_path):
                 if f.endswith('.mkv'):
@@ -624,15 +597,10 @@ def check_for_duplicate(
             result['existing_info'] = {
                 'title': title,
                 'year': year,
-                'disc_type': 'unknown',  # Can't tell from folder
                 'size_gb': round(existing_size / (1024**3), 1),
-                'ripped_date': '',
                 'path': dest_path
             }
-            log_info(f"DUPLICATE CHECK: Folder '{folder_name}' already exists")
+            log_info(f"DUPLICATE CHECK: '{folder_name}' already exists in library")
             return result
-
-    # Note: Removed disc_captures check - it flagged duplicates for scans that were never ripped
-    # The folder check (Check 2) is sufficient for detecting actual duplicates in the library
 
     return result
