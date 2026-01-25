@@ -556,6 +556,9 @@
         } else {
             statusSubtitle.textContent = 'Movie - verify title and year';
         }
+
+        // Update rip button text for new media type
+        updateRipButtonText(titleInput.value.trim(), isTV);
     }
 
     // Restore scan results from backend (persists across page navigation)

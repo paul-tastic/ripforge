@@ -1797,6 +1797,12 @@ class RipEngine:
                         activity.log_info(f"SMART SELECT: Using track {smart_track} instead of {main_feature} based on TMDB runtime")
                     main_feature = smart_track
 
+            if main_feature is None and disc_info.get("tracks"):
+                # Fallback: pick the longest track as main feature (for movie mode override)
+                longest = max(disc_info["tracks"], key=lambda t: t.get("duration_seconds", 0))
+                main_feature = longest["index"]
+                activity.log_info(f"FALLBACK: Using longest track {main_feature} ({longest.get('duration_str', '?')}) as main feature")
+
             if main_feature is None:
                 self._update_step("scan", "error", "No main feature found")
                 job.status = RipStatus.ERROR
