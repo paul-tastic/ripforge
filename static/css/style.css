@@ -2051,7 +2051,9 @@ select option {
 }
 
 .media-type-switch .switch-option {
-    padding: 4px 16px;
+    padding: 4px 0;
+    width: 50px;
+    text-align: center;
     font-size: 11px;
     font-weight: 700;
     color: var(--text-muted);
@@ -2068,7 +2070,7 @@ select option {
     position: absolute;
     top: 2px;
     bottom: 2px;
-    width: calc(50% - 4px);
+    width: 48px;
     background: #3b82f6;
     border-radius: 3px;
     transition: left 0.2s ease;
@@ -2076,7 +2078,7 @@ select option {
 }
 
 .media-type-switch.tv .switch-slider {
-    left: calc(50% + 2px);
+    left: 52px;
     background: #8b5cf6;
 }
 
