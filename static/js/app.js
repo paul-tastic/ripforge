@@ -78,6 +78,7 @@ class RipForgeSocket {
 
 // Load rip statistics for sidebar
 function loadRipStats() {
+    // Load library stats
     fetch('/api/library-stats')
         .then(r => r.json())
         .then(data => {
@@ -92,6 +93,22 @@ function loadRipStats() {
             if (errors) errors.textContent = data.errors || 0;
         })
         .catch(err => console.error('Error loading library stats:', err));
+
+    // Load avg rip times
+    fetch('/api/rip-stats')
+        .then(r => r.json())
+        .then(data => {
+            const avgBluray = document.getElementById('stat-avg-bluray');
+            const avgDvd = document.getElementById('stat-avg-dvd');
+
+            if (avgBluray) {
+                avgBluray.textContent = data.avg_bluray_mins ? `${data.avg_bluray_mins}m` : '--';
+            }
+            if (avgDvd) {
+                avgDvd.textContent = data.avg_dvd_mins ? `${data.avg_dvd_mins}m` : '--';
+            }
+        })
+        .catch(err => console.error('Error loading rip stats:', err));
 }
 
 // Load integration status for sidebar
