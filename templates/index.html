@@ -31,7 +31,11 @@
             <div class="scan-results" id="scan-results" style="display: none;">
                 <div class="scan-info">
                     <span class="scan-disc-type" id="scan-disc-type">DVD</span>
-                    <button class="media-type-toggle" id="media-type-toggle" onclick="toggleMediaType()" title="Click to toggle Movie/TV">MOVIE</button>
+                    <div class="media-type-switch" onclick="toggleMediaType()" title="Click to toggle Movie/TV">
+                        <span class="switch-option" id="switch-movie">MOVIE</span>
+                        <span class="switch-option" id="switch-tv">TV</span>
+                        <span class="switch-slider" id="switch-slider"></span>
+                    </div>
                     <span class="scan-disc-label" id="scan-disc-label">DISC_LABEL</span>
                     <span class="scan-runtime" id="scan-runtime">1:30:00</span>
                     <span class="scan-size" id="scan-size"></span>
@@ -515,13 +519,18 @@
     }
 
     function updateMediaTypeToggle() {
-        const toggle = document.getElementById('media-type-toggle');
+        const switchEl = document.querySelector('.media-type-switch');
+        const movieOption = document.getElementById('switch-movie');
+        const tvOption = document.getElementById('switch-tv');
+
         if (window.currentMediaType === 'tv') {
-            toggle.textContent = 'TV';
-            toggle.classList.add('tv');
+            switchEl.classList.add('tv');
+            movieOption.classList.remove('active');
+            tvOption.classList.add('active');
         } else {
-            toggle.textContent = 'MOVIE';
-            toggle.classList.remove('tv');
+            switchEl.classList.remove('tv');
+            movieOption.classList.add('active');
+            tvOption.classList.remove('active');
         }
     }
 
