@@ -97,8 +97,17 @@
                     <button class="btn btn-primary" onclick="searchIdentify()">Search</button>
                 </div>
             </div>
+            <div class="form-group">
+                <label>Content Type</label>
+                <div class="media-type-selector">
+                    <button class="media-type-btn active" id="identify-type-movie" onclick="setIdentifyMediaType('movies')">Movie</button>
+                    <button class="media-type-btn" id="identify-type-tv" onclick="setIdentifyMediaType('tv')">TV Show</button>
+                </div>
+                <small class="form-hint">Changing type will move the item to the corresponding library folder</small>
+            </div>
             <input type="hidden" id="identify-old-folder">
             <input type="hidden" id="identify-media-type">
+            <input type="hidden" id="identify-original-type">
 
             <div class="identify-results" id="identify-results">
                 <!-- Results will be populated here -->
@@ -483,6 +492,41 @@
     flex: 1;
 }
 
+.media-type-selector {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.media-type-btn {
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    background: var(--bg-dark);
+    color: var(--text-muted);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+}
+
+.media-type-btn:hover {
+    border-color: var(--accent);
+}
+
+.media-type-btn.active {
+    background: var(--accent);
+    color: #000;
+    border-color: var(--accent);
+    font-weight: 600;
+}
+
+.form-hint {
+    display: block;
+    margin-top: 0.5rem;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
 .delete-item-name {
     font-weight: 600;
     color: var(--text);
@@ -863,8 +907,29 @@ function openIdentifyModal(folderName, title, mediaType) {
     document.getElementById('identify-query').value = title;
     document.getElementById('identify-old-folder').value = folderName;
     document.getElementById('identify-media-type').value = mediaType;
+    document.getElementById('identify-original-type').value = mediaType;
     document.getElementById('identify-results').innerHTML = '';
+
+    // Set up media type toggle buttons
+    setIdentifyMediaType(mediaType);
+
     openModal('identify-modal');
+}
+
+function setIdentifyMediaType(type) {
+    document.getElementById('identify-media-type').value = type;
+
+    // Update button states
+    const movieBtn = document.getElementById('identify-type-movie');
+    const tvBtn = document.getElementById('identify-type-tv');
+
+    if (type === 'movies') {
+        movieBtn.classList.add('active');
+        tvBtn.classList.remove('active');
+    } else {
+        movieBtn.classList.remove('active');
+        tvBtn.classList.add('active');
+    }
 }
 
 async function searchIdentify() {
@@ -920,6 +985,7 @@ async function searchIdentify() {
 async function applyIdentify(folderName, title, year, posterUrl, tmdbId) {
     const oldFolder = document.getElementById('identify-old-folder').value;
     const mediaType = document.getElementById('identify-media-type').value;
+    const originalType = document.getElementById('identify-original-type').value;
 
     try {
         const response = await fetch('/api/library/rename', {
@@ -930,6 +996,7 @@ async function applyIdentify(folderName, title, year, posterUrl, tmdbId) {
                 new_title: title,
                 new_year: year,
                 media_type: mediaType,
+                original_media_type: originalType,
                 poster_url: posterUrl,
                 tmdb_id: tmdbId
             })

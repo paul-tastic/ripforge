@@ -31,7 +31,7 @@
             <div class="scan-results" id="scan-results" style="display: none;">
                 <div class="scan-info">
                     <span class="scan-disc-type" id="scan-disc-type">DVD</span>
-                    <span class="scan-media-type" id="scan-media-type" style="display: none;">TV</span>
+                    <button class="media-type-toggle" id="media-type-toggle" onclick="toggleMediaType()" title="Click to toggle Movie/TV">MOVIE</button>
                     <span class="scan-disc-label" id="scan-disc-label">DISC_LABEL</span>
                     <span class="scan-runtime" id="scan-runtime">1:30:00</span>
                     <span class="scan-size" id="scan-size"></span>
@@ -507,6 +507,48 @@
         return div.innerHTML;
     }
 
+    // Media type toggle functions
+    function toggleMediaType() {
+        window.currentMediaType = window.currentMediaType === 'tv' ? 'movie' : 'tv';
+        updateMediaTypeToggle();
+        updateMediaTypeUI();
+    }
+
+    function updateMediaTypeToggle() {
+        const toggle = document.getElementById('media-type-toggle');
+        if (window.currentMediaType === 'tv') {
+            toggle.textContent = 'TV';
+            toggle.classList.add('tv');
+        } else {
+            toggle.textContent = 'MOVIE';
+            toggle.classList.remove('tv');
+        }
+    }
+
+    function updateMediaTypeUI() {
+        const isTV = window.currentMediaType === 'tv';
+        const tvSeasonEdit = document.getElementById('tv-season-edit');
+        const tvEpisodeList = document.getElementById('tv-episode-list');
+        const titleInput = document.getElementById('custom-title');
+        const statusSubtitle = document.querySelector('.status-subtitle');
+
+        // Show/hide TV controls
+        tvSeasonEdit.style.display = isTV ? 'flex' : 'none';
+        tvEpisodeList.style.display = isTV && window.currentScanData?.episode_tracks?.length > 0 ? 'block' : 'none';
+
+        // Update placeholder
+        titleInput.placeholder = isTV ? "Series Name" : "Movie Title (Year)";
+
+        // Update subtitle
+        if (isTV) {
+            const seasonNum = document.getElementById('season-number')?.value || 1;
+            const epCount = window.currentScanData?.episode_tracks?.length || 0;
+            statusSubtitle.textContent = `TV Show - Season ${seasonNum} (${epCount} episodes)`;
+        } else {
+            statusSubtitle.textContent = 'Movie - verify title and year';
+        }
+    }
+
     // Restore scan results from backend (persists across page navigation)
     function restoreScanResults() {
         // Try sessionStorage first, then backend API
@@ -622,14 +664,10 @@
         document.getElementById('scan-disc-type').textContent = (data.disc_type || 'DISC').toUpperCase();
         document.getElementById('scan-disc-label').textContent = data.disc_label;
 
-        // Show media type badge for TV
-        const mediaTypeBadge = document.getElementById('scan-media-type');
-        if (isTVDisc) {
-            mediaTypeBadge.textContent = 'TV';
-            mediaTypeBadge.style.display = 'inline';
-        } else {
-            mediaTypeBadge.style.display = 'none';
-        }
+        // Set up media type toggle
+        const mediaTypeToggle = document.getElementById('media-type-toggle');
+        window.currentMediaType = isTVDisc ? 'tv' : 'movie';
+        updateMediaTypeToggle();
 
         // Runtime - show total for TV, main feature for movies
         if (isTVDisc && data.episode_tracks && data.episode_tracks.length > 0) {
@@ -1660,8 +1698,8 @@
                 // Get scan results to check if user corrected the title
                 const scanData = getScanResults();
 
-                // Check if this is a TV disc
-                const isTVDisc = scanData && (scanData.media_type === 'tv' || scanData.is_tv_disc);
+                // Use the user's toggle selection for media type (not auto-detected)
+                const isTVDisc = window.currentMediaType === 'tv';
 
                 // Clear scan results since we're starting the rip
                 clearScanResults();

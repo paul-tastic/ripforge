@@ -1888,7 +1888,7 @@ def api_library_list():
 
 @main.route('/api/library/rename', methods=['POST'])
 def api_library_rename():
-    """Rename a library folder and its MKV file"""
+    """Rename a library folder and its MKV file, optionally moving between libraries"""
     import os
     import shutil
     import glob
@@ -1898,6 +1898,7 @@ def api_library_rename():
     new_title = data.get('new_title')
     new_year = data.get('new_year')
     media_type = data.get('media_type', 'movies')
+    original_media_type = data.get('original_media_type', media_type)
     poster_url = data.get('poster_url', '')
     tmdb_id = data.get('tmdb_id', 0)
 
@@ -1905,22 +1906,29 @@ def api_library_rename():
         return jsonify({'success': False, 'error': 'old_folder and new_title required'}), 400
 
     cfg = config.load_config()
-    base_path = cfg.get('paths', {}).get('movies' if media_type == 'movies' else 'tv')
 
-    if not base_path:
+    # Get source path (from original library)
+    source_base = cfg.get('paths', {}).get('movies' if original_media_type == 'movies' else 'tv')
+    # Get destination path (to new library)
+    dest_base = cfg.get('paths', {}).get('movies' if media_type == 'movies' else 'tv')
+
+    if not source_base or not dest_base:
         return jsonify({'success': False, 'error': 'Library path not configured'}), 400
 
-    old_path = os.path.join(base_path, old_folder)
+    old_path = os.path.join(source_base, old_folder)
     if not os.path.isdir(old_path):
         return jsonify({'success': False, 'error': f'Folder not found: {old_folder}'}), 404
 
     # Build new folder name
     new_folder = f"{new_title} ({new_year})" if new_year else new_title
-    new_path = os.path.join(base_path, new_folder)
+    new_path = os.path.join(dest_base, new_folder)
 
     # Check if target already exists (and isn't the same folder)
     if os.path.exists(new_path) and old_path.lower() != new_path.lower():
         return jsonify({'success': False, 'error': f'Folder already exists: {new_folder}'}), 400
+
+    # Check if moving between libraries
+    is_moving_libraries = original_media_type != media_type
 
     try:
         # For movies, also rename the MKV file inside
@@ -1938,10 +1946,13 @@ def api_library_rename():
                     os.rename(mkv_file, new_mkv_path)
                     activity.log_info(f"LIBRARY: Renamed file: {old_mkv_name} -> {new_mkv_name}")
 
-        # Rename the folder
+        # Move/rename the folder
         if old_path != new_path:
             shutil.move(old_path, new_path)
-            activity.log_info(f"LIBRARY: Renamed folder: {old_folder} -> {new_folder}")
+            if is_moving_libraries:
+                activity.log_info(f"LIBRARY: Moved {old_folder} from {original_media_type} to {media_type} as {new_folder}")
+            else:
+                activity.log_info(f"LIBRARY: Renamed folder: {old_folder} -> {new_folder}")
 
         # Save poster URL to rip_history.json so it persists
         if poster_url:
