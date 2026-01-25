@@ -3,6 +3,9 @@ name: Tests
 on:
   pull_request:
     branches: [main]
+  schedule:
+    - cron: '0 14 * * *'  # 8am CST (14:00 UTC) daily
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
   test:
