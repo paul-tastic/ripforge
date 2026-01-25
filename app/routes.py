@@ -1897,6 +1897,8 @@ def api_library_rename():
     new_title = data.get('new_title')
     new_year = data.get('new_year')
     media_type = data.get('media_type', 'movies')
+    poster_url = data.get('poster_url', '')
+    tmdb_id = data.get('tmdb_id', 0)
 
     if not old_folder or not new_title:
         return jsonify({'success': False, 'error': 'old_folder and new_title required'}), 400
@@ -1940,11 +1942,63 @@ def api_library_rename():
             shutil.move(old_path, new_path)
             activity.log_info(f"LIBRARY: Renamed folder: {old_folder} -> {new_folder}")
 
+        # Save poster URL to rip_history.json so it persists
+        if poster_url:
+            _save_library_metadata(new_title, new_year, poster_url, tmdb_id, media_type)
+
         return jsonify({'success': True, 'new_folder': new_folder})
 
     except Exception as e:
         activity.log_error(f"LIBRARY: Rename failed - {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _save_library_metadata(title, year, poster_url, tmdb_id, media_type):
+    """Save metadata to rip_history.json for poster lookup"""
+    from datetime import datetime
+
+    logs_dir = Path(__file__).parent.parent / "logs"
+    history_file = logs_dir / "rip_history.json"
+
+    history = []
+    try:
+        if history_file.exists():
+            with open(history_file) as f:
+                history = json.load(f)
+    except Exception:
+        pass
+
+    # Check if entry already exists for this title+year
+    year_int = int(year) if year else 0
+    existing = None
+    for entry in history:
+        if entry.get('title', '').lower() == title.lower() and entry.get('year') == year_int:
+            existing = entry
+            break
+
+    if existing:
+        # Update existing entry
+        existing['poster_url'] = poster_url
+        if tmdb_id:
+            existing['tmdb_id'] = tmdb_id
+    else:
+        # Add new entry
+        history.append({
+            'title': title,
+            'year': year_int,
+            'poster_url': poster_url,
+            'tmdb_id': tmdb_id or 0,
+            'content_type': 'movie' if media_type == 'movies' else 'tv',
+            'completed_at': datetime.now().isoformat(),
+            'status': 'library'  # Mark as added via library, not ripped
+        })
+
+    try:
+        with open(history_file, 'w') as f:
+            json.dump(history, f, indent=2)
+        activity.log_info(f"LIBRARY: Saved metadata for {title} ({year})")
+    except Exception as e:
+        activity.log_error(f"LIBRARY: Failed to save metadata - {e}")
 
 
 @main.route('/api/library/delete', methods=['POST'])

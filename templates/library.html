@@ -778,7 +778,7 @@ function formatDate(isoString) {
     const now = new Date();
     const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
 
-    if (diffDays === 0) return 'Today';
+    if (diffDays <= 0) return 'Today';
     if (diffDays === 1) return 'Yesterday';
     if (diffDays < 7) return `${diffDays}d ago`;
     if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
@@ -897,7 +897,7 @@ async function searchIdentify() {
         }
 
         resultsDiv.innerHTML = data.results.map(result => `
-            <div class="identify-result" onclick="applyIdentify('${escapeJs(result.folder_name)}', '${escapeJs(result.title)}', '${result.year}')">
+            <div class="identify-result" onclick="applyIdentify('${escapeJs(result.folder_name)}', '${escapeJs(result.title)}', '${result.year}', '${escapeJs(result.poster_url || '')}', ${result.tmdb_id || 0})">
                 ${result.poster_url
                     ? `<img src="${escapeHtml(result.poster_url)}" alt="">`
                     : `<div style="width:60px;height:90px;background:var(--bg-dark);display:flex;align-items:center;justify-content:center;">?</div>`
@@ -917,7 +917,7 @@ async function searchIdentify() {
     }
 }
 
-async function applyIdentify(folderName, title, year) {
+async function applyIdentify(folderName, title, year, posterUrl, tmdbId) {
     const oldFolder = document.getElementById('identify-old-folder').value;
     const mediaType = document.getElementById('identify-media-type').value;
 
@@ -929,7 +929,9 @@ async function applyIdentify(folderName, title, year) {
                 old_folder: oldFolder,
                 new_title: title,
                 new_year: year,
-                media_type: mediaType
+                media_type: mediaType,
+                poster_url: posterUrl,
+                tmdb_id: tmdbId
             })
         });
 
