@@ -640,10 +640,10 @@ def api_rip_history():
     """Get rip history for the history page"""
     from pathlib import Path
     import json
-    
+
     logs_dir = Path(__file__).parent.parent / "logs"
     history_file = logs_dir / "rip_history.json"
-    
+
     rips = []
     try:
         if history_file.exists():
@@ -651,10 +651,76 @@ def api_rip_history():
                 rips = json.load(f)
     except Exception:
         pass
-    
+
+    # Add index to each entry for edit/delete operations
+    for i, rip in enumerate(rips):
+        rip['_index'] = i
+
     # Sort by completed_at descending (newest first)
     rips.sort(key=lambda x: x.get('completed_at', ''), reverse=True)
     return jsonify({'rips': rips})
+
+
+@main.route('/api/rip-history/<int:index>', methods=['DELETE'])
+def api_rip_history_delete(index):
+    """Delete a history entry by index"""
+    from pathlib import Path
+    import json
+
+    logs_dir = Path(__file__).parent.parent / "logs"
+    history_file = logs_dir / "rip_history.json"
+
+    try:
+        if history_file.exists():
+            with open(history_file) as f:
+                rips = json.load(f)
+
+            if 0 <= index < len(rips):
+                deleted = rips.pop(index)
+                with open(history_file, 'w') as f:
+                    json.dump(rips, f, indent=2)
+                return jsonify({'success': True, 'deleted': deleted.get('title', 'Unknown')})
+            else:
+                return jsonify({'success': False, 'error': 'Invalid index'}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+    return jsonify({'success': False, 'error': 'History file not found'}), 404
+
+
+@main.route('/api/rip-history/<int:index>', methods=['PUT'])
+def api_rip_history_edit(index):
+    """Edit a history entry by index"""
+    from pathlib import Path
+    import json
+
+    logs_dir = Path(__file__).parent.parent / "logs"
+    history_file = logs_dir / "rip_history.json"
+    data = request.get_json()
+
+    try:
+        if history_file.exists():
+            with open(history_file) as f:
+                rips = json.load(f)
+
+            if 0 <= index < len(rips):
+                # Update allowed fields
+                if 'title' in data:
+                    rips[index]['title'] = data['title']
+                if 'year' in data:
+                    rips[index]['year'] = data['year']
+                if 'poster_url' in data:
+                    rips[index]['poster_url'] = data['poster_url']
+
+                with open(history_file, 'w') as f:
+                    json.dump(rips, f, indent=2)
+                return jsonify({'success': True, 'entry': rips[index]})
+            else:
+                return jsonify({'success': False, 'error': 'Invalid index'}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+    return jsonify({'success': False, 'error': 'History file not found'}), 404
 
 
 @main.route('/api/hardware')
