@@ -594,12 +594,49 @@
         }
     }
 
+    // Check if URL is IMDB or TVDB and auto-fetch poster
+    async function checkForImdbTvdbUrl(url) {
+        if (!url) return;
+
+        // Check for IMDB or TVDB URL patterns
+        const isImdb = /imdb\.com\/title\/tt\d+/.test(url);
+        const isTvdb = /thetvdb\.com\/(series|movies)\//.test(url);
+
+        if (!isImdb && !isTvdb) return;
+
+        // Show loading state
+        const preview = document.getElementById('poster-preview');
+        preview.innerHTML = '<span style="color: var(--text-muted);">Looking up poster...</span>';
+
+        try {
+            const response = await fetch('/api/poster/lookup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
+            });
+            const data = await response.json();
+
+            if (data.success && data.poster_url) {
+                document.getElementById('edit-poster').value = data.poster_url;
+                updatePosterPreview();
+            } else {
+                preview.innerHTML = '<span style="color: var(--error);">Poster not found</span>';
+            }
+        } catch (err) {
+            preview.innerHTML = '<span style="color: var(--error);">Lookup failed</span>';
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         loadActivityLog();
         loadRipHistory();
 
         // Update poster preview when URL changes
-        document.getElementById('edit-poster').addEventListener('input', updatePosterPreview);
+        document.getElementById('edit-poster').addEventListener('input', (e) => {
+            updatePosterPreview();
+            // Check for IMDB/TVDB URL and auto-fetch poster
+            checkForImdbTvdbUrl(e.target.value.trim());
+        });
 
         // Handle file selection for poster upload
         document.getElementById('poster-file').addEventListener('change', (e) => {

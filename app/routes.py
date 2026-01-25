@@ -765,6 +765,112 @@ def api_poster_upload():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@main.route('/api/poster/lookup', methods=['POST'])
+def api_poster_lookup():
+    """Look up poster from IMDB or TVDB URL"""
+    import re
+    import requests
+
+    data = request.get_json()
+    url = data.get('url', '').strip()
+
+    if not url:
+        return jsonify({'success': False, 'error': 'No URL provided'}), 400
+
+    cfg = config.load_config()
+    poster_url = None
+    title = None
+
+    # IMDB URL pattern: https://www.imdb.com/title/tt1234567/
+    imdb_match = re.search(r'imdb\.com/title/(tt\d+)', url)
+    if imdb_match:
+        imdb_id = imdb_match.group(1)
+
+        # Try Radarr lookup
+        radarr_url = cfg.get('radarr', {}).get('url', '')
+        radarr_key = cfg.get('radarr', {}).get('api_key', '')
+
+        if radarr_url and radarr_key:
+            try:
+                resp = requests.get(
+                    f"{radarr_url}/api/v3/movie/lookup/imdb/{imdb_id}",
+                    headers={'X-Api-Key': radarr_key},
+                    timeout=10
+                )
+                if resp.status_code == 200:
+                    movie = resp.json()
+                    title = movie.get('title', '')
+                    # Get poster from images array
+                    for img in movie.get('images', []):
+                        if img.get('coverType') == 'poster':
+                            poster_url = img.get('remoteUrl', '')
+                            break
+                    if not poster_url:
+                        poster_url = movie.get('remotePoster', '')
+            except Exception:
+                pass
+
+        # Fallback: try Sonarr (some IMDB IDs are for TV shows)
+        if not poster_url:
+            sonarr_url = cfg.get('sonarr', {}).get('url', '')
+            sonarr_key = cfg.get('sonarr', {}).get('api_key', '')
+
+            if sonarr_url and sonarr_key:
+                try:
+                    resp = requests.get(
+                        f"{sonarr_url}/api/v3/series/lookup",
+                        params={'term': f'imdb:{imdb_id}'},
+                        headers={'X-Api-Key': sonarr_key},
+                        timeout=10
+                    )
+                    if resp.status_code == 200:
+                        results = resp.json()
+                        if results:
+                            show = results[0]
+                            title = show.get('title', '')
+                            for img in show.get('images', []):
+                                if img.get('coverType') == 'poster':
+                                    poster_url = img.get('remoteUrl', '')
+                                    break
+                except Exception:
+                    pass
+
+    # TVDB URL pattern: https://www.thetvdb.com/series/show-name or /movies/movie-name
+    tvdb_match = re.search(r'thetvdb\.com/(series|movies)/([^/]+)', url)
+    if tvdb_match and not poster_url:
+        content_type = tvdb_match.group(1)  # 'series' or 'movies'
+        slug = tvdb_match.group(2)
+
+        sonarr_url = cfg.get('sonarr', {}).get('url', '')
+        sonarr_key = cfg.get('sonarr', {}).get('api_key', '')
+
+        if content_type == 'series' and sonarr_url and sonarr_key:
+            try:
+                # Search by slug/name
+                resp = requests.get(
+                    f"{sonarr_url}/api/v3/series/lookup",
+                    params={'term': slug.replace('-', ' ')},
+                    headers={'X-Api-Key': sonarr_key},
+                    timeout=10
+                )
+                if resp.status_code == 200:
+                    results = resp.json()
+                    if results:
+                        show = results[0]
+                        title = show.get('title', '')
+                        for img in show.get('images', []):
+                            if img.get('coverType') == 'poster':
+                                poster_url = img.get('remoteUrl', '')
+                                break
+            except Exception:
+                pass
+
+    if poster_url:
+        return jsonify({'success': True, 'poster_url': poster_url, 'title': title})
+    else:
+        return jsonify({'success': False, 'error': 'Could not find poster for this URL'}), 404
+
+
 @main.route('/api/hardware')
 def api_hardware():
     """Get system hardware info for the flex card"""
