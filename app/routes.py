@@ -723,6 +723,48 @@ def api_rip_history_edit(index):
     return jsonify({'success': False, 'error': 'History file not found'}), 404
 
 
+@main.route('/api/poster/upload', methods=['POST'])
+def api_poster_upload():
+    """Upload a poster image and return the local URL"""
+    from pathlib import Path
+    import uuid
+    from werkzeug.utils import secure_filename
+
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+
+    def allowed_file(filename):
+        return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+    if 'poster' not in request.files:
+        return jsonify({'success': False, 'error': 'No file provided'}), 400
+
+    file = request.files['poster']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'No file selected'}), 400
+
+    if not allowed_file(file.filename):
+        return jsonify({'success': False, 'error': 'Invalid file type. Allowed: png, jpg, jpeg, gif, webp'}), 400
+
+    try:
+        # Create posters directory if needed
+        posters_dir = Path(__file__).parent.parent / "static" / "posters"
+        posters_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate unique filename
+        ext = file.filename.rsplit('.', 1)[1].lower()
+        filename = f"{uuid.uuid4().hex[:12]}.{ext}"
+        filepath = posters_dir / filename
+
+        file.save(filepath)
+
+        # Return the URL path for the uploaded poster
+        poster_url = f"/static/posters/{filename}"
+        return jsonify({'success': True, 'poster_url': poster_url})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @main.route('/api/hardware')
 def api_hardware():
     """Get system hardware info for the flex card"""
