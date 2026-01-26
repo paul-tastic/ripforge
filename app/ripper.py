@@ -1316,9 +1316,11 @@ class RipEngine:
 
                         if is_backup_method:
                             if raw_has_mkv:
-                                status_msg = f"Ripping from backup... {pct}%"
+                                status_msg = f"Extracting MKV... {pct}%"
+                            elif pct >= 99:
+                                status_msg = "Finishing backup..."
                             else:
-                                status_msg = f"Backup... {pct}%"
+                                status_msg = f"Copying disc... {pct}%"
                         else:
                             if pct < 3:
                                 status_msg = f"Starting rip... {pct}%"
@@ -1892,7 +1894,7 @@ class RipEngine:
                 # Skip direct, go straight to backup method
                 job.rip_method = "backup"
                 activity.log_info("Using backup method (always_backup mode)")
-                self._update_step("rip", "active", "Backup mode...")
+                self._update_step("rip", "active", "Copying disc...")
             else:
                 # Try direct rip first (smart or direct_only mode)
                 success, error_msg, actual_path = self.makemkv.rip_track(
@@ -1910,7 +1912,7 @@ class RipEngine:
                     job.direct_failed = True
                     activity.log_warning(f"Direct rip failed: {error_msg}")
                     activity.log_info("Switching to backup method (copy protection bypass)")
-                    self._update_step("rip", "active", "Direct failed → Backup...")
+                    self._update_step("rip", "active", "Direct failed, copying disc...")
 
                 job.rip_method = "backup"
 
@@ -1945,8 +1947,8 @@ class RipEngine:
                     # Reset progress for backup phase
                     def backup_progress_cb(percent):
                         # Backup is first half (0-50%), rip from backup is second half (50-100%)
-                        self._set_progress(percent // 2, "Backing up disc...")
-                        self._update_step("rip", "active", f"Backup... {percent}%")
+                        self._set_progress(percent // 2, "Copying disc...")
+                        self._update_step("rip", "active", f"Copying disc... {percent}%")
 
                     # Backup the disc first
                     backup_success, backup_error, _ = self.makemkv.backup_disc(
@@ -1958,8 +1960,8 @@ class RipEngine:
                     )
 
                 if backup_success:
-                    activity.log_success("Backup complete, ripping from backup...")
-                    self._update_step("rip", "active", "Ripping from backup...")
+                    activity.log_success("Backup complete, extracting MKV...")
+                    self._update_step("rip", "active", "Extracting MKV...")
 
                     # CRITICAL: Re-scan backup to get correct track index
                     # Track indices from disc scan may differ from backup scan!
@@ -1973,8 +1975,8 @@ class RipEngine:
 
                     def backup_rip_progress_cb(percent):
                         # Second half of progress (50-100%)
-                        self._set_progress(50 + percent // 2, "Ripping from backup...")
-                        self._update_step("rip", "active", f"Ripping from backup... {percent}%")
+                        self._set_progress(50 + percent // 2, "Extracting MKV...")
+                        self._update_step("rip", "active", f"Extracting MKV... {percent}%")
 
                     # Rip from backup
                     success, error_msg, actual_path = self.makemkv.rip_from_backup(
