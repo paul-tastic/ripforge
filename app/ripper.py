@@ -651,6 +651,7 @@ class MakeMKV:
 
         process = self._run_cmd(args)
         last_error = ""
+        corruption_detected = []  # Track any corruption warnings
 
         line_count = 0
         prgv_count = 0
@@ -720,6 +721,10 @@ class MakeMKV:
                         message_callback(msg)
                     if "error" in msg.lower() or "fail" in msg.lower():
                         last_error = msg
+                    # Detect corruption in hash check
+                    elif "corrupt" in msg.lower():
+                        corruption_detected.append(msg)
+                        activity.log_warning(f"BACKUP: Corruption detected - {msg[:100]}")
                     # Log MSG status during initialization (when still at 0%)
                     elif debug_enabled and prgv_count == 0:
                         activity.log_info(f"BACKUP DEBUG MSG[{msg_count}]: {msg[:80]}")
@@ -728,6 +733,10 @@ class MakeMKV:
         if debug_enabled:
             activity.log_info(f"BACKUP DEBUG: Finished. Lines: {line_count}, PRGV: {prgv_count}, MSG: {msg_count}, Return: {return_code}")
         activity.log_info(f"BACKUP: Finished. Lines: {line_count}, PRGV: {prgv_count}, Return: {return_code}")
+
+        # Warn about corruption at the end
+        if corruption_detected:
+            activity.log_warning(f"BACKUP: {len(corruption_detected)} file(s) had corruption during backup - extraction may fail")
 
         if return_code == 0:
             if prgv_count == 0:
@@ -793,6 +802,7 @@ class MakeMKV:
         process = self._run_cmd(args)
         last_error = ""
         actual_output_path = None
+        corruption_warnings = []
 
         line_count = 0
         prgv_count = 0
@@ -841,6 +851,9 @@ class MakeMKV:
                         message_callback(msg)
                     if "error" in msg.lower() or "fail" in msg.lower():
                         last_error = msg
+                    if "corrupt" in msg.lower():
+                        corruption_warnings.append(msg)
+                        activity.log_warning(f"RIP FROM BACKUP: {msg[:100]}")
                     if "saving" in msg.lower() and "directory" in msg.lower():
                         path_match = re.search(r'file://(/[^\s]+)', msg)
                         if path_match:
@@ -864,8 +877,12 @@ class MakeMKV:
                         activity.log_warning(f"RIP FROM BACKUP: MKV exists but only {size / (1024**2):.1f} MB")
                         return (False, f"Output file too small ({size / (1024**2):.1f} MB)", str(largest))
                 else:
-                    activity.log_warning("RIP FROM BACKUP: No MKV files found in output directory")
-                    return (False, "Rip from backup reported success but no output file found", actual_output_path)
+                    if corruption_warnings:
+                        activity.log_error(f"RIP FROM BACKUP: No MKV produced - likely due to {len(corruption_warnings)} corruption warning(s) during backup")
+                        return (False, "Extraction failed - backup has corrupted data (try cleaning disc)", actual_output_path)
+                    else:
+                        activity.log_warning("RIP FROM BACKUP: No MKV files found in output directory")
+                        return (False, "Rip from backup reported success but no output file found", actual_output_path)
             activity.log_success(f"RIP FROM BACKUP: Complete")
             return (True, "", actual_output_path)
         else:
