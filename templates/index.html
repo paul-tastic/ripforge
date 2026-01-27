@@ -120,6 +120,7 @@
             <div class="rip-title" id="rip-title">
                 <span class="disc-label">Processing disc...</span>
                 <span class="disc-type-badge" id="rip-disc-type"></span>
+                <span class="media-type-badge" id="rip-media-type"></span>
                 <span class="current-step" id="current-step"></span>
             </div>
 
@@ -1424,6 +1425,16 @@
             discTypeBadge.style.display = 'inline-block';
         } else {
             discTypeBadge.style.display = 'none';
+        }
+
+        // Show media type badge (TV/Movie)
+        const mediaTypeBadge = document.getElementById('rip-media-type');
+        if (ripData.media_type) {
+            mediaTypeBadge.textContent = ripData.media_type === 'tv' ? 'TV' : 'MOVIE';
+            mediaTypeBadge.className = 'media-type-badge ' + (ripData.media_type === 'tv' ? 'tv' : 'movie');
+            mediaTypeBadge.style.display = 'inline-block';
+        } else {
+            mediaTypeBadge.style.display = 'none';
         }
 
         // Show duplicate warning badge if applicable
