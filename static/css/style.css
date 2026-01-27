@@ -2504,6 +2504,101 @@ select option {
     min-width: 140px;
 }
 
+/* Media type toggle */
+.media-type-toggle {
+    margin-bottom: 16px;
+}
+
+.media-type-toggle label {
+    display: block;
+    font-size: 14px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.toggle-buttons {
+    display: flex;
+    gap: 0;
+}
+
+.toggle-btn {
+    flex: 1;
+    padding: 8px 16px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.toggle-btn:first-child {
+    border-radius: 6px 0 0 6px;
+}
+
+.toggle-btn:last-child {
+    border-radius: 0 6px 6px 0;
+    border-left: none;
+}
+
+.toggle-btn:hover {
+    background: var(--bg-card-hover);
+}
+
+.toggle-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #000;
+    font-weight: 600;
+}
+
+/* TV options */
+.tv-options {
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 16px;
+}
+
+.tv-options-row {
+    display: flex;
+    gap: 16px;
+}
+
+.tv-options .field-group {
+    flex: 1;
+}
+
+.tv-options label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.tv-options input {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 14px;
+}
+
+.tv-options input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.tv-hint {
+    display: block;
+    margin-top: 8px;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
 .review-search {
     margin-bottom: 16px;
 }

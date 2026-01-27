@@ -339,13 +339,37 @@
                     </div>
                 </div>
 
+                <!-- Media Type Toggle -->
+                <div class="media-type-toggle">
+                    <label>Content Type:</label>
+                    <div class="toggle-buttons">
+                        <button class="toggle-btn active" id="toggle-movie" onclick="setReviewMediaType('movie')">Movie</button>
+                        <button class="toggle-btn" id="toggle-tv" onclick="setReviewMediaType('tv')">TV Show</button>
+                    </div>
+                </div>
+
                 <div class="review-search">
                     <label for="review-search-input">Search for title:</label>
                     <div class="search-row">
                         <input type="text" id="review-search-input" placeholder="Movie or TV show name" autocomplete="off">
                         <button class="btn btn-primary" onclick="searchReviewTitle()">Search</button>
                     </div>
-                    <small class="search-hint">Results from Radarr/TMDB. Click IMDB/TMDB links to verify. Wrong match? Try a different search.</small>
+                    <small class="search-hint" id="search-hint">Results from Radarr/TMDB. Click IMDB/TMDB links to verify. Wrong match? Try a different search.</small>
+                </div>
+
+                <!-- TV-specific fields (hidden by default) -->
+                <div class="tv-options" id="tv-options" style="display: none;">
+                    <div class="tv-options-row">
+                        <div class="field-group">
+                            <label for="tv-season">Season</label>
+                            <input type="number" id="tv-season" value="1" min="1" max="99">
+                        </div>
+                        <div class="field-group">
+                            <label for="tv-start-episode">Starting Episode</label>
+                            <input type="number" id="tv-start-episode" value="1" min="1" max="999">
+                        </div>
+                    </div>
+                    <small class="tv-hint">For multi-disc seasons: Disc 2 might start at episode 9, etc.</small>
                 </div>
 
                 <div class="review-results" id="review-results" style="display: none;">
@@ -2071,6 +2095,7 @@
     // ========================
     let currentReviewItem = null;
     let currentSearchResult = null;
+    let currentReviewMediaType = 'movie';  // Track toggle state
 
     function loadReviewQueue() {
         fetch('/api/review/queue')
@@ -2168,8 +2193,46 @@
         window.searchResults = null;
         window.tmdbLookupResult = null;
 
+        // Initialize media type toggle based on item's media type
+        const initialType = item.media_type || 'movie';
+        setReviewMediaType(initialType, false);  // false = don't trigger search
+
         // Show modal
         document.getElementById('review-modal').style.display = 'flex';
+    }
+
+    function setReviewMediaType(type, triggerSearch = true) {
+        currentReviewMediaType = type;
+
+        // Update toggle button states
+        document.getElementById('toggle-movie').classList.toggle('active', type === 'movie');
+        document.getElementById('toggle-tv').classList.toggle('active', type === 'tv');
+
+        // Show/hide TV options
+        document.getElementById('tv-options').style.display = type === 'tv' ? 'block' : 'none';
+
+        // Update search hint
+        const hint = document.getElementById('search-hint');
+        if (type === 'tv') {
+            hint.textContent = 'Results from Sonarr/TVDB. Click IMDB/TVDB links to verify.';
+        } else {
+            hint.textContent = 'Results from Radarr/TMDB. Click IMDB/TMDB links to verify.';
+        }
+
+        // Clear previous results when switching types
+        if (triggerSearch) {
+            document.getElementById('review-results').style.display = 'none';
+            document.getElementById('review-results').innerHTML = '';
+            currentSearchResult = null;
+            window.searchResults = null;
+            document.getElementById('btn-apply-review').disabled = true;
+
+            // Auto-search if there's a query
+            const query = document.getElementById('review-search-input').value.trim();
+            if (query) {
+                searchReviewTitle();
+            }
+        }
     }
 
     function toggleManualEntry() {
@@ -2366,13 +2429,15 @@
         btn.disabled = true;
         btn.textContent = 'Searching...';
 
+        const mediaType = currentReviewMediaType || 'movie';
+
         fetch('/api/review/search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 query: query,
                 runtime_seconds: currentReviewItem.runtime_seconds || 0,
-                media_type: currentReviewItem.media_type || 'movie'
+                media_type: mediaType
             })
         })
             .then(r => r.json())
@@ -2382,10 +2447,17 @@
                     window.searchResults = data.results;
                     currentSearchResult = null;
 
-                    // Render multiple result cards
+                    // Render multiple result cards - different links for TV vs Movie
                     const container = document.getElementById('review-results');
                     container.style.display = 'block';
-                    container.innerHTML = data.results.map((result, idx) => `
+                    container.innerHTML = data.results.map((result, idx) => {
+                        const isTV = mediaType === 'tv';
+                        const dbLink = isTV
+                            ? (result.tvdb_id ? `<a href="https://thetvdb.com/series/${result.tvdb_id}" target="_blank" class="verify-link" onclick="event.stopPropagation()">TVDB ↗</a>` : '')
+                            : (result.tmdb_id ? `<a href="https://www.themoviedb.org/movie/${result.tmdb_id}" target="_blank" class="verify-link" onclick="event.stopPropagation()">TMDB ↗</a>` : '');
+                        const imdbLink = result.imdb_id ? `<a href="https://www.imdb.com/title/${result.imdb_id}/" target="_blank" class="verify-link" onclick="event.stopPropagation()">IMDB ↗</a>` : '';
+
+                        return `
                         <div class="result-card" data-idx="${idx}" onclick="selectSearchResult(${idx})">
                             ${result.poster_url
                                 ? `<img class="result-poster" src="${result.poster_url}" alt="Poster">`
@@ -2394,16 +2466,16 @@
                             <div class="result-info">
                                 <div class="result-title">${escapeHtml(result.title || '-')}</div>
                                 <div class="result-meta">
-                                    <span>${result.year || '-'}</span> &bull;
-                                    <span>${result.runtime_minutes ? result.runtime_minutes + ' min' : '-'}</span>
+                                    <span>${result.year || '-'}</span>
+                                    ${!isTV ? ` &bull; <span>${result.runtime_minutes ? result.runtime_minutes + ' min' : '-'}</span>` : ''}
                                 </div>
                                 <div class="result-links">
-                                    ${result.tmdb_id ? `<a href="https://www.themoviedb.org/movie/${result.tmdb_id}" target="_blank" class="verify-link" onclick="event.stopPropagation()">TMDB ↗</a>` : ''}
-                                    ${result.imdb_id ? `<a href="https://www.imdb.com/title/${result.imdb_id}/" target="_blank" class="verify-link" onclick="event.stopPropagation()">IMDB ↗</a>` : ''}
+                                    ${dbLink}
+                                    ${imdbLink}
                                 </div>
                             </div>
                         </div>
-                    `).join('');
+                    `}).join('');
 
                     // Auto-select first result
                     selectSearchResult(0);
@@ -2451,6 +2523,13 @@
         const manualTitle = document.getElementById('manual-title').value.trim();
         const manualYear = document.getElementById('manual-year').value.trim();
 
+        const mediaType = currentReviewMediaType || 'movie';
+        const isTV = mediaType === 'tv';
+
+        // Get TV-specific fields
+        const seasonNum = isTV ? parseInt(document.getElementById('tv-season').value) || 1 : null;
+        const startEpisode = isTV ? parseInt(document.getElementById('tv-start-episode').value) || 1 : null;
+
         let payload;
         let folderNameForToast;
 
@@ -2463,11 +2542,16 @@
             payload = {
                 folder_name: currentReviewItem.folder_name,
                 identified_title: folderNameForToast,
-                media_type: 'movie',
+                media_type: mediaType,
                 year: manualYear ? parseInt(manualYear) : 0,
                 tmdb_id: (tmdbData && tmdbData.tmdb_id) ? tmdbData.tmdb_id : (manualTmdbId ? parseInt(manualTmdbId) : 0),
                 poster_url: (tmdbData && tmdbData.poster_url) ? tmdbData.poster_url : ''
             };
+            // Add TV-specific fields
+            if (isTV) {
+                payload.season_number = seasonNum;
+                payload.start_episode = startEpisode;
+            }
             // Clear the lookup result after use
             window.tmdbLookupResult = null;
         } else if (currentSearchResult) {
@@ -2476,11 +2560,17 @@
             payload = {
                 folder_name: currentReviewItem.folder_name,
                 identified_title: currentSearchResult.folder_name,
-                media_type: currentSearchResult.media_type || 'movie',
+                media_type: mediaType,
                 year: currentSearchResult.year || 0,
                 tmdb_id: currentSearchResult.tmdb_id || 0,
+                tvdb_id: currentSearchResult.tvdb_id || 0,
                 poster_url: currentSearchResult.poster_url || ''
             };
+            // Add TV-specific fields
+            if (isTV) {
+                payload.season_number = seasonNum;
+                payload.start_episode = startEpisode;
+            }
         } else {
             return;  // Nothing to apply
         }

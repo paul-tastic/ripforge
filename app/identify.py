@@ -692,6 +692,75 @@ class SmartIdentifier:
         candidates.sort(key=lambda x: x['score'], reverse=True)
         return candidates[:limit]
 
+    def search_sonarr_multi(self, title: str, limit: int = 5) -> List[dict]:
+        """Search Sonarr and return multiple results for user selection"""
+        if not self.sonarr_api:
+            return []
+
+        try:
+            response = requests.get(
+                f"{self.sonarr_url}/api/v3/series/lookup",
+                params={'term': title},
+                headers={'X-Api-Key': self.sonarr_api},
+                timeout=10
+            )
+
+            if response.status_code != 200:
+                return []
+
+            results = response.json()
+            if not results:
+                return []
+
+            candidates = []
+            search_title_lower = title.lower().strip()
+
+            for show in results[:20]:
+                score = 0
+                show_title = show.get('title', 'Unknown')
+                show_year = show.get('year', 0)
+                show_title_lower = show_title.lower().strip()
+
+                # Title scoring
+                if show_title_lower == search_title_lower:
+                    score += 50
+                elif search_title_lower in show_title_lower:
+                    score += 25
+                elif show_title_lower in search_title_lower:
+                    score += 15
+
+                # Popularity bonus from ratings
+                ratings = show.get('ratings', {})
+                score += min(ratings.get('value', 0) * 5, 20)
+
+                # Get poster URL
+                poster_url = ""
+                images = show.get('images', [])
+                for img in images:
+                    if img.get('coverType') == 'poster':
+                        poster_url = img.get('remoteUrl', '')
+                        break
+
+                candidates.append({
+                    'title': show_title,
+                    'year': show_year,
+                    'tvdb_id': show.get('tvdbId', 0),
+                    'imdb_id': show.get('imdbId', ''),
+                    'runtime_minutes': show.get('runtime', 0),
+                    'poster_url': poster_url,
+                    'score': score,
+                    'folder_name': show_title,  # TV shows don't use year in folder
+                    'media_type': 'tv'
+                })
+
+            # Sort by score and return top N
+            candidates.sort(key=lambda x: x['score'], reverse=True)
+            return candidates[:limit]
+
+        except Exception as e:
+            activity.log_error(f"SONARR: Multi-search error: {e}")
+            return []
+
     def search_radarr_by_runtime(self, runtime_seconds: int, verbose: bool = True) -> Optional[IdentificationResult]:
         """Search Radarr library by runtime only - fallback for generic disc labels"""
         if not self.radarr_api or not runtime_seconds:

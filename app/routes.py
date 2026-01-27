@@ -1509,21 +1509,8 @@ def api_review_search():
             limit=5
         )
     else:
-        # Search Sonarr for TV - still single result for now
-        result = identifier.search_sonarr(search_term, [], 0)
-        if result:
-            results.append({
-                'title': result.title,
-                'year': result.year,
-                'tmdb_id': result.tmdb_id,
-                'imdb_id': result.imdb_id,
-                'tvdb_id': result.tvdb_id,
-                'runtime_minutes': result.runtime_minutes,
-                'confidence': result.confidence,
-                'folder_name': result.folder_name,
-                'poster_url': result.poster_url,
-                'media_type': 'tv'
-            })
+        # Search Sonarr for TV - return multiple results
+        results = identifier.search_sonarr_multi(search_term, limit=5)
 
     return jsonify({
         'results': results,
@@ -1599,11 +1586,14 @@ def api_review_apply():
 
     data = request.json or {}
     folder_name = data.get('folder_name')
-    identified_title = data.get('identified_title')  # e.g. "Under Siege (1992)"
+    identified_title = data.get('identified_title')  # e.g. "Under Siege (1992)" or "Arrested Development"
     media_type = data.get('media_type', 'movie')
     year = data.get('year', 0)
     tmdb_id = data.get('tmdb_id', 0)
+    tvdb_id = data.get('tvdb_id', 0)
     poster_url = data.get('poster_url', '')
+    season_number = data.get('season_number', 1)  # For TV: which season
+    start_episode = data.get('start_episode', 1)  # For TV: starting episode number
 
     if not folder_name or not identified_title:
         return jsonify({'error': 'folder_name and identified_title required'}), 400
@@ -1643,15 +1633,18 @@ def api_review_apply():
         # Create destination and move files
         Path(dest_path).mkdir(parents=True, exist_ok=True)
 
-        for mkv_file in mkv_files:
+        # Sort mkv files by name to ensure proper episode ordering
+        mkv_files.sort()
+
+        for idx, mkv_file in enumerate(mkv_files):
             if media_type == 'movie':
                 new_filename = f"{identified_title}.mkv"
                 if len(mkv_files) > 1:
-                    idx = mkv_files.index(mkv_file) + 1
-                    new_filename = f"{identified_title} - Part {idx}.mkv"
+                    new_filename = f"{identified_title} - Part {idx + 1}.mkv"
             else:
-                # Keep original filename for TV (should be properly named)
-                new_filename = os.path.basename(mkv_file)
+                # TV: Rename to S##E## format for Plex compatibility
+                episode_num = start_episode + idx
+                new_filename = f"S{season_number:02d}E{episode_num:02d}.mkv"
 
             dest_file = os.path.join(dest_path, new_filename)
             activity.log_info(f"REVIEW: Moving: {os.path.basename(mkv_file)} -> {new_filename}")
