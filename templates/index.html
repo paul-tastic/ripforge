@@ -2231,6 +2231,9 @@
         const expectedEps = item.expected_episodes || trackCount;
         countSpan.textContent = `${trackCount} tracks / ${expectedEps} episodes in S${item.season_number || 1}`;
 
+        // Get starting episode from input
+        const startEp = parseInt(document.getElementById('tv-start-episode').value) || 1;
+
         // Build track cards
         let html = '';
         item.tracks.forEach((track, idx) => {
@@ -2243,12 +2246,12 @@
             const thumbnails = track.thumbnails || (track.thumbnail ? [track.thumbnail] : []);
             const hasMetadata = track.metadata && (track.metadata.title || (track.metadata.chapters && track.metadata.chapters.length > 0));
 
-            // Build thumbnail filmstrip HTML
+            // Build thumbnail filmstrip HTML with click-to-expand
             let thumbHtml = '';
             if (thumbnails.length > 0) {
                 const thumbUrls = thumbnails.map(t => `/api/review/thumbnail/${item.folder_name}/${t}`);
                 thumbHtml = `
-                    <div class="track-thumb-filmstrip" data-thumbs='${JSON.stringify(thumbUrls)}' data-current="0">
+                    <div class="track-thumb-filmstrip" data-thumbs='${JSON.stringify(thumbUrls)}' data-current="0" data-filename="${escapeHtml(track.filename)}" onclick="openThumbLightbox(this)">
                         <img src="${thumbUrls[0]}" class="track-thumb" alt="Track ${idx + 1}">
                         ${thumbnails.length > 1 ? `<div class="thumb-indicator">${thumbnails.length} frames</div>` : ''}
                     </div>
@@ -2257,30 +2260,29 @@
                 thumbHtml = `<div class="track-thumb-placeholder">?</div>`;
             }
 
-            // Build metadata tooltip content
+            // Build metadata tooltip - use data attribute for JS tooltip
             let metadataHtml = '';
             if (hasMetadata) {
                 const meta = track.metadata;
-                let tooltipContent = '';
+                let tooltipLines = [];
                 if (meta.title) {
-                    tooltipContent += `<strong>Title:</strong> ${escapeHtml(meta.title)}<br>`;
+                    tooltipLines.push(`Title: ${meta.title}`);
                 }
                 if (meta.chapters && meta.chapters.length > 0) {
-                    tooltipContent += `<strong>Chapters (${meta.chapters.length}):</strong><br>`;
+                    tooltipLines.push(`Chapters (${meta.chapters.length}):`);
                     meta.chapters.slice(0, 5).forEach((ch, i) => {
-                        tooltipContent += `&nbsp;&nbsp;${i + 1}. ${escapeHtml(ch.title)}<br>`;
+                        tooltipLines.push(`  ${i + 1}. ${ch.title}`);
                     });
                     if (meta.chapters.length > 5) {
-                        tooltipContent += `&nbsp;&nbsp;... and ${meta.chapters.length - 5} more`;
+                        tooltipLines.push(`  ... and ${meta.chapters.length - 5} more`);
                     }
                 }
-                metadataHtml = `
-                    <span class="track-meta-icon">
-                        ℹ
-                        <div class="track-meta-tooltip">${tooltipContent}</div>
-                    </span>
-                `;
+                const tooltipText = tooltipLines.join('\n');
+                metadataHtml = `<span class="track-meta-icon" title="${escapeHtml(tooltipText)}">ℹ</span>`;
             }
+
+            // Episode number for this track based on starting episode
+            const epNum = startEp + idx;
 
             html += `
                 <div class="track-card" data-filename="${escapeHtml(track.filename)}" data-idx="${idx}">
@@ -2292,7 +2294,7 @@
                     <div class="track-assign">
                         <select class="episode-select" data-idx="${idx}" onchange="updateTrackAssignment(${idx}, this.value)">
                             <option value="0" ${isExtra ? 'selected' : ''}>-- Extra --</option>
-                            ${generateEpisodeOptions(expectedEps, suggested, isExtra)}
+                            ${generateEpisodeOptions(trackCount, idx + 1, isExtra, startEp)}
                         </select>
                     </div>
                 </div>
@@ -2304,6 +2306,31 @@
 
         // Set up thumbnail cycling on hover
         setupThumbnailCycling();
+    }
+
+    function openThumbLightbox(filmstrip) {
+        const thumbs = JSON.parse(filmstrip.dataset.thumbs || '[]');
+        const filename = filmstrip.dataset.filename || 'Track';
+        if (thumbs.length === 0) return;
+
+        // Create lightbox
+        const lightbox = document.createElement('div');
+        lightbox.className = 'thumb-lightbox';
+        lightbox.innerHTML = `
+            <div class="thumb-lightbox-content">
+                <div class="thumb-lightbox-header">
+                    <span>${escapeHtml(filename)}</span>
+                    <button onclick="this.closest('.thumb-lightbox').remove()">&times;</button>
+                </div>
+                <div class="thumb-lightbox-grid">
+                    ${thumbs.map((url, i) => `<img src="${url}" alt="Frame ${i + 1}">`).join('')}
+                </div>
+            </div>
+        `;
+        lightbox.addEventListener('click', (e) => {
+            if (e.target === lightbox) lightbox.remove();
+        });
+        document.body.appendChild(lightbox);
     }
 
     function setupThumbnailCycling() {
@@ -2335,13 +2362,35 @@
         });
     }
 
-    function generateEpisodeOptions(maxEpisodes, selected, isExtra) {
+    function generateEpisodeOptions(numTracks, selectedIdx, isExtra, startEpisode) {
         let options = '';
-        for (let ep = 1; ep <= maxEpisodes; ep++) {
-            const isSelected = !isExtra && ep === selected;
-            options += `<option value="${ep}" ${isSelected ? 'selected' : ''}>Episode ${ep}</option>`;
+        const start = startEpisode || 1;
+        for (let i = 0; i < numTracks; i++) {
+            const epNum = start + i;
+            const isSelected = !isExtra && (i + 1) === selectedIdx;
+            options += `<option value="${epNum}" ${isSelected ? 'selected' : ''}>Episode ${epNum}</option>`;
         }
         return options;
+    }
+
+    function refreshEpisodeDropdowns() {
+        // Re-render dropdowns when starting episode changes
+        if (currentReviewItem && currentReviewItem.tracks) {
+            const startEp = parseInt(document.getElementById('tv-start-episode').value) || 1;
+            const numTracks = currentReviewItem.tracks.length;
+
+            document.querySelectorAll('.episode-select').forEach((select, idx) => {
+                const currentVal = select.value;
+                const isExtra = currentVal === '0';
+                let html = '<option value="0"' + (isExtra ? ' selected' : '') + '>-- Extra --</option>';
+                for (let i = 0; i < numTracks; i++) {
+                    const epNum = startEp + i;
+                    const isSelected = !isExtra && epNum === parseInt(currentVal);
+                    html += `<option value="${epNum}" ${isSelected ? 'selected' : ''}>Episode ${epNum}</option>`;
+                }
+                select.innerHTML = html;
+            });
+        }
     }
 
     function updateTrackAssignment(trackIdx, episodeNum) {
@@ -2450,6 +2499,8 @@
         const titleInput = document.getElementById('manual-title');
         const yearInput = document.getElementById('manual-year');
         const tmdbInput = document.getElementById('manual-tmdb');
+        const startEpInput = document.getElementById('tv-start-episode');
+
         if (titleInput) titleInput.addEventListener('input', updateManualPreview);
         if (yearInput) yearInput.addEventListener('input', updateManualPreview);
         if (tmdbInput) tmdbInput.addEventListener('input', function() {
@@ -2460,6 +2511,9 @@
                 fetchBtn.style.display = this.value.trim() ? 'inline-block' : 'none';
             }
         });
+
+        // Refresh episode dropdowns when starting episode changes
+        if (startEpInput) startEpInput.addEventListener('change', refreshEpisodeDropdowns);
     });
 
     function lookupTmdbId() {

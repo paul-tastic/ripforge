@@ -3156,3 +3156,74 @@ select option {
 .track-meta-tooltip strong {
     color: var(--accent);
 }
+
+/* Thumbnail lightbox */
+.thumb-lightbox {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.9);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.thumb-lightbox-content {
+    background: var(--bg-card);
+    border-radius: 8px;
+    max-width: 90vw;
+    max-height: 90vh;
+    overflow: auto;
+}
+
+.thumb-lightbox-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    color: var(--text);
+}
+
+.thumb-lightbox-header button {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.thumb-lightbox-header button:hover {
+    color: var(--text);
+}
+
+.thumb-lightbox-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    padding: 16px;
+}
+
+.thumb-lightbox-grid img {
+    width: 100%;
+    height: auto;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.thumb-lightbox-grid img:hover {
+    transform: scale(1.05);
+}
+
+/* Make filmstrip clickable */
+.track-thumb-filmstrip {
+    cursor: pointer;
+}
