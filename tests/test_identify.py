@@ -321,3 +321,178 @@ class TestParseDiscLabel:
 
         result = identifier.parse_disc_label("MOVIE_2023", verbose=False)
         assert result is not None
+
+
+class TestMatchTracksToEpisodes:
+    """Tests for the match_tracks_to_episodes function"""
+
+    def test_empty_tracks_returns_empty(self):
+        """Test empty tracks list returns empty list"""
+        from app.identify import match_tracks_to_episodes
+        result = match_tracks_to_episodes([], [])
+        assert result == []
+
+    def test_no_episodes_assigns_sequential(self):
+        """Test without episode data, tracks get sequential assignment"""
+        from app.identify import match_tracks_to_episodes
+        tracks = [
+            {'duration_secs': 2700, 'filename': 't1.mkv'},
+            {'duration_secs': 2700, 'filename': 't2.mkv'},
+            {'duration_secs': 2700, 'filename': 't3.mkv'},
+        ]
+        result = match_tracks_to_episodes(tracks, [])
+        assert result[0]['suggested_episode'] == 1
+        assert result[1]['suggested_episode'] == 2
+        assert result[2]['suggested_episode'] == 3
+        assert all(t['confidence'] == 50 for t in result)
+
+    def test_matches_by_duration(self):
+        """Test tracks are matched to episodes by duration"""
+        from app.identify import match_tracks_to_episodes
+        tracks = [
+            {'duration_secs': 2700, 'filename': 't1.mkv'},  # 45 min
+            {'duration_secs': 2580, 'filename': 't2.mkv'},  # 43 min
+        ]
+        episodes = [
+            {'episode_num': 1, 'runtime_secs': 2700},  # 45 min
+            {'episode_num': 2, 'runtime_secs': 2580},  # 43 min
+        ]
+        result = match_tracks_to_episodes(tracks, episodes)
+        # Should match based on duration
+        assert result[0]['suggested_episode'] in [1, 2]
+        assert result[1]['suggested_episode'] in [1, 2]
+        assert result[0]['suggested_episode'] != result[1]['suggested_episode']
+
+    def test_high_confidence_for_close_match(self):
+        """Test high confidence when duration matches closely"""
+        from app.identify import match_tracks_to_episodes
+        tracks = [{'duration_secs': 2700, 'filename': 't1.mkv'}]
+        episodes = [{'episode_num': 1, 'runtime_secs': 2700}]  # Exact match
+        result = match_tracks_to_episodes(tracks, episodes)
+        assert result[0]['confidence'] >= 90
+
+    def test_lower_confidence_for_distant_match(self):
+        """Test lower confidence when duration match is further"""
+        from app.identify import match_tracks_to_episodes
+        tracks = [{'duration_secs': 2700, 'filename': 't1.mkv'}]
+        episodes = [{'episode_num': 1, 'runtime_secs': 2800}]  # 100 sec diff
+        result = match_tracks_to_episodes(tracks, episodes)
+        assert result[0]['confidence'] < 95
+
+    def test_marks_extras_for_short_tracks(self):
+        """Test very short tracks are marked as potential extras"""
+        from app.identify import match_tracks_to_episodes
+        tracks = [
+            {'duration_secs': 2700, 'filename': 't1.mkv'},  # Normal ep
+            {'duration_secs': 300, 'filename': 't2.mkv'},   # 5 min - too short
+        ]
+        episodes = [
+            {'episode_num': 1, 'runtime_secs': 2700},
+            {'episode_num': 2, 'runtime_secs': 2700},
+        ]
+        result = match_tracks_to_episodes(tracks, episodes)
+        # Short track should be flagged as potential extra
+        short_track = next(t for t in result if t['filename'] == 't2.mkv')
+        assert short_track['is_extra'] is True
+
+    def test_marks_extras_for_long_tracks(self):
+        """Test very long tracks are marked as potential extras"""
+        from app.identify import match_tracks_to_episodes
+        tracks = [
+            {'duration_secs': 2700, 'filename': 't1.mkv'},  # Normal ep
+            {'duration_secs': 7200, 'filename': 't2.mkv'},  # 2 hours - too long
+        ]
+        episodes = [
+            {'episode_num': 1, 'runtime_secs': 2700},
+            {'episode_num': 2, 'runtime_secs': 2700},
+        ]
+        result = match_tracks_to_episodes(tracks, episodes)
+        long_track = next(t for t in result if t['filename'] == 't2.mkv')
+        assert long_track['is_extra'] is True
+
+    def test_tolerance_parameter(self):
+        """Test custom tolerance affects matching"""
+        from app.identify import match_tracks_to_episodes
+        tracks = [{'duration_secs': 2700, 'filename': 't1.mkv'}]
+        episodes = [{'episode_num': 1, 'runtime_secs': 2900}]  # 200 sec diff
+
+        # With default 120 sec tolerance, no match
+        result_default = match_tracks_to_episodes(tracks, episodes, tolerance_secs=120)
+        assert result_default[0]['suggested_episode'] == 0 or result_default[0]['is_extra']
+
+        # With higher tolerance, should match
+        result_high = match_tracks_to_episodes(tracks, episodes, tolerance_secs=300)
+        assert result_high[0]['suggested_episode'] == 1
+
+
+class TestGetSeasonEpisodesForReview:
+    """Tests for get_season_episodes_for_review method"""
+
+    def test_returns_empty_without_api_key(self, sample_config):
+        """Test returns empty list when Sonarr API key missing"""
+        config_no_key = sample_config.copy()
+        config_no_key['integrations'] = {'sonarr': {'url': 'http://localhost:8989', 'api_key': ''}}
+        identifier = SmartIdentifier(config_no_key)
+        result = identifier.get_season_episodes_for_review(12345, 1)
+        assert result == []
+
+    @patch('requests.get')
+    def test_returns_episodes_on_success(self, mock_get, sample_config):
+        """Test returns episode list on successful API call"""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = [{
+            'title': 'Test Show',
+            'runtime': 45,
+            'seasons': [
+                {'seasonNumber': 1, 'statistics': {'totalEpisodeCount': 10}},
+                {'seasonNumber': 2, 'statistics': {'totalEpisodeCount': 12}},
+            ]
+        }]
+        mock_get.return_value = mock_response
+
+        identifier = SmartIdentifier(sample_config)
+        result = identifier.get_season_episodes_for_review(12345, 1)
+
+        assert len(result) == 10
+        assert result[0]['episode_num'] == 1
+        assert result[0]['runtime_secs'] == 45 * 60  # Converted to seconds
+        assert result[9]['episode_num'] == 10
+
+    @patch('requests.get')
+    def test_handles_api_error(self, mock_get, sample_config):
+        """Test handles API errors gracefully"""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_get.return_value = mock_response
+
+        identifier = SmartIdentifier(sample_config)
+        result = identifier.get_season_episodes_for_review(12345, 1)
+        assert result == []
+
+    @patch('requests.get')
+    def test_handles_missing_season(self, mock_get, sample_config):
+        """Test handles request for non-existent season"""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = [{
+            'title': 'Test Show',
+            'runtime': 45,
+            'seasons': [
+                {'seasonNumber': 1, 'statistics': {'totalEpisodeCount': 10}},
+            ]
+        }]
+        mock_get.return_value = mock_response
+
+        identifier = SmartIdentifier(sample_config)
+        result = identifier.get_season_episodes_for_review(12345, 5)  # Season 5 doesn't exist
+        assert result == []
+
+    @patch('requests.get')
+    def test_handles_network_exception(self, mock_get, sample_config):
+        """Test handles network exceptions gracefully"""
+        mock_get.side_effect = Exception("Connection failed")
+
+        identifier = SmartIdentifier(sample_config)
+        result = identifier.get_season_episodes_for_review(12345, 1)
+        assert result == []

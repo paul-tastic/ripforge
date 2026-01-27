@@ -650,3 +650,163 @@ class TestAPILibraryIdentify:
         data = json.loads(response.data)
         assert 'results' in data
         assert 'query' in data
+
+
+class TestAPIReviewThumbnail:
+    """Tests for the /api/review/thumbnail endpoint"""
+
+    @patch('app.routes.config.load_config')
+    def test_thumbnail_folder_not_found(self, mock_config, client):
+        """Test returns 404 when folder doesn't exist"""
+        mock_config.return_value = {'paths': {'review': '/nonexistent/path'}}
+        response = client.get('/api/review/thumbnail/fake_folder/thumb.jpg')
+        assert response.status_code == 404
+
+    @patch('app.routes.config.load_config')
+    def test_thumbnail_invalid_file_type(self, mock_config, client, tmp_path):
+        """Test returns 400 for non-jpg files"""
+        # Create temp review folder
+        review_path = tmp_path / "review"
+        review_path.mkdir()
+        folder = review_path / "test_folder"
+        folder.mkdir()
+
+        mock_config.return_value = {'paths': {'review': str(review_path)}}
+        response = client.get('/api/review/thumbnail/test_folder/file.txt')
+        assert response.status_code == 400
+
+    @patch('app.routes.config.load_config')
+    @patch('app.routes.send_from_directory')
+    def test_thumbnail_serves_file(self, mock_send, mock_config, client, tmp_path):
+        """Test serves thumbnail file when it exists"""
+        # Create temp review folder with jpg
+        review_path = tmp_path / "review"
+        review_path.mkdir()
+        folder = review_path / "test_folder"
+        folder.mkdir()
+        thumb = folder / "thumb.jpg"
+        thumb.write_bytes(b'\xff\xd8\xff\xe0')  # Minimal JPEG header
+
+        mock_config.return_value = {'paths': {'review': str(review_path)}}
+        mock_send.return_value = "served"
+
+        response = client.get('/api/review/thumbnail/test_folder/thumb.jpg')
+        # Will either succeed or send_from_directory was called
+        mock_send.assert_called_once()
+
+
+class TestAPIReviewEpisodes:
+    """Tests for the /api/review/episodes endpoint"""
+
+    @patch('app.routes.config.load_config')
+    @patch('app.identify.SmartIdentifier.get_season_episodes_for_review')
+    def test_episodes_returns_json(self, mock_get_eps, mock_config, client):
+        """Test episodes endpoint returns proper JSON structure"""
+        mock_config.return_value = {
+            'integrations': {
+                'sonarr': {'url': 'http://localhost:8989', 'api_key': 'test'}
+            }
+        }
+        mock_get_eps.return_value = [
+            {'episode_num': 1, 'title': 'Episode 1', 'runtime_secs': 2700},
+            {'episode_num': 2, 'title': 'Episode 2', 'runtime_secs': 2700},
+        ]
+
+        response = client.get('/api/review/episodes/12345/1')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['tvdb_id'] == 12345
+        assert data['season'] == 1
+        assert 'episodes' in data
+        assert data['count'] == 2
+
+    @patch('app.routes.config.load_config')
+    @patch('app.identify.SmartIdentifier.get_season_episodes_for_review')
+    def test_episodes_empty_when_not_found(self, mock_get_eps, mock_config, client):
+        """Test returns empty list when no episodes found"""
+        mock_config.return_value = {
+            'integrations': {
+                'sonarr': {'url': 'http://localhost:8989', 'api_key': 'test'}
+            }
+        }
+        mock_get_eps.return_value = []
+
+        response = client.get('/api/review/episodes/99999/99')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['episodes'] == []
+        assert data['count'] == 0
+
+
+class TestAPIReviewApplyWithEpisodeAssignments:
+    """Tests for episode assignment handling in /api/review/apply"""
+
+    @patch('app.routes.config.load_config')
+    @patch('os.path.isdir')
+    @patch('os.path.exists')
+    @patch('builtins.open', new_callable=mock_open, read_data='{}')
+    @patch('glob.glob')
+    @patch('shutil.move')
+    @patch('shutil.rmtree')
+    @patch('pathlib.Path.mkdir')
+    @patch('app.routes.activity')
+    def test_apply_with_episode_assignments(
+        self, mock_activity, mock_mkdir, mock_rmtree, mock_move,
+        mock_glob, mock_open_file, mock_exists, mock_isdir, mock_config, client, tmp_path
+    ):
+        """Test apply handles episode assignments correctly"""
+        mock_config.return_value = {
+            'paths': {
+                'review': str(tmp_path / 'review'),
+                'movies': str(tmp_path / 'movies'),
+                'tv': str(tmp_path / 'tv')
+            }
+        }
+        mock_isdir.return_value = True
+        mock_exists.return_value = True
+        mock_glob.return_value = [
+            str(tmp_path / 'review/test/t1.mkv'),
+            str(tmp_path / 'review/test/t2.mkv'),
+        ]
+
+        response = client.post(
+            '/api/review/apply',
+            data=json.dumps({
+                'folder_name': 'test_folder',
+                'identified_title': 'Test Show',
+                'media_type': 'tv',
+                'season_number': 1,
+                'episode_assignments': [
+                    {'filename': 't1.mkv', 'episode_num': 1, 'is_extra': False},
+                    {'filename': 't2.mkv', 'episode_num': 0, 'is_extra': True},
+                ]
+            }),
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['success'] is True
+
+    @patch('app.routes.config.load_config')
+    def test_apply_missing_folder(self, mock_config, client, tmp_path):
+        """Test apply returns error when folder missing"""
+        mock_config.return_value = {
+            'paths': {
+                'review': str(tmp_path / 'review'),
+                'movies': str(tmp_path / 'movies'),
+                'tv': str(tmp_path / 'tv')
+            }
+        }
+
+        response = client.post(
+            '/api/review/apply',
+            data=json.dumps({
+                'folder_name': 'nonexistent',
+                'identified_title': 'Test',
+                'media_type': 'movie'
+            }),
+            content_type='application/json'
+        )
+
+        assert response.status_code == 404
