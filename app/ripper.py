@@ -1716,50 +1716,137 @@ class RipEngine:
             self.current_job.eta = eta
 
     def _generate_track_thumbnails(self, review_folder: str, mkv_files: list) -> dict:
-        """Extract thumbnail from each MKV at 5-minute mark.
+        """Extract multiple thumbnails from each MKV at different points.
+
+        Generates 5 thumbnails at 10%, 25%, 50%, 75%, 90% of the video duration
+        to give users multiple visual anchors for episode identification.
 
         Args:
             review_folder: Path to the review folder containing MKV files
             mkv_files: List of MKV file paths
 
         Returns:
-            Dict mapping MKV filename to thumbnail filename
+            Dict mapping MKV filename to list of thumbnail filenames
         """
+        # Thumbnail positions as percentages of video duration
+        THUMB_POSITIONS = [10, 25, 50, 75, 90]
+
         thumbnails = {}
         for mkv_path in mkv_files:
+            mkv_name = os.path.basename(mkv_path)
+            stem = Path(mkv_path).stem
+            thumb_list = []
+
+            # First get duration to calculate positions
+            duration_secs = 0
             try:
-                mkv_name = os.path.basename(mkv_path)
-                thumb_name = Path(mkv_path).stem + ".jpg"
-                thumb_path = os.path.join(review_folder, thumb_name)
-
-                # Extract thumbnail at 5 minute mark (300 seconds)
-                result = subprocess.run([
-                    'ffmpeg', '-y', '-ss', '300',  # 5 min in
-                    '-i', mkv_path, '-vframes', '1',
-                    '-vf', 'scale=320:-1', thumb_path
-                ], capture_output=True, timeout=30)
-
-                if result.returncode == 0 and os.path.exists(thumb_path):
-                    thumbnails[mkv_name] = thumb_name
-                    activity.log_info(f"THUMBNAIL: Generated {thumb_name}")
-                else:
-                    activity.log_warning(f"THUMBNAIL: Failed to generate for {mkv_name}")
-            except subprocess.TimeoutExpired:
-                activity.log_warning(f"THUMBNAIL: Timeout generating for {mkv_name}")
+                result = subprocess.run(
+                    ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                     '-of', 'default=noprint_wrappers=1:nokey=1', mkv_path],
+                    capture_output=True, text=True, timeout=30
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    duration_secs = int(float(result.stdout.strip()))
             except Exception as e:
-                activity.log_warning(f"THUMBNAIL: Error generating for {mkv_name}: {e}")
+                activity.log_warning(f"THUMBNAIL: Could not get duration for {mkv_name}: {e}")
+                duration_secs = 1800  # Fallback to 30 min
+
+            # Generate thumbnails at each position
+            for idx, pct in enumerate(THUMB_POSITIONS):
+                try:
+                    seek_time = int(duration_secs * pct / 100)
+                    thumb_name = f"{stem}_{idx + 1}.jpg"
+                    thumb_path = os.path.join(review_folder, thumb_name)
+
+                    result = subprocess.run([
+                        'ffmpeg', '-y', '-ss', str(seek_time),
+                        '-i', mkv_path, '-vframes', '1',
+                        '-vf', 'scale=320:-1', thumb_path
+                    ], capture_output=True, timeout=30)
+
+                    if result.returncode == 0 and os.path.exists(thumb_path):
+                        thumb_list.append(thumb_name)
+                    else:
+                        activity.log_warning(f"THUMBNAIL: Failed frame {idx + 1} for {mkv_name}")
+                except subprocess.TimeoutExpired:
+                    activity.log_warning(f"THUMBNAIL: Timeout on frame {idx + 1} for {mkv_name}")
+                except Exception as e:
+                    activity.log_warning(f"THUMBNAIL: Error on frame {idx + 1} for {mkv_name}: {e}")
+
+            if thumb_list:
+                thumbnails[mkv_name] = thumb_list
+                activity.log_info(f"THUMBNAIL: Generated {len(thumb_list)} frames for {mkv_name}")
+            else:
+                activity.log_warning(f"THUMBNAIL: No frames generated for {mkv_name}")
 
         return thumbnails
 
+    def _extract_track_metadata(self, mkv_path: str) -> dict:
+        """Extract metadata from MKV file including title and chapter info.
+
+        Args:
+            mkv_path: Path to the MKV file
+
+        Returns:
+            Dict with title, chapters list, and other metadata
+        """
+        import json as json_module
+        metadata = {
+            "title": "",
+            "chapters": [],
+            "format_title": ""
+        }
+
+        try:
+            # Get full metadata as JSON
+            result = subprocess.run([
+                'ffprobe', '-v', 'quiet', '-print_format', 'json',
+                '-show_format', '-show_chapters', mkv_path
+            ], capture_output=True, text=True, timeout=30)
+
+            if result.returncode == 0 and result.stdout:
+                data = json_module.loads(result.stdout)
+
+                # Extract format-level title
+                fmt = data.get('format', {})
+                tags = fmt.get('tags', {})
+                metadata["format_title"] = tags.get('title', '') or tags.get('TITLE', '')
+
+                # Extract chapter info
+                chapters = data.get('chapters', [])
+                for ch in chapters:
+                    ch_tags = ch.get('tags', {})
+                    ch_title = ch_tags.get('title', '') or ch_tags.get('TITLE', '')
+                    if ch_title:
+                        metadata["chapters"].append({
+                            "title": ch_title,
+                            "start": float(ch.get('start_time', 0)),
+                            "end": float(ch.get('end_time', 0))
+                        })
+
+                # Use format title as main title if available
+                if metadata["format_title"]:
+                    metadata["title"] = metadata["format_title"]
+                # Otherwise try to get title from first chapter if it looks like episode info
+                elif metadata["chapters"] and len(metadata["chapters"]) > 0:
+                    first_ch = metadata["chapters"][0]["title"]
+                    if any(kw in first_ch.lower() for kw in ['episode', 'ep', 'pilot', 'chapter']):
+                        metadata["title"] = first_ch
+
+        except Exception as e:
+            activity.log_warning(f"METADATA: Error extracting from {os.path.basename(mkv_path)}: {e}")
+
+        return metadata
+
     def _get_track_info_for_review(self, review_folder: str, mkv_files: list) -> list:
-        """Get track information including duration and size for each MKV file.
+        """Get track information including duration, size, and metadata for each MKV file.
 
         Args:
             review_folder: Path to the review folder
             mkv_files: List of MKV file paths
 
         Returns:
-            List of track info dicts with filename, duration_secs, size_bytes
+            List of track info dicts with filename, duration_secs, size_bytes, metadata
         """
         tracks = []
         for mkv_path in sorted(mkv_files):
@@ -1769,7 +1856,8 @@ class RipEngine:
                 "duration_secs": 0,
                 "size_bytes": os.path.getsize(mkv_path) if os.path.exists(mkv_path) else 0,
                 "suggested_episode": len(tracks) + 1,
-                "is_extra": False
+                "is_extra": False,
+                "metadata": {}
             }
 
             # Get duration using ffprobe
@@ -1783,6 +1871,15 @@ class RipEngine:
                     track_info["duration_secs"] = int(float(result.stdout.strip()))
             except Exception as e:
                 activity.log_warning(f"TRACK INFO: Could not get duration for {mkv_name}: {e}")
+
+            # Extract metadata (title, chapters)
+            track_info["metadata"] = self._extract_track_metadata(mkv_path)
+
+            # If metadata has a title, log it
+            if track_info["metadata"].get("title"):
+                activity.log_info(f"METADATA: {mkv_name} -> '{track_info['metadata']['title']}'")
+            if track_info["metadata"].get("chapters"):
+                activity.log_info(f"METADATA: {mkv_name} has {len(track_info['metadata']['chapters'])} chapters")
 
             tracks.append(track_info)
 
@@ -2788,10 +2885,10 @@ class RipEngine:
             thumbnails = self._generate_track_thumbnails(str(review_dest), mkv_files)
             tracks_info = self._get_track_info_for_review(str(review_dest), mkv_files)
 
-            # Add thumbnail paths to track info
+            # Add thumbnail paths to track info (now a list of thumbnails)
             for track in tracks_info:
                 if track["filename"] in thumbnails:
-                    track["thumbnail"] = thumbnails[track["filename"]]
+                    track["thumbnails"] = thumbnails[track["filename"]]
 
             # Create review metadata file so it shows up in Review UI
             import json

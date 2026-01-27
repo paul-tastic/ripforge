@@ -3069,3 +3069,90 @@ select option {
 .track-card.is-extra .track-filename {
     text-decoration: line-through;
 }
+
+/* Thumbnail filmstrip - multiple frames cycling on hover */
+.track-thumb-filmstrip {
+    position: relative;
+    width: 80px;
+    height: 45px;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.track-thumb-filmstrip .track-thumb {
+    transition: opacity 0.2s ease;
+}
+
+.track-thumb-filmstrip:hover .track-thumb {
+    box-shadow: 0 0 0 2px var(--accent);
+}
+
+.thumb-indicator {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    background: rgba(0, 0, 0, 0.75);
+    color: var(--text);
+    font-size: 9px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    pointer-events: none;
+}
+
+/* Metadata info icon and tooltip */
+.track-meta-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-left: 6px;
+    background: var(--accent);
+    color: var(--bg-dark);
+    border-radius: 50%;
+    font-size: 10px;
+    font-weight: bold;
+    cursor: help;
+    position: relative;
+    vertical-align: middle;
+}
+
+.track-meta-icon:hover .track-meta-tooltip {
+    display: block;
+}
+
+.track-meta-tooltip {
+    display: none;
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 11px;
+    color: var(--text);
+    white-space: nowrap;
+    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    margin-bottom: 8px;
+    text-align: left;
+    font-weight: normal;
+    max-width: 300px;
+    white-space: normal;
+}
+
+.track-meta-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: var(--border);
+}
+
+.track-meta-tooltip strong {
+    color: var(--accent);
+}

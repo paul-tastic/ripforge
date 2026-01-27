@@ -2236,20 +2236,57 @@
         item.tracks.forEach((track, idx) => {
             const duration = formatDuration(track.duration_secs);
             const size = formatSize(track.size_bytes);
-            const thumbUrl = track.thumbnail
-                ? `/api/review/thumbnail/${item.folder_name}/${track.thumbnail}`
-                : '';
             const suggested = track.suggested_episode || (idx + 1);
             const isExtra = track.is_extra || false;
 
+            // Handle multiple thumbnails (new format) or single thumbnail (legacy)
+            const thumbnails = track.thumbnails || (track.thumbnail ? [track.thumbnail] : []);
+            const hasMetadata = track.metadata && (track.metadata.title || (track.metadata.chapters && track.metadata.chapters.length > 0));
+
+            // Build thumbnail filmstrip HTML
+            let thumbHtml = '';
+            if (thumbnails.length > 0) {
+                const thumbUrls = thumbnails.map(t => `/api/review/thumbnail/${item.folder_name}/${t}`);
+                thumbHtml = `
+                    <div class="track-thumb-filmstrip" data-thumbs='${JSON.stringify(thumbUrls)}' data-current="0">
+                        <img src="${thumbUrls[0]}" class="track-thumb" alt="Track ${idx + 1}">
+                        ${thumbnails.length > 1 ? `<div class="thumb-indicator">${thumbnails.length} frames</div>` : ''}
+                    </div>
+                `;
+            } else {
+                thumbHtml = `<div class="track-thumb-placeholder">?</div>`;
+            }
+
+            // Build metadata tooltip content
+            let metadataHtml = '';
+            if (hasMetadata) {
+                const meta = track.metadata;
+                let tooltipContent = '';
+                if (meta.title) {
+                    tooltipContent += `<strong>Title:</strong> ${escapeHtml(meta.title)}<br>`;
+                }
+                if (meta.chapters && meta.chapters.length > 0) {
+                    tooltipContent += `<strong>Chapters (${meta.chapters.length}):</strong><br>`;
+                    meta.chapters.slice(0, 5).forEach((ch, i) => {
+                        tooltipContent += `&nbsp;&nbsp;${i + 1}. ${escapeHtml(ch.title)}<br>`;
+                    });
+                    if (meta.chapters.length > 5) {
+                        tooltipContent += `&nbsp;&nbsp;... and ${meta.chapters.length - 5} more`;
+                    }
+                }
+                metadataHtml = `
+                    <span class="track-meta-icon" title="Metadata found">
+                        ℹ
+                        <div class="track-meta-tooltip">${tooltipContent}</div>
+                    </span>
+                `;
+            }
+
             html += `
                 <div class="track-card" data-filename="${escapeHtml(track.filename)}" data-idx="${idx}">
-                    ${thumbUrl
-                        ? `<img src="${thumbUrl}" class="track-thumb" alt="Track ${idx + 1}">`
-                        : `<div class="track-thumb-placeholder">?</div>`
-                    }
+                    ${thumbHtml}
                     <div class="track-info">
-                        <span class="track-filename">${escapeHtml(track.filename)}</span>
+                        <span class="track-filename">${escapeHtml(track.filename)}${metadataHtml}</span>
                         <span class="track-meta">${duration} &bull; ${size}</span>
                     </div>
                     <div class="track-assign">
@@ -2264,6 +2301,38 @@
 
         trackList.innerHTML = html;
         assignmentSection.style.display = 'block';
+
+        // Set up thumbnail cycling on hover
+        setupThumbnailCycling();
+    }
+
+    function setupThumbnailCycling() {
+        document.querySelectorAll('.track-thumb-filmstrip').forEach(filmstrip => {
+            let interval = null;
+            const thumbsData = JSON.parse(filmstrip.dataset.thumbs || '[]');
+            if (thumbsData.length <= 1) return;
+
+            const img = filmstrip.querySelector('.track-thumb');
+
+            filmstrip.addEventListener('mouseenter', () => {
+                let current = 0;
+                interval = setInterval(() => {
+                    current = (current + 1) % thumbsData.length;
+                    img.src = thumbsData[current];
+                    filmstrip.dataset.current = current;
+                }, 800);  // Cycle every 800ms
+            });
+
+            filmstrip.addEventListener('mouseleave', () => {
+                if (interval) {
+                    clearInterval(interval);
+                    interval = null;
+                }
+                // Reset to first thumbnail
+                img.src = thumbsData[0];
+                filmstrip.dataset.current = 0;
+            });
+        });
     }
 
     function generateEpisodeOptions(maxEpisodes, selected, isExtra) {
