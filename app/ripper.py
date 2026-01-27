@@ -1378,16 +1378,26 @@ class RipEngine:
                     if not self._is_makemkv_running() and raw_has_mkv:
                         # MakeMKV finished AND we have MKV output - but wait to confirm it's really done
                         if self.current_job.current_size_bytes > 0:
+                            # Check debug logging setting
+                            from . import config as cfg_module
+                            debug_cfg = cfg_module.load_config()
+                            debug_enabled = debug_cfg.get('ripping', {}).get('debug_logging', False)
+                            if debug_enabled:
+                                activity.log_info("STATUS_CHECK: MakeMKV not running + MKV files found, waiting 5s...")
                             # Wait 5 seconds and re-check (handles gap between TV episodes)
                             time.sleep(5)
                             if not self._is_makemkv_running():
                                 # Still not running after delay - safe to post-process
+                                if debug_enabled:
+                                    activity.log_info("STATUS_CHECK: Still not running after 5s, triggering post-processing")
                                 activity.log_info("MakeMKV finished, starting post-processing")
                                 self.current_job.progress = 100
                                 self._update_step("rip", "complete", "Rip finished")
                                 thread = threading.Thread(target=self._run_post_processing)
                                 thread.daemon = True
                                 thread.start()
+                            elif debug_enabled:
+                                activity.log_info("STATUS_CHECK: MakeMKV restarted (likely next episode), skipping post-processing")
 
                 return self.current_job.to_dict()
             return None
@@ -1840,14 +1850,17 @@ class RipEngine:
 
                 if episode_tracks:
                     episode_count = len(episode_tracks)
-                    activity.log_info(f"TV MODE: {episode_count} episodes to rip")
+                    activity.log_info(f"PIPELINE: TV mode - {episode_count} episodes to rip")
                     job.tracks_to_rip = [t["index"] for t in episode_tracks]
                     job.total_tracks = episode_count
                     self._run_tv_rip_pipeline_after_scan(disc_info)
                     return
                 else:
-                    activity.log_warning(f"TV MODE: No episode tracks found, falling back to movie mode")
+                    activity.log_warning(f"PIPELINE: TV mode requested but no episode tracks found, falling back to movie")
                     job.media_type = "movie"
+
+            # Movie pipeline
+            activity.log_info(f"PIPELINE: Movie mode - ripping main feature")
 
             # Step 3: Scan tracks (movie mode)
             self._update_step("scan", "active", "Scanning tracks...")

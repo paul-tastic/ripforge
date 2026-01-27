@@ -1184,20 +1184,25 @@ class SmartIdentifier:
             - media_type: 'tv' or 'movie'
             - result: IdentificationResult if found with good confidence, else None
         """
-        activity.log_info(f"=== EARLY IDENTIFY: {disc_label} ===")
+        # Check debug logging setting
+        debug_enabled = self.config.get('ripping', {}).get('debug_logging', False)
+
+        if debug_enabled:
+            activity.log_info(f"=== EARLY IDENTIFY: {disc_label} ===")
 
         # Step 1: Check disc label patterns for TV indicators
         label_media_type, season_number, cleaned_title = self.detect_media_type(disc_label, tracks)
-        search_term = self.parse_disc_label(cleaned_title if label_media_type == 'tv' else disc_label)
+        search_term = self.parse_disc_label(cleaned_title if label_media_type == 'tv' else disc_label, verbose=debug_enabled)
 
-        activity.log_info(f"EARLY ID: Label analysis suggests '{label_media_type}' (search: '{search_term}')")
+        if debug_enabled:
+            activity.log_info(f"EARLY ID: Label analysis suggests '{label_media_type}' (search: '{search_term}')")
 
         # Step 2: Quick Sonarr search (TV)
         sonarr_result = None
         if self.sonarr_api:
             try:
                 sonarr_result = self.search_sonarr(search_term, verbose=False)
-                if sonarr_result:
+                if sonarr_result and debug_enabled:
                     activity.log_info(f"EARLY ID: Sonarr found '{sonarr_result.title}' (confidence: {sonarr_result.confidence}%)")
             except Exception as e:
                 activity.log_warning(f"EARLY ID: Sonarr search failed: {e}")
@@ -1207,7 +1212,7 @@ class SmartIdentifier:
         if self.radarr_api:
             try:
                 radarr_result = self.search_radarr(search_term, verbose=False)
-                if radarr_result:
+                if radarr_result and debug_enabled:
                     activity.log_info(f"EARLY ID: Radarr found '{radarr_result.title}' (confidence: {radarr_result.confidence}%)")
             except Exception as e:
                 activity.log_warning(f"EARLY ID: Radarr search failed: {e}")
@@ -1219,7 +1224,8 @@ class SmartIdentifier:
         # If label patterns strongly suggest TV, boost Sonarr confidence
         if label_media_type == 'tv' and sonarr_conf > 0:
             sonarr_conf += 20
-            activity.log_info(f"EARLY ID: Boosted Sonarr confidence to {sonarr_conf}% (label pattern match)")
+            if debug_enabled:
+                activity.log_info(f"EARLY ID: Boosted Sonarr confidence to {sonarr_conf}% (label pattern match)")
 
         # Decide based on confidence
         if sonarr_conf >= 50 and sonarr_conf > radarr_conf:
@@ -1236,13 +1242,16 @@ class SmartIdentifier:
             longest_track = max((t.get('duration', 0) for t in tracks), default=0)
 
             if len(episode_tracks) >= 2 and longest_track < 5400:
-                activity.log_info(f"EARLY ID: Track analysis suggests TV ({len(episode_tracks)} episode-length tracks)")
+                if debug_enabled:
+                    activity.log_info(f"EARLY ID: Track analysis suggests TV ({len(episode_tracks)} episode-length tracks)")
                 return 'tv', sonarr_result
 
         # Default: use label pattern result, or movie if uncertain
         if label_media_type == 'tv':
-            activity.log_info(f"EARLY ID: Using label pattern result -> TV")
+            if debug_enabled:
+                activity.log_info(f"EARLY ID: Using label pattern result -> TV")
             return 'tv', sonarr_result
 
-        activity.log_info(f"EARLY ID: Defaulting to MOVIE (no strong signals)")
+        if debug_enabled:
+            activity.log_info(f"EARLY ID: Defaulting to MOVIE (no strong signals)")
         return 'movie', radarr_result
