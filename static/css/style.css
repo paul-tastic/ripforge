@@ -2956,3 +2956,116 @@ select option {
     margin-top: 8px;
     margin-bottom: 0;
 }
+
+/* Episode Assignment UI */
+.episode-assignment {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+
+.assignment-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.episode-count {
+    font-weight: 400;
+    font-size: 12px;
+    text-transform: none;
+    color: var(--accent);
+}
+
+.track-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.track-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px;
+    background: var(--bg-dark);
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    transition: border-color 0.2s;
+}
+
+.track-card:hover {
+    border-color: var(--text-muted);
+}
+
+.track-thumb {
+    width: 80px;
+    height: 45px;
+    object-fit: cover;
+    border-radius: 4px;
+    background: var(--bg-card);
+    flex-shrink: 0;
+}
+
+.track-thumb-placeholder {
+    width: 80px;
+    height: 45px;
+    border-radius: 4px;
+    background: var(--bg-card);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.track-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.track-filename {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.track-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.track-assign {
+    flex-shrink: 0;
+}
+
+.episode-select {
+    width: 120px;
+    padding: 6px 28px 6px 10px;
+    font-size: 13px;
+}
+
+/* Track card extra state */
+.track-card.is-extra {
+    opacity: 0.6;
+    border-color: var(--text-dim);
+}
+
+.track-card.is-extra .track-filename {
+    text-decoration: line-through;
+}

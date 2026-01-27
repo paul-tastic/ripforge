@@ -1324,3 +1324,160 @@ class SmartIdentifier:
         if debug_enabled:
             activity.log_info(f"EARLY ID: Defaulting to MOVIE (no strong signals)")
         return 'movie', radarr_result
+
+    def get_season_episodes_for_review(self, tvdb_id: int, season: int) -> List[dict]:
+        """Fetch episode list with runtimes for the review UI.
+
+        This method queries Sonarr to get episode information for a specific
+        season, which is used to populate the episode assignment dropdowns.
+
+        Args:
+            tvdb_id: TVDB series ID
+            season: Season number
+
+        Returns:
+            List of episode dicts with episode_num, title, runtime_secs
+        """
+        if not self.sonarr_api:
+            activity.log_warning("SONARR: No API key configured for episode lookup")
+            return []
+
+        try:
+            # Look up series by TVDB ID
+            response = requests.get(
+                f"{self.sonarr_url}/api/v3/series/lookup",
+                params={'term': f"tvdb:{tvdb_id}"},
+                headers={'X-Api-Key': self.sonarr_api},
+                timeout=10
+            )
+
+            if response.status_code != 200:
+                activity.log_warning(f"SONARR: Could not fetch series {tvdb_id}")
+                return []
+
+            series_data = response.json()
+            if not series_data:
+                return []
+
+            series = series_data[0] if isinstance(series_data, list) else series_data
+            default_runtime = series.get('runtime', 45)  # Default episode runtime in minutes
+
+            # Get episode count for the season
+            seasons = series.get('seasons', [])
+            episode_count = 0
+            for s in seasons:
+                if s.get('seasonNumber') == season:
+                    episode_count = s.get('statistics', {}).get('totalEpisodeCount', 0)
+                    break
+
+            if episode_count == 0:
+                activity.log_warning(f"SONARR: No episodes found for season {season}")
+                return []
+
+            # Build episode list
+            episodes = []
+            for ep_num in range(1, episode_count + 1):
+                episodes.append({
+                    'episode_num': ep_num,
+                    'title': f"Episode {ep_num}",  # Placeholder - real titles require series in library
+                    'runtime_secs': default_runtime * 60
+                })
+
+            activity.log_info(f"SONARR: Found {len(episodes)} episodes for season {season}")
+            return episodes
+
+        except Exception as e:
+            activity.log_error(f"SONARR: Error fetching episodes for review: {e}")
+            return []
+
+
+def match_tracks_to_episodes(tracks: List[dict], episodes: List[dict], tolerance_secs: int = 120) -> List[dict]:
+    """Match ripped tracks to known episodes by duration.
+
+    This standalone function implements the auto-match logic for the episode
+    assignment UI. It matches tracks to episodes based on duration similarity.
+
+    Args:
+        tracks: List of track dicts with duration_secs key
+        episodes: List of episode dicts with runtime_secs key
+        tolerance_secs: Seconds tolerance for matching (default 2 min)
+
+    Returns:
+        List of track dicts with suggested_episode and confidence added
+    """
+    if not tracks:
+        return []
+
+    # If no episode data, just assign sequential numbers
+    if not episodes:
+        for i, track in enumerate(tracks):
+            track['suggested_episode'] = i + 1
+            track['confidence'] = 50  # Medium confidence
+            track['is_extra'] = False
+        return tracks
+
+    # Sort tracks by duration for matching
+    tracks_by_duration = sorted(enumerate(tracks), key=lambda x: x[1].get('duration_secs', 0))
+    episodes_by_runtime = sorted(episodes, key=lambda x: x.get('runtime_secs', 0))
+
+    used_episodes = set()
+    assignments = {}
+
+    # First pass: try to match tracks to episodes by duration
+    for track_idx, track in tracks_by_duration:
+        track_duration = track.get('duration_secs', 0)
+        best_match = None
+        best_diff = float('inf')
+
+        for ep in episodes_by_runtime:
+            ep_num = ep.get('episode_num', 0)
+            if ep_num in used_episodes:
+                continue
+
+            ep_runtime = ep.get('runtime_secs', 0)
+            diff = abs(track_duration - ep_runtime)
+
+            if diff < best_diff and diff <= tolerance_secs:
+                best_diff = diff
+                best_match = ep
+
+        if best_match:
+            ep_num = best_match['episode_num']
+            # Calculate confidence based on how close the match is
+            if best_diff <= 30:
+                confidence = 95
+            elif best_diff <= 60:
+                confidence = 85
+            else:
+                confidence = 70
+
+            assignments[track_idx] = {
+                'episode': ep_num,
+                'confidence': confidence,
+                'is_extra': False
+            }
+            used_episodes.add(ep_num)
+        else:
+            # No match - might be an extra or runtime too different
+            # Check if this is likely an "extra" (very short or very long)
+            avg_runtime = sum(ep.get('runtime_secs', 0) for ep in episodes) / len(episodes) if episodes else 2700
+            is_extra = track_duration < avg_runtime * 0.5 or track_duration > avg_runtime * 2
+
+            assignments[track_idx] = {
+                'episode': 0,
+                'confidence': 30,
+                'is_extra': is_extra
+            }
+
+    # Apply assignments back to tracks
+    for i, track in enumerate(tracks):
+        if i in assignments:
+            track['suggested_episode'] = assignments[i]['episode']
+            track['confidence'] = assignments[i]['confidence']
+            track['is_extra'] = assignments[i]['is_extra']
+        else:
+            track['suggested_episode'] = i + 1
+            track['confidence'] = 50
+            track['is_extra'] = False
+
+    return tracks

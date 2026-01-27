@@ -370,6 +370,17 @@
                         </div>
                     </div>
                     <small class="tv-hint">For multi-disc seasons: Disc 2 might start at episode 9, etc.</small>
+
+                    <!-- Episode Assignment UI (shown when TV mode + item has tracks) -->
+                    <div class="episode-assignment" id="episode-assignment" style="display: none;">
+                        <div class="assignment-header">
+                            <span>Assign Episodes</span>
+                            <span class="episode-count" id="episode-count">- tracks / - episodes</span>
+                        </div>
+                        <div class="track-list" id="track-list">
+                            <!-- Track cards populated dynamically -->
+                        </div>
+                    </div>
                 </div>
 
                 <div class="review-results" id="review-results" style="display: none;">
@@ -2197,8 +2208,104 @@
         const initialType = item.media_type || 'movie';
         setReviewMediaType(initialType, false);  // false = don't trigger search
 
+        // Populate episode assignment UI if item has tracks
+        populateEpisodeAssignment(item);
+
         // Show modal
         document.getElementById('review-modal').style.display = 'flex';
+    }
+
+    function populateEpisodeAssignment(item) {
+        const assignmentSection = document.getElementById('episode-assignment');
+        const trackList = document.getElementById('track-list');
+        const countSpan = document.getElementById('episode-count');
+
+        // Only show for TV items with tracks
+        if (item.media_type !== 'tv' || !item.tracks || item.tracks.length === 0) {
+            assignmentSection.style.display = 'none';
+            return;
+        }
+
+        // Update count text
+        const trackCount = item.tracks.length;
+        const expectedEps = item.expected_episodes || trackCount;
+        countSpan.textContent = `${trackCount} tracks / ${expectedEps} episodes in S${item.season_number || 1}`;
+
+        // Build track cards
+        let html = '';
+        item.tracks.forEach((track, idx) => {
+            const duration = formatDuration(track.duration_secs);
+            const size = formatSize(track.size_bytes);
+            const thumbUrl = track.thumbnail
+                ? `/api/review/thumbnail/${item.folder_name}/${track.thumbnail}`
+                : '';
+            const suggested = track.suggested_episode || (idx + 1);
+            const isExtra = track.is_extra || false;
+
+            html += `
+                <div class="track-card" data-filename="${escapeHtml(track.filename)}" data-idx="${idx}">
+                    ${thumbUrl
+                        ? `<img src="${thumbUrl}" class="track-thumb" alt="Track ${idx + 1}">`
+                        : `<div class="track-thumb-placeholder">?</div>`
+                    }
+                    <div class="track-info">
+                        <span class="track-filename">${escapeHtml(track.filename)}</span>
+                        <span class="track-meta">${duration} &bull; ${size}</span>
+                    </div>
+                    <div class="track-assign">
+                        <select class="episode-select" data-idx="${idx}" onchange="updateTrackAssignment(${idx}, this.value)">
+                            <option value="0" ${isExtra ? 'selected' : ''}>-- Extra --</option>
+                            ${generateEpisodeOptions(expectedEps, suggested, isExtra)}
+                        </select>
+                    </div>
+                </div>
+            `;
+        });
+
+        trackList.innerHTML = html;
+        assignmentSection.style.display = 'block';
+    }
+
+    function generateEpisodeOptions(maxEpisodes, selected, isExtra) {
+        let options = '';
+        for (let ep = 1; ep <= maxEpisodes; ep++) {
+            const isSelected = !isExtra && ep === selected;
+            options += `<option value="${ep}" ${isSelected ? 'selected' : ''}>Episode ${ep}</option>`;
+        }
+        return options;
+    }
+
+    function updateTrackAssignment(trackIdx, episodeNum) {
+        if (!currentReviewItem || !currentReviewItem.tracks) return;
+        const track = currentReviewItem.tracks[trackIdx];
+        if (track) {
+            track.suggested_episode = parseInt(episodeNum);
+            track.is_extra = parseInt(episodeNum) === 0;
+        }
+    }
+
+    function formatDuration(secs) {
+        if (!secs) return '--:--';
+        const mins = Math.floor(secs / 60);
+        const seconds = secs % 60;
+        return `${mins}:${seconds.toString().padStart(2, '0')}`;
+    }
+
+    function formatSize(bytes) {
+        if (!bytes) return '-';
+        const gb = bytes / (1024 * 1024 * 1024);
+        return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+    }
+
+    function getEpisodeAssignments() {
+        // Build episode assignments array from current track data
+        if (!currentReviewItem || !currentReviewItem.tracks) return [];
+
+        return currentReviewItem.tracks.map(track => ({
+            filename: track.filename,
+            episode_num: track.suggested_episode || 0,
+            is_extra: track.is_extra || (track.suggested_episode === 0)
+        }));
     }
 
     function setReviewMediaType(type, triggerSearch = true) {
@@ -2210,6 +2317,13 @@
 
         // Show/hide TV options
         document.getElementById('tv-options').style.display = type === 'tv' ? 'block' : 'none';
+
+        // Show/hide episode assignment (only for TV with tracks)
+        if (type === 'tv' && currentReviewItem && currentReviewItem.tracks && currentReviewItem.tracks.length > 0) {
+            populateEpisodeAssignment(currentReviewItem);
+        } else {
+            document.getElementById('episode-assignment').style.display = 'none';
+        }
 
         // Update search hint
         const hint = document.getElementById('search-hint');
@@ -2551,6 +2665,7 @@
             if (isTV) {
                 payload.season_number = seasonNum;
                 payload.start_episode = startEpisode;
+                payload.episode_assignments = getEpisodeAssignments();
             }
             // Clear the lookup result after use
             window.tmdbLookupResult = null;
@@ -2570,6 +2685,7 @@
             if (isTV) {
                 payload.season_number = seasonNum;
                 payload.start_episode = startEpisode;
+                payload.episode_assignments = getEpisodeAssignments();
             }
         } else {
             return;  // Nothing to apply

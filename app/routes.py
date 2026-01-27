@@ -10,7 +10,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from flask import Blueprint, render_template, jsonify, request
+from flask import Blueprint, render_template, jsonify, request, send_from_directory
 from . import config
 from . import ripper
 from . import email as email_utils
@@ -1484,6 +1484,45 @@ def api_review_queue():
     })
 
 
+@main.route('/api/review/thumbnail/<folder>/<filename>')
+def api_review_thumbnail(folder, filename):
+    """Serve thumbnail image from review folder"""
+    cfg = config.load_config()
+    review_path = cfg.get('paths', {}).get('review', '/mnt/media/rips/review')
+    folder_path = os.path.join(review_path, folder)
+
+    # Security check - ensure we're serving from the review folder
+    if not os.path.isdir(folder_path):
+        return jsonify({'error': 'Folder not found'}), 404
+
+    # Check that filename is a jpg
+    if not filename.endswith('.jpg'):
+        return jsonify({'error': 'Invalid file type'}), 400
+
+    file_path = os.path.join(folder_path, filename)
+    if not os.path.isfile(file_path):
+        return jsonify({'error': 'Thumbnail not found'}), 404
+
+    return send_from_directory(folder_path, filename, mimetype='image/jpeg')
+
+
+@main.route('/api/review/episodes/<int:tvdb_id>/<int:season>')
+def api_review_episodes(tvdb_id, season):
+    """Get episode list for a season from Sonarr"""
+    cfg = config.load_config()
+    from .identify import SmartIdentifier
+    identifier = SmartIdentifier(cfg)
+
+    episodes = identifier.get_season_episodes_for_review(tvdb_id, season)
+
+    return jsonify({
+        'tvdb_id': tvdb_id,
+        'season': season,
+        'episodes': episodes,
+        'count': len(episodes)
+    })
+
+
 @main.route('/api/review/search', methods=['POST'])
 def api_review_search():
     """Search for a movie/show title to identify a review item - returns multiple results"""
@@ -1594,6 +1633,7 @@ def api_review_apply():
     poster_url = data.get('poster_url', '')
     season_number = data.get('season_number', 1)  # For TV: which season
     start_episode = data.get('start_episode', 1)  # For TV: starting episode number
+    episode_assignments = data.get('episode_assignments', [])  # For TV: {filename, episode_num, is_extra}
 
     if not folder_name or not identified_title:
         return jsonify({'error': 'folder_name and identified_title required'}), 400
@@ -1626,7 +1666,8 @@ def api_review_apply():
             dest_path = os.path.join(movies_path, identified_title)
         else:
             # For TV, identified_title should be series name
-            dest_path = os.path.join(tv_path, identified_title)
+            # Add Season subfolder
+            dest_path = os.path.join(tv_path, identified_title, f"Season {season_number:02d}")
 
         activity.log_info(f"REVIEW: Moving '{folder_name}' to '{dest_path}'")
 
@@ -1636,18 +1677,51 @@ def api_review_apply():
         # Sort mkv files by name to ensure proper episode ordering
         mkv_files.sort()
 
+        # Build assignment lookup if we have episode assignments
+        assignment_by_filename = {}
+        if episode_assignments:
+            for assignment in episode_assignments:
+                assignment_by_filename[assignment.get('filename')] = assignment
+
+        # Track extras for separate handling
+        extras_dest = None
+        extra_count = 0
+
         for idx, mkv_file in enumerate(mkv_files):
+            mkv_filename = os.path.basename(mkv_file)
+
             if media_type == 'movie':
                 new_filename = f"{identified_title}.mkv"
                 if len(mkv_files) > 1:
                     new_filename = f"{identified_title} - Part {idx + 1}.mkv"
+                dest_file = os.path.join(dest_path, new_filename)
             else:
-                # TV: Rename to S##E## format for Plex compatibility
-                episode_num = start_episode + idx
-                new_filename = f"S{season_number:02d}E{episode_num:02d}.mkv"
+                # TV: Use episode assignments if available
+                if mkv_filename in assignment_by_filename:
+                    assignment = assignment_by_filename[mkv_filename]
+                    episode_num = assignment.get('episode_num', 0)
+                    is_extra = assignment.get('is_extra', False) or episode_num == 0
 
-            dest_file = os.path.join(dest_path, new_filename)
-            activity.log_info(f"REVIEW: Moving: {os.path.basename(mkv_file)} -> {new_filename}")
+                    if is_extra:
+                        # Move extras to Extras subfolder
+                        if extras_dest is None:
+                            extras_dest = os.path.join(tv_path, identified_title, f"Season {season_number:02d}", "Extras")
+                            Path(extras_dest).mkdir(parents=True, exist_ok=True)
+                        extra_count += 1
+                        new_filename = f"Extra {extra_count}.mkv"
+                        dest_file = os.path.join(extras_dest, new_filename)
+                        activity.log_info(f"REVIEW: Moving extra: {mkv_filename} -> Extras/{new_filename}")
+                    else:
+                        new_filename = f"{identified_title} - S{season_number:02d}E{episode_num:02d}.mkv"
+                        dest_file = os.path.join(dest_path, new_filename)
+                else:
+                    # Fallback: sequential episode numbering
+                    episode_num = start_episode + idx
+                    new_filename = f"{identified_title} - S{season_number:02d}E{episode_num:02d}.mkv"
+                    dest_file = os.path.join(dest_path, new_filename)
+
+            if media_type != 'tv' or 'Extras' not in dest_file:
+                activity.log_info(f"REVIEW: Moving: {mkv_filename} -> {new_filename}")
             shutil.move(mkv_file, dest_file)
 
         # Calculate file size

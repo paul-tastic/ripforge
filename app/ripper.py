@@ -1715,6 +1715,79 @@ class RipEngine:
             self.current_job.progress = percent
             self.current_job.eta = eta
 
+    def _generate_track_thumbnails(self, review_folder: str, mkv_files: list) -> dict:
+        """Extract thumbnail from each MKV at 5-minute mark.
+
+        Args:
+            review_folder: Path to the review folder containing MKV files
+            mkv_files: List of MKV file paths
+
+        Returns:
+            Dict mapping MKV filename to thumbnail filename
+        """
+        thumbnails = {}
+        for mkv_path in mkv_files:
+            try:
+                mkv_name = os.path.basename(mkv_path)
+                thumb_name = Path(mkv_path).stem + ".jpg"
+                thumb_path = os.path.join(review_folder, thumb_name)
+
+                # Extract thumbnail at 5 minute mark (300 seconds)
+                result = subprocess.run([
+                    'ffmpeg', '-y', '-ss', '300',  # 5 min in
+                    '-i', mkv_path, '-vframes', '1',
+                    '-vf', 'scale=320:-1', thumb_path
+                ], capture_output=True, timeout=30)
+
+                if result.returncode == 0 and os.path.exists(thumb_path):
+                    thumbnails[mkv_name] = thumb_name
+                    activity.log_info(f"THUMBNAIL: Generated {thumb_name}")
+                else:
+                    activity.log_warning(f"THUMBNAIL: Failed to generate for {mkv_name}")
+            except subprocess.TimeoutExpired:
+                activity.log_warning(f"THUMBNAIL: Timeout generating for {mkv_name}")
+            except Exception as e:
+                activity.log_warning(f"THUMBNAIL: Error generating for {mkv_name}: {e}")
+
+        return thumbnails
+
+    def _get_track_info_for_review(self, review_folder: str, mkv_files: list) -> list:
+        """Get track information including duration and size for each MKV file.
+
+        Args:
+            review_folder: Path to the review folder
+            mkv_files: List of MKV file paths
+
+        Returns:
+            List of track info dicts with filename, duration_secs, size_bytes
+        """
+        tracks = []
+        for mkv_path in sorted(mkv_files):
+            mkv_name = os.path.basename(mkv_path)
+            track_info = {
+                "filename": mkv_name,
+                "duration_secs": 0,
+                "size_bytes": os.path.getsize(mkv_path) if os.path.exists(mkv_path) else 0,
+                "suggested_episode": len(tracks) + 1,
+                "is_extra": False
+            }
+
+            # Get duration using ffprobe
+            try:
+                result = subprocess.run(
+                    ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                     '-of', 'default=noprint_wrappers=1:nokey=1', mkv_path],
+                    capture_output=True, text=True, timeout=30
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    track_info["duration_secs"] = int(float(result.stdout.strip()))
+            except Exception as e:
+                activity.log_warning(f"TRACK INFO: Could not get duration for {mkv_name}: {e}")
+
+            tracks.append(track_info)
+
+        return tracks
+
     def _cleanup_old_backups(self):
         """Clean up backup folders from previous rips.
 
@@ -2706,6 +2779,20 @@ class RipEngine:
             shutil.move(output_dir, review_dest)
             job.output_path = str(review_dest)
 
+            # Get MKV files for thumbnail generation and track info
+            import glob as glob_module
+            mkv_files = glob_module.glob(os.path.join(str(review_dest), "*.mkv"))
+
+            # Generate thumbnails and track info for TV episode assignment
+            activity.log_info(f"REVIEW: Generating thumbnails for {len(mkv_files)} tracks...")
+            thumbnails = self._generate_track_thumbnails(str(review_dest), mkv_files)
+            tracks_info = self._get_track_info_for_review(str(review_dest), mkv_files)
+
+            # Add thumbnail paths to track info
+            for track in tracks_info:
+                if track["filename"] in thumbnails:
+                    track["thumbnail"] = thumbnails[track["filename"]]
+
             # Create review metadata file so it shows up in Review UI
             import json
             metadata = {
@@ -2718,12 +2805,15 @@ class RipEngine:
                 "episode_count": len(ripped_files),
                 "year": job.year,
                 "tmdb_id": job.tmdb_id,
-                "poster_url": job.poster_url
+                "poster_url": job.poster_url,
+                "tracks": tracks_info,
+                "expected_episodes": len(ripped_files),
+                "season_number": job.season_number if job.season_number else 1
             }
             metadata_file = os.path.join(str(review_dest), "review_metadata.json")
             with open(metadata_file, 'w') as f:
                 json.dump(metadata, f, indent=2)
-            activity.log_info(f"REVIEW: Saved metadata to {metadata_file}")
+            activity.log_info(f"REVIEW: Saved metadata with {len(tracks_info)} tracks to {metadata_file}")
 
             self._update_step("move", "complete", "Moved to review queue")
             self._update_step("scan-plex", "complete", "Skipped - needs review")
