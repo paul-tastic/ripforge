@@ -2693,6 +2693,25 @@ class RipEngine:
             shutil.move(output_dir, review_dest)
             job.output_path = str(review_dest)
 
+            # Create review metadata file so it shows up in Review UI
+            import json
+            metadata = {
+                "disc_label": job.disc_label,
+                "disc_type": job.disc_type,
+                "identified_title": series_name,
+                "folder_name": review_name,
+                "created_at": datetime.now().isoformat(),
+                "media_type": "tv",
+                "episode_count": len(ripped_files),
+                "year": job.year,
+                "tmdb_id": job.tmdb_id,
+                "poster_url": job.poster_url
+            }
+            metadata_file = os.path.join(str(review_dest), "review_metadata.json")
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            activity.log_info(f"REVIEW: Saved metadata to {metadata_file}")
+
             self._update_step("move", "complete", "Moved to review queue")
             self._update_step("scan-plex", "complete", "Skipped - needs review")
 
