@@ -1676,15 +1676,17 @@ def api_review_apply():
 
         # Contribute to community disc database (if enabled)
         # Manual identifications are valuable contributions
+        # Guardrails in contribute_disc will filter out invalid entries
         community_db.contribute_disc(
-            disc_label=folder_name,  # Original disc label
+            disc_label=metadata.get('disc_label', folder_name),
             disc_type=metadata.get('disc_type', 'dvd'),
             duration_secs=metadata.get('duration_secs', 0),
             track_count=metadata.get('track_count', 0),
             title=identified_title.split(' (')[0],  # Strip year from title
             year=year,
             tmdb_id=tmdb_id,
-            config=cfg
+            config=cfg,
+            media_type=media_type
         )
 
         # Trigger Plex scan

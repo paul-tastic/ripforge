@@ -74,13 +74,52 @@ def contribute_disc(
     title: str,
     year: Optional[int],
     tmdb_id: Optional[int],
-    config: dict
+    config: dict,
+    media_type: str = 'movie'
 ) -> bool:
     """
     Contribute a disc identification to the community database.
     Called after manual identification.
     """
     if not is_enabled(config):
+        return False
+
+    # === GUARDRAILS ===
+
+    # 1. Skip TV shows - database is movie-focused
+    if media_type == 'tv':
+        activity.log_info("COMMUNITY DB: Skipping TV show contribution")
+        return False
+
+    # 2. Skip generic/useless disc labels
+    generic_labels = {'DVD_VIDEO', 'DVDVIDEO', 'DISC1', 'DISC2', 'DISC_1', 'DISC_2',
+                      'BDROM', 'BLURAY', 'BLU-RAY', 'LOGICAL_VOLUME_ID'}
+    if disc_label.upper() in generic_labels:
+        activity.log_info(f"COMMUNITY DB: Skipping generic disc label '{disc_label}'")
+        return False
+
+    # 3. Skip timestamp-prefixed labels (shouldn't happen anymore, but safety check)
+    import re
+    if re.match(r'^\d{8}_\d{6}_', disc_label):
+        activity.log_info(f"COMMUNITY DB: Skipping timestamp-prefixed label '{disc_label}'")
+        return False
+
+    # 4. Validate duration - movies should be 60-300 minutes (3600-18000 secs)
+    if duration_secs < 3600:
+        activity.log_info(f"COMMUNITY DB: Skipping - duration too short ({duration_secs}s)")
+        return False
+    if duration_secs > 18000:  # 5 hours max
+        activity.log_info(f"COMMUNITY DB: Skipping - duration too long ({duration_secs}s)")
+        return False
+
+    # 5. Require valid TMDB ID for quality assurance
+    if not tmdb_id or tmdb_id <= 0:
+        activity.log_info("COMMUNITY DB: Skipping - no valid TMDB ID")
+        return False
+
+    # 6. Require a year (helps with disambiguation)
+    if not year or year < 1900 or year > 2100:
+        activity.log_info("COMMUNITY DB: Skipping - invalid year")
         return False
 
     try:
