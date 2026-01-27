@@ -2260,11 +2260,26 @@
                 thumbHtml = `<div class="track-thumb-placeholder">?</div>`;
             }
 
-            // Build metadata tooltip - use data attribute for JS tooltip
+            // Build metadata tooltip - check if metadata is actually useful
             let metadataHtml = '';
             if (hasMetadata) {
                 const meta = track.metadata;
                 let tooltipLines = [];
+
+                // Check if title is meaningful (not just "Chapter XX" generic pattern)
+                const genericPattern = /^chapter\s*\d+$/i;
+                const titleIsUseful = meta.title && !genericPattern.test(meta.title.trim());
+
+                // Check if any chapter names are meaningful
+                let chaptersAreUseful = false;
+                if (meta.chapters && meta.chapters.length > 0) {
+                    chaptersAreUseful = meta.chapters.some(ch =>
+                        ch.title && !genericPattern.test(ch.title.trim())
+                    );
+                }
+
+                const hasUsefulMetadata = titleIsUseful || chaptersAreUseful;
+
                 if (meta.title) {
                     tooltipLines.push(`Title: ${meta.title}`);
                 }
@@ -2278,7 +2293,8 @@
                     }
                 }
                 const tooltipText = tooltipLines.join('\n');
-                metadataHtml = `<span class="track-meta-icon" title="${escapeHtml(tooltipText)}">ℹ</span>`;
+                const iconClass = hasUsefulMetadata ? 'track-meta-icon' : 'track-meta-icon disabled';
+                metadataHtml = `<span class="${iconClass}" title="${escapeHtml(tooltipText)}">ℹ</span>`;
             }
 
             // Episode number for this track based on starting episode

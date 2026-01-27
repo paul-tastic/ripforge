@@ -3117,6 +3117,12 @@ select option {
     vertical-align: middle;
 }
 
+.track-meta-icon.disabled {
+    background: var(--text-dim);
+    color: var(--bg-card);
+    opacity: 0.5;
+}
+
 .track-meta-icon:hover .track-meta-tooltip {
     display: block;
 }
