@@ -1797,22 +1797,54 @@ class RipEngine:
             activity.disc_detected(job.disc_type.upper(), job.disc_label)
             self._update_step("detect", "complete", f"{job.disc_type.upper()}: {job.disc_label}")
 
-            # Auto-switch to TV mode if TV disc detected but started as movie
-            if disc_info.get("is_tv_disc") and job.media_type == "movie":
+            # Early identification: determine if TV or Movie BEFORE ripping
+            # This searches Sonarr/Radarr by disc label to make an informed decision
+            from .identify import SmartIdentifier
+            identifier = SmartIdentifier(self.config)
+            detected_type, early_result = identifier.early_identify(
+                job.disc_label,
+                disc_info.get("tracks", [])
+            )
+
+            # Update media type based on early identification
+            original_type = job.media_type
+            if detected_type != job.media_type:
+                activity.log_info(f"EARLY ID: Switching from {job.media_type.upper()} to {detected_type.upper()}")
+                job.media_type = detected_type
+
+            # Store early identification result for later use
+            if early_result and early_result.confidence >= 50:
+                job.identified_title = early_result.title
+                job.year = early_result.year
+                job.tmdb_id = early_result.tmdb_id
+                job.poster_url = early_result.poster_url
+                if detected_type == 'tv' and early_result.season_number:
+                    job.season_number = early_result.season_number
+                activity.log_info(f"EARLY ID: Pre-identified as '{early_result.title}' ({early_result.confidence}% confidence)")
+
+            # If TV mode, switch to TV pipeline
+            if job.media_type == "tv":
                 episode_tracks = disc_info.get("episode_tracks", [])
-                episode_count = len(episode_tracks)
-                activity.log_info(f"TV disc detected ({episode_count} episodes) - auto-switching to TV mode")
+                if not episode_tracks:
+                    # Fallback: find episode-length tracks (20-65 minutes)
+                    episode_tracks = [
+                        {"index": t["index"], "duration_str": t.get("duration_str", "?")}
+                        for t in disc_info.get("tracks", [])
+                        if 1200 <= t.get("duration_seconds", 0) <= 3900
+                    ]
 
-                # Switch to TV mode
-                job.media_type = "tv"
-                job.tracks_to_rip = [t["index"] for t in episode_tracks]
-                job.total_tracks = episode_count
+                if episode_tracks:
+                    episode_count = len(episode_tracks)
+                    activity.log_info(f"TV MODE: {episode_count} episodes to rip")
+                    job.tracks_to_rip = [t["index"] for t in episode_tracks]
+                    job.total_tracks = episode_count
+                    self._run_tv_rip_pipeline_after_scan(disc_info)
+                    return
+                else:
+                    activity.log_warning(f"TV MODE: No episode tracks found, falling back to movie mode")
+                    job.media_type = "movie"
 
-                # Run TV pipeline instead
-                self._run_tv_rip_pipeline_after_scan(disc_info)
-                return
-
-            # Step 3: Scan tracks
+            # Step 3: Scan tracks (movie mode)
             self._update_step("scan", "active", "Scanning tracks...")
             job.status = RipStatus.SCANNING
 

@@ -1166,3 +1166,83 @@ class SmartIdentifier:
             return result, str(new_path)
 
         return result, folder
+
+    def early_identify(self, disc_label: str, tracks: List[dict] = None) -> Tuple[str, Optional[IdentificationResult]]:
+        """
+        Early identification to determine media type before ripping.
+
+        This does quick Sonarr/Radarr lookups by disc label to determine if the
+        disc is a TV show or movie BEFORE we start ripping. This allows us to
+        rip all episodes for TV or just the main feature for movies.
+
+        Args:
+            disc_label: Raw disc label (e.g., "ARRESTED_D1")
+            tracks: Optional list of track dicts for track-based analysis fallback
+
+        Returns:
+            Tuple of (media_type, result):
+            - media_type: 'tv' or 'movie'
+            - result: IdentificationResult if found with good confidence, else None
+        """
+        activity.log_info(f"=== EARLY IDENTIFY: {disc_label} ===")
+
+        # Step 1: Check disc label patterns for TV indicators
+        label_media_type, season_number, cleaned_title = self.detect_media_type(disc_label, tracks)
+        search_term = self.parse_disc_label(cleaned_title if label_media_type == 'tv' else disc_label)
+
+        activity.log_info(f"EARLY ID: Label analysis suggests '{label_media_type}' (search: '{search_term}')")
+
+        # Step 2: Quick Sonarr search (TV)
+        sonarr_result = None
+        if self.sonarr_api:
+            try:
+                sonarr_result = self.search_sonarr(search_term, verbose=False)
+                if sonarr_result:
+                    activity.log_info(f"EARLY ID: Sonarr found '{sonarr_result.title}' (confidence: {sonarr_result.confidence}%)")
+            except Exception as e:
+                activity.log_warning(f"EARLY ID: Sonarr search failed: {e}")
+
+        # Step 3: Quick Radarr search (Movie)
+        radarr_result = None
+        if self.radarr_api:
+            try:
+                radarr_result = self.search_radarr(search_term, verbose=False)
+                if radarr_result:
+                    activity.log_info(f"EARLY ID: Radarr found '{radarr_result.title}' (confidence: {radarr_result.confidence}%)")
+            except Exception as e:
+                activity.log_warning(f"EARLY ID: Radarr search failed: {e}")
+
+        # Step 4: Determine winner
+        sonarr_conf = sonarr_result.confidence if sonarr_result else 0
+        radarr_conf = radarr_result.confidence if radarr_result else 0
+
+        # If label patterns strongly suggest TV, boost Sonarr confidence
+        if label_media_type == 'tv' and sonarr_conf > 0:
+            sonarr_conf += 20
+            activity.log_info(f"EARLY ID: Boosted Sonarr confidence to {sonarr_conf}% (label pattern match)")
+
+        # Decide based on confidence
+        if sonarr_conf >= 50 and sonarr_conf > radarr_conf:
+            activity.log_success(f"EARLY ID: Detected as TV -> '{sonarr_result.title}'")
+            sonarr_result.season_number = season_number
+            return 'tv', sonarr_result
+        elif radarr_conf >= 50 and radarr_conf > sonarr_conf:
+            activity.log_success(f"EARLY ID: Detected as MOVIE -> '{radarr_result.title}'")
+            return 'movie', radarr_result
+
+        # Step 5: Fallback to track-based analysis
+        if tracks:
+            episode_tracks = [t for t in tracks if 1200 <= t.get('duration', 0) <= 3900]
+            longest_track = max((t.get('duration', 0) for t in tracks), default=0)
+
+            if len(episode_tracks) >= 2 and longest_track < 5400:
+                activity.log_info(f"EARLY ID: Track analysis suggests TV ({len(episode_tracks)} episode-length tracks)")
+                return 'tv', sonarr_result
+
+        # Default: use label pattern result, or movie if uncertain
+        if label_media_type == 'tv':
+            activity.log_info(f"EARLY ID: Using label pattern result -> TV")
+            return 'tv', sonarr_result
+
+        activity.log_info(f"EARLY ID: Defaulting to MOVIE (no strong signals)")
+        return 'movie', radarr_result

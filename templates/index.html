@@ -1427,9 +1427,11 @@
             discTypeBadge.style.display = 'none';
         }
 
-        // Show media type badge (TV/Movie)
+        // Show media type badge (TV/Movie) - only after detection completes (early identification)
         const mediaTypeBadge = document.getElementById('rip-media-type');
-        if (ripData.media_type) {
+        const detectStep = ripData.steps?.detect;
+        const detectComplete = detectStep && detectStep.status === 'complete';
+        if (ripData.media_type && detectComplete) {
             mediaTypeBadge.textContent = ripData.media_type === 'tv' ? 'TV' : 'MOVIE';
             mediaTypeBadge.className = 'media-type-badge ' + (ripData.media_type === 'tv' ? 'tv' : 'movie');
             mediaTypeBadge.style.display = 'inline-block';
