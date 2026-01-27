@@ -1373,16 +1373,21 @@ class RipEngine:
                     # IMPORTANT: Only trigger post-processing if we have actual MKV output.
                     # During backup mode, there's a gap between backup completion and rip_from_backup
                     # where MakeMKV isn't running but we don't have MKV files yet.
+                    # For TV/multi-track rips, MakeMKV stops between episodes - wait 5 seconds
+                    # and re-check to avoid falsely triggering post-processing mid-rip.
                     if not self._is_makemkv_running() and raw_has_mkv:
-                        # MakeMKV finished AND we have MKV output - safe to post-process
+                        # MakeMKV finished AND we have MKV output - but wait to confirm it's really done
                         if self.current_job.current_size_bytes > 0:
-                            # Rip completed, trigger post-processing
-                            activity.log_info("MakeMKV finished, starting post-processing")
-                            self.current_job.progress = 100
-                            self._update_step("rip", "complete", "Rip finished")
-                            thread = threading.Thread(target=self._run_post_processing)
-                            thread.daemon = True
-                            thread.start()
+                            # Wait 5 seconds and re-check (handles gap between TV episodes)
+                            time.sleep(5)
+                            if not self._is_makemkv_running():
+                                # Still not running after delay - safe to post-process
+                                activity.log_info("MakeMKV finished, starting post-processing")
+                                self.current_job.progress = 100
+                                self._update_step("rip", "complete", "Rip finished")
+                                thread = threading.Thread(target=self._run_post_processing)
+                                thread.daemon = True
+                                thread.start()
 
                 return self.current_job.to_dict()
             return None
