@@ -40,6 +40,24 @@ class TestIndexRoute:
         response = client.get('/')
         assert b'RipForge' in response.data or b'ripforge' in response.data.lower()
 
+    def test_index_rip_step_detail_not_skipped(self, client):
+        """Test that rip step detail is shown (not skipped in updateStep function)
+
+        Regression test: previously the updateStep function had a condition that
+        skipped setting detailEl.textContent for the rip step, causing users to
+        not see status updates like 'Copying disc... 45%' during backup extraction.
+        """
+        response = client.get('/')
+        html = response.data.decode('utf-8')
+
+        # The old broken code had this condition - make sure it's NOT present
+        assert "stepId !== 'step-rip'" not in html, \
+            "updateStep should not skip the rip step detail"
+
+        # Verify updateStep function sets detail for all steps
+        assert "detailEl.textContent = detail" in html, \
+            "updateStep should set detailEl.textContent"
+
 
 class TestSettingsRoute:
     """Tests for the settings route"""
