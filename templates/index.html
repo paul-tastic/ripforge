@@ -1435,6 +1435,12 @@
         document.getElementById('status-idle').style.display = 'block';
         document.getElementById('rip-checklist').style.display = 'none';
 
+        // Hide action buttons that shouldn't show when idle
+        document.getElementById('btn-stop').style.display = 'none';
+        document.getElementById('btn-reset-rip').style.display = 'none';
+        document.getElementById('btn-reset-drive').style.display = 'none';
+        document.getElementById('btn-restart-service').style.display = 'none';
+
         // Only reset to "Ready" if not showing scan results and not scanning
         if (!showingScanResults && !scanInProgress) {
             document.querySelector('.status-title').textContent = 'Ready';
