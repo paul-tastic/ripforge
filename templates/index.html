@@ -1653,10 +1653,7 @@
         }
 
         // Update detail text (always set, even if empty, to clear old values)
-        // But skip for rip step - we use substeps display instead
-        if (stepId !== 'step-rip') {
-            detailEl.textContent = detail || '';
-        }
+        detailEl.textContent = detail || '';
     }
 
     // Update rip substeps compact display
