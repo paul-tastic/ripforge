@@ -417,6 +417,20 @@
                     <button class="copy-btn" onclick="copyCommand(this)" title="Copy to clipboard">📋</button>
                 </div>
             </div>
+            <div class="cheatsheet-item">
+                <div class="cheatsheet-label">Rescan SCSI (drive missing)</div>
+                <div class="cheatsheet-code-wrap">
+                    <code class="cheatsheet-code">echo '- - -' | sudo tee /sys/class/scsi_host/host*/scan</code>
+                    <button class="copy-btn" onclick="copyCommand(this)" title="Copy to clipboard">📋</button>
+                </div>
+            </div>
+            <div class="cheatsheet-item">
+                <div class="cheatsheet-label">Check Hardware Errors</div>
+                <div class="cheatsheet-code-wrap">
+                    <code class="cheatsheet-code">dmesg | tail -30</code>
+                    <button class="copy-btn" onclick="copyCommand(this)" title="Copy to clipboard">📋</button>
+                </div>
+            </div>
         </div>
     </section>
     <div class="settings-actions">

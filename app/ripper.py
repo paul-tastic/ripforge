@@ -1703,6 +1703,7 @@ class RipEngine:
         except Exception as e:
             activity.log_error(f"Service restart failed: {e}")
             return {"success": False, "error": str(e)}
+
     def _update_step(self, step: str, status: str, detail: str = ""):
         """Update a step's status"""
         if self.current_job and step in self.current_job.steps:
@@ -3134,11 +3135,34 @@ class RipEngine:
                     self.current_job.disc_ejected = True
                 return True
             else:
-                activity.log_warning(f"Eject failed: {result.stderr}")
+                stderr = result.stderr.strip()
+                # Check for device not found error
+                if "not found" in stderr.lower() or not os.path.exists(device):
+                    self._log_drive_disconnected(device)
+                else:
+                    activity.log_warning(f"Eject failed: {stderr}")
                 return False
         except Exception as e:
-            activity.log_error(f"Error ejecting disc: {e}")
+            error_msg = str(e)
+            if "not found" in error_msg.lower() or not os.path.exists(device):
+                self._log_drive_disconnected(device)
+            else:
+                activity.log_error(f"Error ejecting disc: {e}")
             return False
+
+    def _log_drive_disconnected(self, device: str = "/dev/sr0"):
+        """Log detailed error message when drive disappears from system."""
+        activity.log_error(f"=== DRIVE DISCONNECTED ===")
+        activity.log_error(f"Device {device} not found - the drive has disconnected from the system.")
+        activity.log_error(f"This is usually caused by: USB cable issue, drive overheating, or kernel driver problem.")
+        activity.log_error(f"")
+        activity.log_error(f"To fix, try these steps:")
+        activity.log_error(f"1. Check USB cable connection (if external drive)")
+        activity.log_error(f"2. Let drive cool down if it's been running for a while")
+        activity.log_error(f"3. Run SCSI rescan: echo '- - -' | sudo tee /sys/class/scsi_host/host*/scan")
+        activity.log_error(f"4. If that doesn't work, unplug and replug the drive")
+        activity.log_error(f"5. Check 'dmesg | tail -30' for hardware errors")
+        activity.log_error(f"===========================")
 
     def check_disc(self, device: str = "/dev/sr0") -> dict:
         """Check if a disc is present and get basic info"""

@@ -280,6 +280,7 @@ def api_service_restart():
     result = engine.restart_service()
     return jsonify(result)
 
+
 @main.route('/api/disc/last-scan')
 def api_disc_last_scan():
     """Get the last saved scan results (persists across page navigation)"""

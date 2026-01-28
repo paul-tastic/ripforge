@@ -63,6 +63,38 @@ ssh paul@192.168.0.104 "sudo systemctl restart ripforge"
 - Version is stored in `app/__init__.py` as `__version__`
 - Service runs as systemd unit: `ripforge.service`
 
+## Sudoers Configuration
+
+For service restart and eject to work without password prompts:
+
+```bash
+sudo visudo -f /etc/sudoers.d/ripforge
+```
+
+Add these lines:
+```
+# RipForge - allow service management without password
+paul ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart ripforge
+paul ALL=(ALL) NOPASSWD: /usr/bin/eject *
+```
+
+Then set permissions:
+```bash
+sudo chmod 440 /etc/sudoers.d/ripforge
+```
+
+## Troubleshooting: Drive Disconnects
+
+If the optical drive disappears from `/dev/sr0` after errors:
+
+1. **Check USB cable** - if external drive, reseat the connection
+2. **Let drive cool** - heavy ripping can cause thermal shutdown
+3. **Rescan SCSI bus**: `echo '- - -' | sudo tee /sys/class/scsi_host/host*/scan`
+4. **Check for errors**: `dmesg | tail -30`
+5. **Unplug/replug** the drive if nothing else works
+
+This is a hardware/kernel issue, not a RipForge bug.
+
 ---
 
 ## Website (ripforge.org)
