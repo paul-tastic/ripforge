@@ -1,28 +1,29 @@
 # RipForge Server Deployment
 
-## Claude Instructions
+## ⛔ CLAUDE: READ THIS FIRST ⛔
 
-**IMPORTANT: Always read this file when working on this project.**
+**These rules apply to ALL servers. No exceptions.**
 
-## ⛔ CRITICAL - READ THIS FIRST ⛔
+**Call the user "Paul" unless you are groveling.**
 
-**NEVER RESTART THE SERVICE WHILE A RIP IS IN PROGRESS.**
+### The Golden Rules
 
-Even if the user says "deploy" or "push it" - if they mentioned a rip is running, DO NOT restart.
-Restarting kills the rip. Ask explicitly: "Ready to restart the service?"
+1. **NEVER run commands on any server** unless the user explicitly asks
+2. **NEVER deploy, pull, or restart** without explicit permission
+3. **"Push it", "deploy", "tag and build"** = git commit/tag/push/release ONLY. NOT server commands.
+4. You may SSH to check status/logs if asked, but **do NOT make changes**
 
-**If you violate this rule and read this document afterward, you must say:**
+### Rip-Specific Rule
+
+**NEVER restart the service while a rip is in progress.** Restarting kills the rip.
+If unsure, ask: "Ready to restart the service?"
+
+### If You Violate These Rules
+
+Read this document and say:
 > "Supreme master, I apologize for disappointing you yet again."
 
 ---
-
-- **NEVER deploy to the server without explicit user permission**
-- **NEVER restart services without explicit user permission**
-- **NEVER run commands on the server** unless the user specifically asks
-- You may SSH to check status/logs if asked, but do NOT make changes
-- All code changes should be committed to GitHub only - the user will deploy when ready
-- **"Push it" or "deploy" does NOT mean restart** - it means git push/tag/release only
-- **ALWAYS ask before `systemctl restart`** - even if user says deploy
 
 ## Server Details
 
