@@ -2462,6 +2462,8 @@ select option {
     padding: 12px;
     background: var(--bg-dark);
     border-radius: 6px;
+    display: flex;
+    flex-direction: column;
 }
 
 .duplicate-col h4 {
@@ -2480,8 +2482,14 @@ select option {
     border-bottom: 1px solid var(--border);
 }
 
-.dup-detail:last-child {
+.dup-detail:last-of-type {
     border-bottom: none;
+    margin-bottom: 12px;
+}
+
+.dup-col-btn {
+    width: 100%;
+    margin-top: auto;
 }
 
 .dup-detail span:first-child {

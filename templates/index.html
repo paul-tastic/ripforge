@@ -322,6 +322,7 @@
                             <div class="dup-detail"><span>Type:</span> <span id="dup-existing-type">-</span></div>
                             <div class="dup-detail"><span>Size:</span> <span id="dup-existing-size">-</span></div>
                             <div class="dup-detail"><span>Ripped:</span> <span id="dup-existing-date">-</span></div>
+                            <button class="btn btn-secondary dup-col-btn" onclick="keepExistingRip()">Keep Existing</button>
                         </div>
                         <div class="duplicate-col">
                             <h4>New Rip</h4>
@@ -330,12 +331,11 @@
                             <div class="dup-detail"><span>Type:</span> <span id="dup-new-type">-</span></div>
                             <div class="dup-detail"><span>Size:</span> <span id="dup-new-size">-</span></div>
                             <div class="dup-detail"><span>Disc:</span> <span id="dup-new-disc">-</span></div>
+                            <button class="btn btn-success dup-col-btn" onclick="keepNewRip()">Keep New (Replace)</button>
                         </div>
                     </div>
                     <div class="duplicate-actions">
-                        <button class="btn btn-success" onclick="keepNewRip()">Keep New (Replace)</button>
-                        <button class="btn btn-secondary" onclick="keepExistingRip()">Keep Existing (Delete New)</button>
-                        <button class="btn btn-primary" onclick="keepBothRips()">Keep Both</button>
+                        <button class="btn btn-warning" onclick="keepBothRips()">Keep Both</button>
                     </div>
                 </div>
 
@@ -2584,67 +2584,71 @@
     function keepNewRip() {
         if (!currentReviewItem) return;
 
-        // Keep new = delete existing and move new to library
-        // We need to pass the existing path so backend can remove it
         const dupInfo = currentReviewItem.duplicate_info || {};
+        const title = dupInfo.title || 'item';
 
-        if (!confirm(`This will REPLACE the existing "${dupInfo.title || 'item'}" in your library with the new rip. Continue?`)) {
-            return;
-        }
-
-        fetch('/api/review/duplicate/keep-new', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                folder_name: currentReviewItem.folder_name,
-                existing_path: dupInfo.path || ''
-            })
-        })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    showToast('Replaced existing with new rip', 'success');
-                    closeReviewModal();
-                    loadReviewQueue();
-                } else {
-                    showToast(data.error || 'Failed to replace', 'error');
-                }
-            })
-            .catch(err => {
-                console.error('Keep new error:', err);
-                showToast('Failed to replace existing rip', 'error');
-            });
+        showConfirm(
+            `This will REPLACE the existing "${title}" in your library with the new rip.`,
+            function() {
+                fetch('/api/review/duplicate/keep-new', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        folder_name: currentReviewItem.folder_name,
+                        existing_path: dupInfo.path || ''
+                    })
+                })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            showToast('Replaced existing with new rip', 'success');
+                            closeReviewModal();
+                            loadReviewQueue();
+                        } else {
+                            showToast(data.error || 'Failed to replace', 'error');
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Keep new error:', err);
+                        showToast('Failed to replace existing rip', 'error');
+                    });
+            },
+            'Replace Existing?',
+            'Replace'
+        );
     }
 
     function keepExistingRip() {
         if (!currentReviewItem) return;
 
-        if (!confirm('This will DELETE the new rip and keep your existing library item. Continue?')) {
-            return;
-        }
-
-        // Keep existing = just delete the new rip from review queue
-        fetch('/api/review/delete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                folder_name: currentReviewItem.folder_name
-            })
-        })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    showToast('Kept existing, new rip deleted', 'success');
-                    closeReviewModal();
-                    loadReviewQueue();
-                } else {
-                    showToast(data.error || 'Failed to delete new rip', 'error');
-                }
-            })
-            .catch(err => {
-                console.error('Keep existing error:', err);
-                showToast('Failed to delete new rip', 'error');
-            });
+        showConfirm(
+            'This will DELETE the new rip and keep your existing library item.',
+            function() {
+                fetch('/api/review/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        folder_name: currentReviewItem.folder_name
+                    })
+                })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            showToast('Kept existing, new rip deleted', 'success');
+                            closeReviewModal();
+                            loadReviewQueue();
+                        } else {
+                            showToast(data.error || 'Failed to delete new rip', 'error');
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Keep existing error:', err);
+                        showToast('Failed to delete new rip', 'error');
+                    });
+            },
+            'Delete New Rip?',
+            'Delete'
+        );
     }
 
     function keepBothRips() {
