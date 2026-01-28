@@ -1732,6 +1732,15 @@
         }
 
         substepsEl.innerHTML = html;
+
+        // Hide detail text when showing substeps (avoid redundant "Ripping... 5%")
+        const ripStepEl = document.getElementById('step-rip');
+        if (ripStepEl) {
+            const detailEl = ripStepEl.querySelector('.check-detail');
+            if (detailEl) {
+                detailEl.textContent = html ? '' : (ripStep.detail || '');
+            }
+        }
     }
 
     // Start a real rip
