@@ -38,6 +38,86 @@ def sanitize_folder_name(name: str) -> str:
     return name
 
 
+def set_default_audio_track(mkv_path: str, preferred_lang: str = "eng") -> bool:
+    """Set the default audio track in an MKV file based on language preference.
+
+    Uses ffprobe to find audio tracks and mkvpropedit to set the default flag.
+
+    Args:
+        mkv_path: Path to the MKV file
+        preferred_lang: ISO 639-2 language code (eng, spa, fra, etc.)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    if preferred_lang == "all":
+        return True  # Don't modify if user wants all languages as-is
+
+    try:
+        # Get audio track info with ffprobe
+        result = subprocess.run([
+            "ffprobe", "-v", "quiet", "-print_format", "json",
+            "-show_streams", "-select_streams", "a", mkv_path
+        ], capture_output=True, text=True, timeout=30)
+
+        if result.returncode != 0:
+            activity.log_warning(f"ffprobe failed for {mkv_path}")
+            return False
+
+        import json as json_module
+        data = json_module.loads(result.stdout)
+        streams = data.get("streams", [])
+
+        if not streams:
+            return True  # No audio tracks to modify
+
+        # Find the first track matching preferred language
+        preferred_track_idx = None
+        for stream in streams:
+            lang = stream.get("tags", {}).get("language", "und")
+            if lang == preferred_lang:
+                # MKV track numbers are 1-indexed, and we need to count from video
+                # ffprobe index is 0-indexed overall, audio tracks start after video
+                preferred_track_idx = stream.get("index")
+                break
+
+        if preferred_track_idx is None:
+            activity.log_info(f"No {preferred_lang} audio track found in {os.path.basename(mkv_path)}")
+            return True  # No matching track, leave as-is
+
+        # Build mkvpropedit commands to set default flags
+        # First, clear all audio track default flags, then set the preferred one
+        cmd = ["mkvpropedit", mkv_path]
+
+        # Count audio tracks to clear their default flags
+        for i, stream in enumerate(streams):
+            track_num = i + 1  # mkvpropedit uses 1-indexed audio track numbers
+            cmd.extend(["--edit", f"track:a{track_num}", "--set", "flag-default=0"])
+
+        # Find which audio track number corresponds to our preferred language
+        for i, stream in enumerate(streams):
+            if stream.get("index") == preferred_track_idx:
+                track_num = i + 1
+                cmd.extend(["--edit", f"track:a{track_num}", "--set", "flag-default=1"])
+                break
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+        if result.returncode == 0:
+            activity.log_info(f"Set {preferred_lang} as default audio for {os.path.basename(mkv_path)}")
+            return True
+        else:
+            activity.log_warning(f"mkvpropedit failed: {result.stderr}")
+            return False
+
+    except subprocess.TimeoutExpired:
+        activity.log_warning(f"Timeout setting default audio track for {mkv_path}")
+        return False
+    except Exception as e:
+        activity.log_warning(f"Error setting default audio track: {e}")
+        return False
+
+
 class RipStatus(Enum):
     IDLE = "idle"
     DETECTING = "detecting"
@@ -2345,6 +2425,13 @@ class RipEngine:
                 job.size_gb = size_gb  # Store for rip history
                 activity.log_success(f"Rip output: {found_path}/ ({size_gb:.1f} GB)")
 
+                # Apply language preference to set default audio track
+                ripping_cfg = cfg.get('ripping', {})
+                preferred_lang = ripping_cfg.get('preferred_language', 'eng')
+                if preferred_lang != 'all':
+                    for mkv_file in mkv_files:
+                        set_default_audio_track(mkv_file, preferred_lang)
+
                 # Note if output went to unexpected location
                 if found_path != output_dir:
                     activity.log_warning(f"Output went to {found_path} instead of {output_dir}")
@@ -2655,6 +2742,10 @@ class RipEngine:
                     # Get the newest file (just ripped)
                     if mkv_files:
                         newest = max(mkv_files, key=os.path.getmtime)
+                        # Apply language preference
+                        preferred_lang = cfg.get('ripping', {}).get('preferred_language', 'eng')
+                        if preferred_lang != 'all':
+                            set_default_audio_track(newest, preferred_lang)
                         ripped_files.append({
                             'path': newest,
                             'track': track_num,

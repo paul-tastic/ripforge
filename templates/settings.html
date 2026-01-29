@@ -194,6 +194,27 @@
                 </label>
                 <small>Keep original MakeMKV quality</small>
             </div>
+            <div class="field">
+                <label>Preferred Language</label>
+                <select id="preferred-language">
+                    <option value="eng" {% if config.ripping.preferred_language == 'eng' or not config.ripping.preferred_language %}selected{% endif %}>English</option>
+                    <option value="spa" {% if config.ripping.preferred_language == 'spa' %}selected{% endif %}>Spanish</option>
+                    <option value="fra" {% if config.ripping.preferred_language == 'fra' %}selected{% endif %}>French</option>
+                    <option value="deu" {% if config.ripping.preferred_language == 'deu' %}selected{% endif %}>German</option>
+                    <option value="ita" {% if config.ripping.preferred_language == 'ita' %}selected{% endif %}>Italian</option>
+                    <option value="por" {% if config.ripping.preferred_language == 'por' %}selected{% endif %}>Portuguese</option>
+                    <option value="jpn" {% if config.ripping.preferred_language == 'jpn' %}selected{% endif %}>Japanese</option>
+                    <option value="all" {% if config.ripping.preferred_language == 'all' %}selected{% endif %}>Keep All Languages</option>
+                </select>
+                <small>Audio/subtitle tracks in this language will be marked as default</small>
+            </div>
+            <div class="field">
+                <label class="toggle-label">
+                    <input type="checkbox" id="keep-commentary" {% if config.ripping.keep_commentary %}checked{% endif %}>
+                    <span>Keep Commentary Tracks</span>
+                </label>
+                <small>Include director commentary and other secondary audio</small>
+            </div>
         </div>
         <div class="rip-mode-info" id="rip-mode-info">
             <div class="mode-details" id="mode-smart">
@@ -1011,6 +1032,8 @@
                 main_feature_only: document.getElementById('main-feature-only').checked,
                 skip_transcode: document.getElementById('skip-transcode').checked,
                 rip_mode: document.getElementById('rip-mode').value,
+                preferred_language: document.getElementById('preferred-language').value,
+                keep_commentary: document.getElementById('keep-commentary').checked,
                 auto_scan_on_insert: document.getElementById('auto-scan-on-insert').checked,
                 auto_rip: document.getElementById('auto-rip').checked,
                 auto_rip_delay: parseInt(document.getElementById('auto-rip-delay').value),

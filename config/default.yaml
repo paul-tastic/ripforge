@@ -31,6 +31,9 @@ ripping:
   tv_min_episode_length: 1200   # 20 minutes minimum for episode detection
   tv_max_episode_length: 3600   # 60 minutes maximum for episode detection
   tv_episode_tolerance: 60      # Seconds tolerance for episode runtime matching
+  # Language preferences for audio/subtitles
+  preferred_language: "eng"     # ISO 639-2 code: eng, spa, fra, deu, etc. Use "all" to keep all tracks
+  keep_commentary: false        # Keep director commentary and other secondary audio tracks
 
 integrations:
   radarr:
