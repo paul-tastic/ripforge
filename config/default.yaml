@@ -34,6 +34,8 @@ ripping:
   # Language preferences for audio/subtitles
   preferred_language: "eng"     # ISO 639-2 code: eng, spa, fra, deu, etc. Use "all" to keep all tracks
   keep_commentary: false        # Keep director commentary and other secondary audio tracks
+  # Quality control
+  verify_integrity: true        # Run ffmpeg decode check after rip to detect corruption
 
 integrations:
   radarr:

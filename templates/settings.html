@@ -215,6 +215,13 @@
                 </label>
                 <small>Include director commentary and other secondary audio</small>
             </div>
+            <div class="field">
+                <label class="toggle-label">
+                    <input type="checkbox" id="verify-integrity" {% if config.ripping.verify_integrity != false %}checked{% endif %}>
+                    <span>Verify Integrity After Rip</span>
+                </label>
+                <small>Run decode check to detect corruption (adds time but catches bad rips)</small>
+            </div>
         </div>
         <div class="rip-mode-info" id="rip-mode-info">
             <div class="mode-details" id="mode-smart">
@@ -1034,6 +1041,7 @@
                 rip_mode: document.getElementById('rip-mode').value,
                 preferred_language: document.getElementById('preferred-language').value,
                 keep_commentary: document.getElementById('keep-commentary').checked,
+                verify_integrity: document.getElementById('verify-integrity').checked,
                 auto_scan_on_insert: document.getElementById('auto-scan-on-insert').checked,
                 auto_rip: document.getElementById('auto-rip').checked,
                 auto_rip_delay: parseInt(document.getElementById('auto-rip-delay').value),

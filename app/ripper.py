@@ -118,6 +118,117 @@ def set_default_audio_track(mkv_path: str, preferred_lang: str = "eng") -> bool:
         return False
 
 
+def check_file_integrity(mkv_path: str, progress_callback=None) -> dict:
+    """Check MKV file for corruption using ffmpeg decode test.
+
+    Runs ffmpeg to decode the entire file and catches any decode errors.
+    This catches issues like:
+    - H.264 macroblock decode errors
+    - Timestamp/DTS issues
+    - Missing reference frames
+    - Truncated files
+
+    Args:
+        mkv_path: Path to the MKV file to check
+        progress_callback: Optional callback(percent) for progress updates
+
+    Returns:
+        dict with keys:
+        - valid: bool - True if no errors found
+        - errors: list - List of error messages found
+        - error_count: int - Total number of errors
+    """
+    result = {
+        "valid": True,
+        "errors": [],
+        "error_count": 0
+    }
+
+    if not os.path.exists(mkv_path):
+        result["valid"] = False
+        result["errors"] = ["File not found"]
+        result["error_count"] = 1
+        return result
+
+    try:
+        # Get file duration first for progress calculation
+        duration_result = subprocess.run([
+            "ffprobe", "-v", "quiet", "-print_format", "json",
+            "-show_entries", "format=duration", mkv_path
+        ], capture_output=True, text=True, timeout=30)
+
+        total_duration = 0
+        if duration_result.returncode == 0:
+            import json as json_module
+            data = json_module.loads(duration_result.stdout)
+            total_duration = float(data.get("format", {}).get("duration", 0))
+
+        # Run ffmpeg decode test - outputs errors to stderr
+        # -v error shows only errors, -f null discards output
+        process = subprocess.Popen(
+            ["ffmpeg", "-v", "error", "-progress", "pipe:1",
+             "-i", mkv_path, "-f", "null", "-"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        errors = []
+        current_time = 0
+
+        # Read progress from stdout, errors from stderr
+        import select
+        while process.poll() is None:
+            # Check for progress updates
+            if process.stdout:
+                line = process.stdout.readline()
+                if line.startswith("out_time_ms="):
+                    try:
+                        time_ms = int(line.split("=")[1].strip())
+                        current_time = time_ms / 1000000  # Convert to seconds
+                        if progress_callback and total_duration > 0:
+                            percent = min(99, int((current_time / total_duration) * 100))
+                            progress_callback(percent)
+                    except (ValueError, IndexError):
+                        pass
+
+        # Get any remaining stderr output
+        _, stderr = process.communicate(timeout=10)
+        if stderr:
+            # Parse error lines
+            for line in stderr.strip().split('\n'):
+                if line.strip():
+                    errors.append(line.strip())
+
+        if errors:
+            result["valid"] = False
+            result["errors"] = errors[:20]  # Limit to first 20 errors
+            result["error_count"] = len(errors)
+            activity.log_warning(f"INTEGRITY: {os.path.basename(mkv_path)} has {len(errors)} errors")
+            for err in errors[:5]:
+                activity.log_warning(f"INTEGRITY:   {err}")
+        else:
+            activity.log_info(f"INTEGRITY: {os.path.basename(mkv_path)} passed integrity check")
+
+        if progress_callback:
+            progress_callback(100)
+
+        return result
+
+    except subprocess.TimeoutExpired:
+        activity.log_warning(f"INTEGRITY: Timeout checking {mkv_path}")
+        result["valid"] = False
+        result["errors"] = ["Integrity check timed out"]
+        result["error_count"] = 1
+        return result
+    except Exception as e:
+        activity.log_warning(f"INTEGRITY: Error checking {mkv_path}: {e}")
+        result["valid"] = False
+        result["errors"] = [str(e)]
+        result["error_count"] = 1
+        return result
+
+
 class RipStatus(Enum):
     IDLE = "idle"
     DETECTING = "detecting"
@@ -198,6 +309,7 @@ class RipJob:
         "detect": RipStep(),
         "scan": RipStep(),
         "rip": RipStep(),
+        "verify": RipStep(),
         "identify": RipStep(),
         "library": RipStep(),
         "move": RipStep(),
@@ -304,7 +416,8 @@ class MakeMKV:
         args = ["-r", "info", f"disc:{disc_num}"]
         process = self._run_cmd(args)
 
-        longest_track = {"index": None, "duration": 0}
+        longest_track = {"index": None, "duration": 0, "playlist": ""}
+        track_playlists = {}  # track_num -> playlist name (e.g., "00800.mpls")
 
         for line in process.stdout:
             line = line.strip()
@@ -326,6 +439,16 @@ class MakeMKV:
                 info["disc_type"] = "bluray"
             elif "DVD" in line:
                 info["disc_type"] = "dvd"
+
+            # Parse playlist name: TINFO:0,16,0,"00800.mpls"
+            # Important for multi-angle discs (e.g., Star Wars) where different
+            # playlists have different language text burned into video
+            if line.startswith("TINFO:") and ",16,0," in line:
+                match = re.search(r'TINFO:(\d+),16,0,"([^"]*)"', line)
+                if match:
+                    track_num = int(match.group(1))
+                    playlist = match.group(2)
+                    track_playlists[track_num] = playlist
 
             # Parse track info: TINFO:0,9,0,"1:45:30" (duration)
             if line.startswith("TINFO:") and ",9,0," in line:
@@ -366,9 +489,35 @@ class MakeMKV:
 
         process.wait()
 
+        # Add playlist names to track info
+        for track in info["tracks"]:
+            track["playlist"] = track_playlists.get(track["index"], "")
+
         # Set main feature as longest track over 45 minutes
+        # For multi-angle discs (Star Wars, Disney), prefer lower playlist numbers
+        # e.g., 00800.mpls is typically English, 00801 is Spanish, 00802 is French
         if longest_track["duration"] > 2700:  # 45 min
-            info["main_feature"] = longest_track["index"]
+            # Find all tracks with same duration as longest (potential angles)
+            angle_candidates = [
+                t for t in info["tracks"]
+                if abs(t["duration"] - longest_track["duration"]) <= 5  # Within 5 sec
+            ]
+
+            if len(angle_candidates) > 1:
+                # Multiple tracks with same duration = likely angles
+                # Sort by playlist number to prefer lower (English on US releases)
+                activity.log_info(f"DISC: Detected {len(angle_candidates)} angles (same duration tracks)")
+                for candidate in angle_candidates:
+                    playlist = track_playlists.get(candidate["index"], "unknown")
+                    activity.log_info(f"DISC:   Track {candidate['index']}: playlist {playlist}")
+
+                # Sort by playlist name (00800 < 00801 < 00802)
+                angle_candidates.sort(key=lambda t: track_playlists.get(t["index"], "zzzzz"))
+                best_track = angle_candidates[0]
+                info["main_feature"] = best_track["index"]
+                activity.log_info(f"DISC: Selected track {best_track['index']} (playlist {track_playlists.get(best_track['index'], 'unknown')}) as main feature")
+            else:
+                info["main_feature"] = longest_track["index"]
 
         # Detect episode-length tracks (for TV show detection)
         episode_tracks = []
@@ -400,34 +549,46 @@ class MakeMKV:
 
     def get_backup_main_feature(self, backup_path: str) -> Optional[int]:
         """Scan a backup folder and return the index of the longest track.
-        
+
         IMPORTANT: Track indices from disc scan may differ from backup scan.
         Always use this function to get the correct track index for backup rips.
-        
+
+        For multi-angle discs (e.g., Star Wars), prefers lower playlist numbers
+        (00800.mpls = English, 00801 = Spanish, 00802 = French on US releases).
+
         Args:
             backup_path: Path to the backup folder containing BDMV structure
-            
+
         Returns:
             Track index of the longest track (main feature), or None if scan fails
         """
         activity.log_info(f"BACKUP SCAN: Scanning {backup_path} for main feature track...")
-        
+
         args = ["-r", "info", f"file:{backup_path}"]
         process = self._run_cmd(args)
-        
+
         longest_track = {"index": None, "duration": 0}
-        tracks_found = []
-        
+        tracks_found = []  # (track_num, duration_secs, duration_str, playlist)
+        track_playlists = {}  # track_num -> playlist name
+
         for line in process.stdout:
             line = line.strip()
-            
+
+            # Parse playlist name: TINFO:0,16,0,"00800.mpls"
+            if line.startswith("TINFO:") and ",16,0," in line:
+                match = re.search(r'TINFO:(\d+),16,0,"([^"]*)"', line)
+                if match:
+                    track_num = int(match.group(1))
+                    playlist = match.group(2)
+                    track_playlists[track_num] = playlist
+
             # Parse track duration: TINFO:0,9,0,"1:45:30"
             if line.startswith("TINFO:") and ",9,0," in line:
                 match = re.search(r'TINFO:(\d+),9,0,"([^"]*)"', line)
                 if match:
                     track_num = int(match.group(1))
                     duration_str = match.group(2)
-                    
+
                     try:
                         parts = duration_str.split(":")
                         if len(parts) == 3:
@@ -436,22 +597,38 @@ class MakeMKV:
                             duration_secs = int(parts[0]) * 60 + int(parts[1])
                         else:
                             duration_secs = 0
-                        
+
                         tracks_found.append((track_num, duration_secs, duration_str))
-                        
+
                         if duration_secs > longest_track["duration"]:
                             longest_track = {"index": track_num, "duration": duration_secs}
                     except:
                         pass
-        
+
         process.wait()
-        
+
         if tracks_found:
             activity.log_info(f"BACKUP SCAN: Found {len(tracks_found)} tracks")
             for t in sorted(tracks_found, key=lambda x: -x[1])[:3]:
-                activity.log_info(f"BACKUP SCAN:   Track {t[0]}: {t[2]} ({t[1] // 60}m)")
-        
+                playlist = track_playlists.get(t[0], "unknown")
+                activity.log_info(f"BACKUP SCAN:   Track {t[0]}: {t[2]} ({t[1] // 60}m) - playlist {playlist}")
+
         if longest_track["index"] is not None and longest_track["duration"] > 2700:
+            # Check for multiple tracks with same duration (angles)
+            angle_candidates = [
+                t for t in tracks_found
+                if abs(t[1] - longest_track["duration"]) <= 5  # Within 5 sec
+            ]
+
+            if len(angle_candidates) > 1:
+                # Multiple tracks with same duration = likely angles
+                activity.log_info(f"BACKUP SCAN: Detected {len(angle_candidates)} angles (same duration tracks)")
+                # Sort by playlist number (00800 < 00801 < 00802)
+                angle_candidates.sort(key=lambda t: track_playlists.get(t[0], "zzzzz"))
+                best_track = angle_candidates[0]
+                activity.log_info(f"BACKUP SCAN: Selected track {best_track[0]} (playlist {track_playlists.get(best_track[0], 'unknown')}) as main feature")
+                return best_track[0]
+
             activity.log_info(f"BACKUP SCAN: Main feature is track {longest_track['index']} ({longest_track['duration'] // 60}m)")
             return longest_track["index"]
         else:
@@ -2432,6 +2609,29 @@ class RipEngine:
                     for mkv_file in mkv_files:
                         set_default_audio_track(mkv_file, preferred_lang)
 
+                # Step: Verify file integrity (if enabled)
+                if ripping_cfg.get('verify_integrity', True):
+                    self._update_step("verify", "active", "Checking integrity...")
+                    integrity_errors = []
+                    for i, mkv_file in enumerate(mkv_files):
+                        filename = os.path.basename(mkv_file)
+                        if len(mkv_files) > 1:
+                            self._update_step("verify", "active", f"Checking {i+1}/{len(mkv_files)}...")
+                        result = check_file_integrity(mkv_file)
+                        if not result["valid"]:
+                            integrity_errors.append((filename, result["error_count"]))
+
+                    if integrity_errors:
+                        # Log errors but continue - user can decide what to do
+                        error_summary = ", ".join(f"{f} ({c} errors)" for f, c in integrity_errors)
+                        self._update_step("verify", "error", f"Issues: {error_summary}")
+                        activity.log_warning(f"VERIFY: Integrity issues found - {error_summary}")
+                        # Don't fail the rip, but warn user
+                    else:
+                        self._update_step("verify", "complete", "Passed")
+                else:
+                    self._update_step("verify", "complete", "Skipped")
+
                 # Note if output went to unexpected location
                 if found_path != output_dir:
                     activity.log_warning(f"Output went to {found_path} instead of {output_dir}")
@@ -2774,6 +2974,30 @@ class RipEngine:
                 self._update_step("rip", "complete", f"All {total_tracks} episodes ripped")
 
             job.output_path = output_dir
+
+            # Step: Verify file integrity for all ripped episodes (if enabled)
+            if cfg.get('ripping', {}).get('verify_integrity', True):
+                self._update_step("verify", "active", "Checking integrity...")
+                integrity_errors = []
+                for i, file_info in enumerate(ripped_files):
+                    mkv_file = file_info['path']
+                    filename = os.path.basename(mkv_file)
+                    if len(ripped_files) > 1:
+                        self._update_step("verify", "active", f"Checking {i+1}/{len(ripped_files)}...")
+                    result = check_file_integrity(mkv_file)
+                    if not result["valid"]:
+                        integrity_errors.append((filename, result["error_count"]))
+
+                if integrity_errors:
+                    error_summary = ", ".join(f"{f} ({c} errors)" for f, c in integrity_errors[:3])
+                    if len(integrity_errors) > 3:
+                        error_summary += f" +{len(integrity_errors)-3} more"
+                    self._update_step("verify", "error", f"Issues: {error_summary}")
+                    activity.log_warning(f"VERIFY: Integrity issues found in {len(integrity_errors)} files")
+                else:
+                    self._update_step("verify", "complete", f"All {len(ripped_files)} passed")
+            else:
+                self._update_step("verify", "complete", "Skipped")
 
             # Step 5: Identify (already done pre-rip for TV)
             self._update_step("identify", "complete", f"{series_name} S{job.season_number:02d} [TV]")

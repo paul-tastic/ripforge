@@ -146,6 +146,11 @@
                     <span class="rip-substeps" id="rip-substeps"></span>
                     <span class="check-detail"></span>
                 </div>
+                <div class="checklist-item" id="step-verify" data-status="pending">
+                    <span class="check-icon">○</span>
+                    <span class="check-text">Verifying integrity</span>
+                    <span class="check-detail"></span>
+                </div>
                 <div class="checklist-item" id="step-identify" data-status="pending">
                     <span class="check-icon">○</span>
                     <span class="check-text">Identifying content</span>
@@ -1498,10 +1503,11 @@
         }
 
         // Update each step and find current active step
-        const steps = ['insert', 'detect', 'scan', 'rip', 'identify', 'library', 'move', 'scan-plex'];
+        const steps = ['insert', 'detect', 'scan', 'rip', 'verify', 'identify', 'library', 'move', 'scan-plex'];
         const stepNames = {
             'insert': 'Inserting',
             'detect': 'Detecting',
+            'verify': 'Verifying',
             'scan': 'Scanning',
             'rip': 'Ripping',
             'identify': 'Identifying',
@@ -2960,7 +2966,7 @@
 
     // Demo function to test the UI (can be called from console)
     function demoRip() {
-        const steps = ['insert', 'detect', 'scan', 'rip', 'identify', 'library', 'move', 'scan-plex'];
+        const steps = ['insert', 'detect', 'scan', 'rip', 'verify', 'identify', 'library', 'move', 'scan-plex'];
         let currentStep = 0;
 
         document.getElementById('status-idle').style.display = 'none';
