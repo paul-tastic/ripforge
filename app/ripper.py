@@ -1192,6 +1192,12 @@ class RipEngine:
                 "expected_size_bytes": self.current_job.expected_size_bytes,
                 "rip_output_dir": self.current_job.rip_output_dir,
                 "started_at": self.current_job.started_at,
+                # Additional fields for proper recovery
+                "year": self.current_job.year,
+                "tmdb_id": self.current_job.tmdb_id,
+                "poster_url": self.current_job.poster_url,
+                "runtime_str": self.current_job.runtime_str,
+                "media_type": self.current_job.media_type,
             }
             self.JOB_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
             with open(self.JOB_STATE_FILE, 'w') as f:
@@ -1309,6 +1315,12 @@ class RipEngine:
             output_path=output_dir,
             started_at=state.get("started_at"),
         )
+        # Restore additional metadata
+        self.current_job.year = state.get("year")
+        self.current_job.tmdb_id = state.get("tmdb_id")
+        self.current_job.poster_url = state.get("poster_url")
+        self.current_job.runtime_str = state.get("runtime_str")
+        self.current_job.media_type = state.get("media_type")
         # Mark rip as complete
         self.current_job.steps["insert"].status = "complete"
         self.current_job.steps["detect"].status = "complete"
@@ -1418,12 +1430,41 @@ class RipEngine:
             )
 
     def _run_post_processing(self):
-        """Run the post-rip steps (identify, library, move, plex scan)"""
+        """Run the post-rip steps (verify, identify, library, move, plex scan)"""
         job = self.current_job
         if not job:
             return
 
         try:
+            import glob
+            import shutil
+            from . import config as cfg_module
+            cfg = cfg_module.load_config()
+
+            # Step: Verify file integrity (if enabled) - BEFORE moving files
+            source_path = job.output_path or job.rip_output_dir
+            mkv_files = glob.glob(os.path.join(source_path, "*.mkv"))
+
+            if cfg.get('ripping', {}).get('verify_integrity', True) and mkv_files:
+                self._update_step("verify", "active", "Checking integrity...")
+                integrity_errors = []
+                for i, mkv_file in enumerate(mkv_files):
+                    filename = os.path.basename(mkv_file)
+                    if len(mkv_files) > 1:
+                        self._update_step("verify", "active", f"Checking {i+1}/{len(mkv_files)}...")
+                    result = check_file_integrity(mkv_file)
+                    if not result["valid"]:
+                        integrity_errors.append((filename, result["error_count"]))
+
+                if integrity_errors:
+                    error_summary = ", ".join(f"{f} ({c} errors)" for f, c in integrity_errors)
+                    self._update_step("verify", "error", f"Issues: {error_summary}")
+                    activity.log_warning(f"VERIFY: Integrity issues found - {error_summary}")
+                else:
+                    self._update_step("verify", "complete", "Passed")
+            else:
+                self._update_step("verify", "complete", "Skipped")
+
             # Step 5: Identify (already have title from state)
             self._update_step("identify", "complete", f"{job.identified_title} [RECOVERED]")
 
@@ -1435,15 +1476,15 @@ class RipEngine:
             self._update_step("move", "active", "Organizing files...")
             job.status = RipStatus.MOVING
 
-            import shutil
-            import glob
-
-            dest_folder_name = sanitize_folder_name(job.identified_title or job.disc_label.replace("_", " ").title())
+            # Build folder name with year (like normal flow)
+            title = job.identified_title or job.disc_label.replace("_", " ").title()
+            if job.year:
+                dest_folder_name = sanitize_folder_name(f"{title} ({job.year})")
+            else:
+                dest_folder_name = sanitize_folder_name(title)
             dest_path = os.path.join(self.movies_path, dest_folder_name)
-            # Use output_path if set, otherwise fall back to rip_output_dir
-            source_path = job.output_path or job.rip_output_dir
+            # source_path and mkv_files already defined above for verify step
 
-            mkv_files = glob.glob(os.path.join(source_path, "*.mkv"))
             if mkv_files:
                 Path(dest_path).mkdir(parents=True, exist_ok=True)
                 for mkv_file in mkv_files:
@@ -1477,7 +1518,6 @@ class RipEngine:
             activity.rip_completed(job.identified_title or job.disc_label, "recovered")
 
             # Calculate file size for history
-            import glob
             mkv_files = glob.glob(os.path.join(job.output_path, "*.mkv"))
             total_size = sum(os.path.getsize(f) for f in mkv_files) / (1024**3) if mkv_files else 0
 
