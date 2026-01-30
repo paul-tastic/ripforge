@@ -721,6 +721,7 @@ class MakeMKV:
 
         args = [
             "-r",  # Robot mode (parseable output)
+            "--progress=-stdout",  # Enable PRGV progress output
             "mkv",
             f"disc:{disc_num}",
             str(track),
@@ -897,7 +898,7 @@ class MakeMKV:
 
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-        args = ["-r", "backup", f"disc:{disc_num}", output_dir]
+        args = ["-r", "--progress=-stdout", "backup", f"disc:{disc_num}", output_dir]
 
         # Check debug logging setting
         from . import config as cfg_module
@@ -1052,7 +1053,7 @@ class MakeMKV:
         debug_cfg = config.load_config()
         debug_enabled = debug_cfg.get('ripping', {}).get('debug_logging', False)
 
-        args = ["-r", "mkv", f"file:{backup_path}", str(track), output_dir]
+        args = ["-r", "--progress=-stdout", "mkv", f"file:{backup_path}", str(track), output_dir]
 
         activity.log_info(f"RIP FROM BACKUP: Running: makemkvcon {' '.join(args)}")
 
