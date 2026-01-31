@@ -305,6 +305,9 @@ class RipJob:
     possible_duplicate: bool = False  # True if duplicate detected
     duplicate_match_type: str = ""  # 'tmdb_id', 'folder', or 'disc_label'
     duplicate_info: Optional[Dict] = None  # Info about existing rip
+    # Existing raw files detection (orphaned from previous failed rips)
+    has_existing_raw_files: bool = False
+    existing_raw_info: Optional[Dict] = None  # {files: [], total_size_gb: float}
     rip_started_at: Optional[float] = None  # Unix timestamp when rip phase began (for ETA calc)
     # Disc fingerprint data for capture/analysis
     disc_tracks: List[dict] = field(default_factory=list)
@@ -362,6 +365,9 @@ class RipJob:
             "possible_duplicate": self.possible_duplicate,
             "duplicate_match_type": self.duplicate_match_type,
             "duplicate_info": self.duplicate_info,
+            # Existing raw files
+            "has_existing_raw_files": self.has_existing_raw_files,
+            "existing_raw_info": self.existing_raw_info,
             "steps": {k: {"status": v.status, "detail": v.detail} for k, v in self.steps.items()}
         }
 
@@ -2336,6 +2342,45 @@ class RipEngine:
         except Exception as e:
             activity.log_warning(f"Could not clean up old backups: {e}")
 
+    def _cleanup_empty_raw_folders(self):
+        """Clean up empty folders in raw directory from previous rips.
+
+        Empty folders are left behind when MKV files are moved to library
+        but folder removal fails, or when rips fail before producing output.
+        Only removes truly empty folders (no files at all).
+        """
+        try:
+            if not os.path.isdir(self.raw_path):
+                return
+
+            cleaned = 0
+            for item in os.listdir(self.raw_path):
+                item_path = os.path.join(self.raw_path, item)
+                if os.path.isdir(item_path):
+                    # Check if folder is empty (no files, may have subdirs)
+                    contents = os.listdir(item_path)
+                    if not contents:
+                        # Completely empty
+                        os.rmdir(item_path)
+                        activity.log_info(f"Cleaned up empty raw folder: {item}")
+                        cleaned += 1
+                    elif not any(f.endswith('.mkv') for f in contents):
+                        # No MKV files - check if only empty subdirs
+                        has_files = False
+                        for root, dirs, files in os.walk(item_path):
+                            if files:
+                                has_files = True
+                                break
+                        if not has_files:
+                            shutil.rmtree(item_path, ignore_errors=True)
+                            activity.log_info(f"Cleaned up empty raw folder (no files): {item}")
+                            cleaned += 1
+
+            if cleaned > 0:
+                activity.log_info(f"Cleaned up {cleaned} empty raw folder(s)")
+        except Exception as e:
+            activity.log_warning(f"Could not clean up empty raw folders: {e}")
+
     def start_rip(self, device: str = "/dev/sr0", custom_title: str = None,
                   media_type: str = "movie", season_number: int = 0,
                   selected_tracks: List[int] = None, episode_mapping: Dict[int, dict] = None,
@@ -2401,6 +2446,9 @@ class RipEngine:
 
             # Clean up old backups from previous rips (keep backup folder tidy)
             self._cleanup_old_backups()
+
+            # Clean up empty raw folders from previous rips
+            self._cleanup_empty_raw_folders()
 
             # Step 1: Disc inserted
             self._update_step("insert", "complete", "Disc detected")
@@ -2531,6 +2579,22 @@ class RipEngine:
 
             output_dir = os.path.join(self.raw_path, sanitize_folder_name(job.disc_label))
             job.rip_output_dir = output_dir  # Track for file size monitoring
+
+            # Check for existing MKV files in raw folder (orphaned from previous failed rips)
+            if os.path.exists(output_dir):
+                existing_mkvs = list(Path(output_dir).glob("*.mkv"))
+                if existing_mkvs:
+                    total_size = sum(f.stat().st_size for f in existing_mkvs)
+                    job.has_existing_raw_files = True
+                    job.existing_raw_info = {
+                        "files": [f.name for f in existing_mkvs],
+                        "total_size_gb": round(total_size / (1024**3), 2),
+                        "path": output_dir
+                    }
+                    job.needs_review = True
+                    activity.log_warning(f"EXISTING FILES: Found {len(existing_mkvs)} MKV(s) in raw folder ({job.existing_raw_info['total_size_gb']} GB)")
+                    for f in existing_mkvs[:5]:
+                        activity.log_warning(f"EXISTING FILES:   {f.name}")
 
             # Persist job state so we can recover if service restarts
             self._save_job_state()
@@ -3075,6 +3139,22 @@ class RipEngine:
             output_dir = os.path.join(self.raw_path, sanitize_folder_name(f"{series_name}_S{job.season_number:02d}"))
             job.rip_output_dir = output_dir
 
+            # Check for existing MKV files in raw folder (orphaned from previous failed rips)
+            if os.path.exists(output_dir):
+                existing_mkvs = list(Path(output_dir).glob("*.mkv"))
+                if existing_mkvs:
+                    total_size = sum(f.stat().st_size for f in existing_mkvs)
+                    job.has_existing_raw_files = True
+                    job.existing_raw_info = {
+                        "files": [f.name for f in existing_mkvs],
+                        "total_size_gb": round(total_size / (1024**3), 2),
+                        "path": output_dir
+                    }
+                    job.needs_review = True
+                    activity.log_warning(f"EXISTING FILES: Found {len(existing_mkvs)} MKV(s) in raw folder ({job.existing_raw_info['total_size_gb']} GB)")
+                    for f in existing_mkvs[:5]:
+                        activity.log_warning(f"EXISTING FILES:   {f.name}")
+
             # Persist job state
             self._save_job_state()
 
@@ -3294,6 +3374,22 @@ class RipEngine:
             series_name = job.identified_title or job.disc_label.replace("_", " ").title()
             output_dir = os.path.join(self.raw_path, sanitize_folder_name(f"{series_name}_S{job.season_number:02d}"))
             job.rip_output_dir = output_dir
+
+            # Check for existing MKV files in raw folder (orphaned from previous failed rips)
+            if os.path.exists(output_dir):
+                existing_mkvs = list(Path(output_dir).glob("*.mkv"))
+                if existing_mkvs:
+                    total_size = sum(f.stat().st_size for f in existing_mkvs)
+                    job.has_existing_raw_files = True
+                    job.existing_raw_info = {
+                        "files": [f.name for f in existing_mkvs],
+                        "total_size_gb": round(total_size / (1024**3), 2),
+                        "path": output_dir
+                    }
+                    job.needs_review = True
+                    activity.log_warning(f"EXISTING FILES: Found {len(existing_mkvs)} MKV(s) in raw folder ({job.existing_raw_info['total_size_gb']} GB)")
+                    for f in existing_mkvs[:5]:
+                        activity.log_warning(f"EXISTING FILES:   {f.name}")
 
             self._save_job_state()
             activity.log_info(f"Saving episodes to {output_dir}/")
