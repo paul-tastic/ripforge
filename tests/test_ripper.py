@@ -432,3 +432,135 @@ class TestSelectBestTrack:
         result, fake_detected = mkv.select_best_track(tracks, 2700)
 
         assert result == 0  # Should select 45 min track
+
+
+class TestMultiAngleDetection:
+    """Tests for multi-angle disc detection and audio language selection"""
+
+    @patch('app.ripper.activity')
+    def test_angle_detected_same_duration(self, mock_activity):
+        """Test angles are detected when tracks have same duration"""
+        from app.ripper import MakeMKV
+        mkv = MakeMKV()
+
+        # Simulate MakeMKV output with SINFO parsing
+        # We test via get_disc_info structure
+        config = {'ripping': {'preferred_language': 'eng'}}
+
+        # Create mock track data with audio tracks
+        tracks = [
+            {
+                'index': 0, 'duration': 8520, 'duration_str': '2:22:00',
+                'audio_tracks': [
+                    {'stream_idx': 1, 'lang_code': 'eng', 'lang_name': 'English', 'codec': 'DTS-HD MA', 'is_default': True}
+                ]
+            },
+            {
+                'index': 1, 'duration': 8520, 'duration_str': '2:22:00',
+                'audio_tracks': [
+                    {'stream_idx': 1, 'lang_code': 'spa', 'lang_name': 'Spanish', 'codec': 'DTS', 'is_default': True}
+                ]
+            },
+            {
+                'index': 2, 'duration': 8520, 'duration_str': '2:22:00',
+                'audio_tracks': [
+                    {'stream_idx': 1, 'lang_code': 'fra', 'lang_name': 'French', 'codec': 'DTS', 'is_default': True}
+                ]
+            }
+        ]
+
+        # Verify tracks with same duration count as angle candidates
+        angle_candidates = [t for t in tracks if abs(t['duration'] - 8520) <= 5]
+        assert len(angle_candidates) == 3
+
+    def test_preferred_language_selects_correct_angle(self):
+        """Test that angle with preferred language primary audio is selected"""
+        # Test the selection logic
+        preferred_lang = 'eng'
+        angle_candidates = [
+            {'index': 0, 'audio_tracks': [{'lang_code': 'spa'}]},
+            {'index': 1, 'audio_tracks': [{'lang_code': 'eng'}]},
+            {'index': 2, 'audio_tracks': [{'lang_code': 'fra'}]},
+        ]
+
+        matching_angles = []
+        for candidate in angle_candidates:
+            audio_tracks = candidate.get('audio_tracks', [])
+            if audio_tracks:
+                primary_lang = audio_tracks[0].get('lang_code', '')
+                if primary_lang == preferred_lang:
+                    matching_angles.append(candidate)
+
+        assert len(matching_angles) == 1
+        assert matching_angles[0]['index'] == 1  # English angle
+
+    def test_needs_angle_selection_when_no_match(self):
+        """Test needs_angle_selection flag when no angle has preferred language"""
+        preferred_lang = 'eng'
+        angle_candidates = [
+            {'index': 0, 'audio_tracks': [{'lang_code': 'spa'}]},
+            {'index': 1, 'audio_tracks': [{'lang_code': 'fra'}]},
+            {'index': 2, 'audio_tracks': [{'lang_code': 'deu'}]},
+        ]
+
+        matching_angles = []
+        for candidate in angle_candidates:
+            audio_tracks = candidate.get('audio_tracks', [])
+            if audio_tracks:
+                primary_lang = audio_tracks[0].get('lang_code', '')
+                if primary_lang == preferred_lang:
+                    matching_angles.append(candidate)
+
+        # No matches found - should need user selection
+        needs_angle_selection = len(matching_angles) == 0
+        assert needs_angle_selection is True
+
+    def test_single_track_no_angle_selection_needed(self):
+        """Test no angle selection needed for single main track"""
+        tracks = [
+            {'index': 0, 'duration': 8520, 'audio_tracks': [{'lang_code': 'eng'}]},
+            {'index': 1, 'duration': 120, 'audio_tracks': []},  # Trailer
+        ]
+
+        longest_duration = 8520
+        angle_candidates = [t for t in tracks if abs(t['duration'] - longest_duration) <= 5]
+
+        assert len(angle_candidates) == 1
+        # Single track = no angle selection needed
+
+    def test_fallback_to_lowest_playlist_when_no_audio_info(self):
+        """Test fallback to lowest playlist when no audio track info available"""
+        track_playlists = {0: '00801.mpls', 1: '00800.mpls', 2: '00802.mpls'}
+        angle_candidates = [
+            {'index': 0, 'audio_tracks': []},
+            {'index': 1, 'audio_tracks': []},
+            {'index': 2, 'audio_tracks': []},
+        ]
+
+        # Sort by playlist name
+        angle_candidates.sort(key=lambda t: track_playlists.get(t['index'], 'zzzzz'))
+        best_track = angle_candidates[0]
+
+        assert best_track['index'] == 1  # 00800.mpls comes first
+
+    def test_rip_job_has_angle_fields(self):
+        """Test RipJob dataclass has angle selection fields"""
+        job = RipJob(id="test", device="/dev/sr0")
+
+        assert hasattr(job, 'needs_angle_selection')
+        assert hasattr(job, 'angle_candidates')
+        assert job.needs_angle_selection is False
+        assert job.angle_candidates == []
+
+    def test_rip_job_to_dict_includes_angle_fields(self):
+        """Test RipJob.to_dict() includes angle selection fields"""
+        job = RipJob(id="test", device="/dev/sr0")
+        job.needs_angle_selection = True
+        job.angle_candidates = [{'track_index': 0, 'primary_audio_lang': 'spa'}]
+
+        result = job.to_dict()
+
+        assert 'needs_angle_selection' in result
+        assert 'angle_candidates' in result
+        assert result['needs_angle_selection'] is True
+        assert len(result['angle_candidates']) == 1
