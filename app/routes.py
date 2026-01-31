@@ -154,6 +154,9 @@ def api_rip_start():
     # Smart track selection - TMDB runtime for handling fake playlists
     tmdb_runtime_seconds = data.get('tmdb_runtime_seconds', 0)
 
+    # Multi-angle selection - user-specified track index from angle selection UI
+    selected_angle = data.get('selected_angle')  # Track index chosen by user
+
     # Convert episode_mapping keys from strings to ints (JSON serialization)
     if episode_mapping:
         episode_mapping = {int(k): v for k, v in episode_mapping.items()}
@@ -166,7 +169,8 @@ def api_rip_start():
         selected_tracks=selected_tracks,
         episode_mapping=episode_mapping,
         series_title=series_title,
-        tmdb_runtime_seconds=tmdb_runtime_seconds
+        tmdb_runtime_seconds=tmdb_runtime_seconds,
+        selected_angle=selected_angle
     )
     if success:
         title = custom_title or series_title or "Unknown disc"
@@ -485,7 +489,10 @@ def api_disc_scan_identify():
         'season_number': season_number,
         'episode_tracks': episode_tracks,
         'is_tv_disc': info.get('is_tv_disc', False),
-        'episode_mapping': {}  # Will be populated from result if TV
+        'episode_mapping': {},  # Will be populated from result if TV
+        # Multi-angle selection
+        'needs_angle_selection': info.get('needs_angle_selection', False),
+        'angle_candidates': info.get('angle_candidates', [])
     }
 
     # Log scan completion
@@ -529,6 +536,11 @@ def api_disc_scan_identify():
             activity.rip_identified(info['disc_label'], result.folder_name, result.confidence)
     else:
         response['needs_review'] = True
+
+    # If angle selection is needed, also set needs_review to pause auto-rip
+    if info.get('needs_angle_selection'):
+        response['needs_review'] = True
+        activity.log_warning(f"SCAN: Multi-angle disc requires user selection - auto-rip paused")
 
     # Don't send uncertain email here - user may correct the title before ripping
     # Email will be sent from /api/rip/start if title wasn't corrected

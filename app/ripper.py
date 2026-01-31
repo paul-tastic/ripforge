@@ -281,6 +281,9 @@ class RipJob:
     rip_output_dir: str = ""  # Track where MakeMKV is writing during rip
     # Review queue flag - set when identification fails
     needs_review: bool = False
+    # Angle selection flag - set when multiple angles detected and no clear winner
+    needs_angle_selection: bool = False
+    angle_candidates: List[dict] = field(default_factory=list)  # Angle options for user
     # Smart track selection - TMDB runtime for fake playlist detection
     tmdb_runtime_seconds: int = 0
     # TV-specific fields
@@ -344,6 +347,8 @@ class RipJob:
             "episode_mapping": self.episode_mapping,
             "total_tracks": len(self.tracks_to_rip) if self.tracks_to_rip else 0,
             "needs_review": self.needs_review,
+            "needs_angle_selection": self.needs_angle_selection,
+            "angle_candidates": self.angle_candidates,
             "rip_method": self.rip_method,
             "rip_mode": self.rip_mode,
             "direct_failed": self.direct_failed,
@@ -405,8 +410,14 @@ class MakeMKV:
             "track_sizes": {},  # Track index -> size in bytes
             "episode_tracks": [],  # Tracks that look like TV episodes (20-60 min)
             "is_tv_disc": False,  # True if multiple episode-length tracks detected
-            "cinfo_raw": {}  # Raw CINFO fields for disc fingerprinting
+            "cinfo_raw": {},  # Raw CINFO fields for disc fingerprinting
+            "needs_angle_selection": False,  # True if user needs to choose angle
+            "angle_candidates": []  # Details of angles for user selection
         }
+
+        # Track audio streams per title for angle selection
+        # Format: {title_idx: [{stream_idx, lang_code, lang_name, codec, is_default}, ...]}
+        track_audio_streams = {}
 
         # Convert device to MakeMKV format (disc:0 for /dev/sr0)
         disc_num = 0
@@ -487,15 +498,85 @@ class MakeMKV:
                     size_bytes = int(match.group(2))
                     info["track_sizes"][track_num] = size_bytes
 
+            # Parse stream info: SINFO:title_idx,stream_idx,attr_id,attr_type,"value"
+            # Attribute IDs from MakeMKV:
+            #   1 = stream type ("Video", "Audio", "Subtitles")
+            #   3 = language code (ISO 639-2, e.g., "eng", "spa")
+            #   4 = language name (e.g., "English", "Spanish")
+            #   5 = codec short name (e.g., "DTS-HD MA", "TrueHD")
+            #   39 = default flag (value contains "Default" if default track)
+            if line.startswith("SINFO:"):
+                # SINFO:0,1,1,6202,"Audio" - stream type
+                type_match = re.search(r'SINFO:(\d+),(\d+),1,\d+,"([^"]*)"', line)
+                if type_match:
+                    title_idx = int(type_match.group(1))
+                    stream_idx = int(type_match.group(2))
+                    stream_type = type_match.group(3)
+                    if stream_type == "Audio":
+                        if title_idx not in track_audio_streams:
+                            track_audio_streams[title_idx] = {}
+                        if stream_idx not in track_audio_streams[title_idx]:
+                            track_audio_streams[title_idx][stream_idx] = {
+                                "stream_idx": stream_idx, "lang_code": "", "lang_name": "",
+                                "codec": "", "is_default": False
+                            }
+
+                # SINFO:0,1,3,0,"eng" - language code (ISO 639-2)
+                lang_code_match = re.search(r'SINFO:(\d+),(\d+),3,\d+,"([^"]*)"', line)
+                if lang_code_match:
+                    title_idx = int(lang_code_match.group(1))
+                    stream_idx = int(lang_code_match.group(2))
+                    lang_code = lang_code_match.group(3)
+                    if title_idx in track_audio_streams and stream_idx in track_audio_streams[title_idx]:
+                        track_audio_streams[title_idx][stream_idx]["lang_code"] = lang_code
+
+                # SINFO:0,1,4,0,"English" - language name
+                lang_name_match = re.search(r'SINFO:(\d+),(\d+),4,\d+,"([^"]*)"', line)
+                if lang_name_match:
+                    title_idx = int(lang_name_match.group(1))
+                    stream_idx = int(lang_name_match.group(2))
+                    lang_name = lang_name_match.group(3)
+                    if title_idx in track_audio_streams and stream_idx in track_audio_streams[title_idx]:
+                        track_audio_streams[title_idx][stream_idx]["lang_name"] = lang_name
+
+                # SINFO:0,1,5,0,"DTS-HD MA" - codec short name
+                codec_match = re.search(r'SINFO:(\d+),(\d+),5,\d+,"([^"]*)"', line)
+                if codec_match:
+                    title_idx = int(codec_match.group(1))
+                    stream_idx = int(codec_match.group(2))
+                    codec = codec_match.group(3)
+                    if title_idx in track_audio_streams and stream_idx in track_audio_streams[title_idx]:
+                        track_audio_streams[title_idx][stream_idx]["codec"] = codec
+
+                # SINFO:0,1,39,0,"Default" - default flag
+                default_match = re.search(r'SINFO:(\d+),(\d+),39,\d+,"([^"]*)"', line)
+                if default_match:
+                    title_idx = int(default_match.group(1))
+                    stream_idx = int(default_match.group(2))
+                    is_default = "Default" in default_match.group(3)
+                    if title_idx in track_audio_streams and stream_idx in track_audio_streams[title_idx]:
+                        track_audio_streams[title_idx][stream_idx]["is_default"] = is_default
+
         process.wait()
 
-        # Add playlist names to track info
+        # Get preferred language from config
+        preferred_lang = "eng"  # Default
+        if config:
+            preferred_lang = config.get('ripping', {}).get('preferred_language', 'eng')
+
+        # Add playlist names and audio streams to track info
         for track in info["tracks"]:
             track["playlist"] = track_playlists.get(track["index"], "")
+            # Convert audio streams dict to sorted list (by stream index)
+            if track["index"] in track_audio_streams:
+                audio_list = list(track_audio_streams[track["index"]].values())
+                audio_list.sort(key=lambda x: x["stream_idx"])
+                track["audio_tracks"] = audio_list
+            else:
+                track["audio_tracks"] = []
 
         # Set main feature as longest track over 45 minutes
-        # For multi-angle discs (Star Wars, Disney), prefer lower playlist numbers
-        # e.g., 00800.mpls is typically English, 00801 is Spanish, 00802 is French
+        # For multi-angle discs, use audio language to select correct angle
         if longest_track["duration"] > 2700:  # 45 min
             # Find all tracks with same duration as longest (potential angles)
             angle_candidates = [
@@ -505,19 +586,69 @@ class MakeMKV:
 
             if len(angle_candidates) > 1:
                 # Multiple tracks with same duration = likely angles
-                # Sort by playlist number to prefer lower (English on US releases)
-                activity.log_info(f"DISC: Detected {len(angle_candidates)} angles (same duration tracks)")
+                activity.log_info(f"ANGLE: Detected {len(angle_candidates)} angle candidates (same duration: {longest_track['duration'] // 60}m)")
+
+                # Log details for each angle candidate
                 for candidate in angle_candidates:
                     playlist = track_playlists.get(candidate["index"], "unknown")
-                    activity.log_info(f"DISC:   Track {candidate['index']}: playlist {playlist}")
+                    size_gb = info["track_sizes"].get(candidate["index"], 0) / (1024**3)
+                    audio_tracks = candidate.get("audio_tracks", [])
+                    primary_audio = audio_tracks[0] if audio_tracks else None
+                    primary_lang = primary_audio["lang_code"] if primary_audio else "unknown"
+                    primary_lang_name = primary_audio["lang_name"] if primary_audio else "unknown"
+                    audio_summary = ", ".join([f"{a['lang_code']}" for a in audio_tracks[:3]]) if audio_tracks else "no audio info"
+                    activity.log_info(f"ANGLE:   Track {candidate['index']} (playlist {playlist}): primary_audio={primary_lang} ({primary_lang_name}), size={size_gb:.1f}GB, audio=[{audio_summary}]")
 
-                # Sort by playlist name (00800 < 00801 < 00802)
-                angle_candidates.sort(key=lambda t: track_playlists.get(t["index"], "zzzzz"))
-                best_track = angle_candidates[0]
-                info["main_feature"] = best_track["index"]
-                activity.log_info(f"DISC: Selected track {best_track['index']} (playlist {track_playlists.get(best_track['index'], 'unknown')}) as main feature")
+                # Try to find angle where primary audio matches preferred language
+                matching_angles = []
+                for candidate in angle_candidates:
+                    audio_tracks = candidate.get("audio_tracks", [])
+                    if audio_tracks:
+                        primary_lang = audio_tracks[0].get("lang_code", "")
+                        if primary_lang == preferred_lang:
+                            matching_angles.append(candidate)
+
+                if len(matching_angles) == 1:
+                    # Exactly one angle matches preferred language - use it
+                    best_track = matching_angles[0]
+                    info["main_feature"] = best_track["index"]
+                    activity.log_info(f"ANGLE: Selected track {best_track['index']} - primary audio matches preferred_language ({preferred_lang})")
+                elif len(matching_angles) > 1:
+                    # Multiple angles have preferred language as primary - use lowest playlist
+                    matching_angles.sort(key=lambda t: track_playlists.get(t["index"], "zzzzz"))
+                    best_track = matching_angles[0]
+                    info["main_feature"] = best_track["index"]
+                    activity.log_info(f"ANGLE: Multiple angles have {preferred_lang} primary audio, selected track {best_track['index']} (lowest playlist)")
+                elif not any(candidate.get("audio_tracks") for candidate in angle_candidates):
+                    # No audio info available - fall back to lowest playlist (old behavior)
+                    angle_candidates.sort(key=lambda t: track_playlists.get(t["index"], "zzzzz"))
+                    best_track = angle_candidates[0]
+                    info["main_feature"] = best_track["index"]
+                    activity.log_info(f"ANGLE: No audio track info available, falling back to lowest playlist: track {best_track['index']}")
+                else:
+                    # No angle has preferred language as primary - need user input
+                    activity.log_warning(f"ANGLE: No angle has {preferred_lang} as primary audio - user selection required")
+                    info["needs_angle_selection"] = True
+                    # Prepare detailed info for user selection
+                    info["angle_candidates"] = []
+                    for candidate in angle_candidates:
+                        playlist = track_playlists.get(candidate["index"], "unknown")
+                        size_gb = info["track_sizes"].get(candidate["index"], 0) / (1024**3)
+                        audio_tracks = candidate.get("audio_tracks", [])
+                        primary_audio = audio_tracks[0] if audio_tracks else None
+                        info["angle_candidates"].append({
+                            "track_index": candidate["index"],
+                            "playlist": playlist,
+                            "size_gb": round(size_gb, 1),
+                            "primary_audio_lang": primary_audio["lang_code"] if primary_audio else "unknown",
+                            "primary_audio_name": primary_audio["lang_name"] if primary_audio else "Unknown",
+                            "audio_tracks": [{"lang": a["lang_code"], "name": a["lang_name"], "codec": a["codec"]} for a in audio_tracks]
+                        })
+                    # Don't set main_feature yet - wait for user selection
+                    info["main_feature"] = None
             else:
                 info["main_feature"] = longest_track["index"]
+                activity.log_info(f"ANGLE: Single track at main feature duration, selected track {longest_track['index']}")
 
         # Detect episode-length tracks (for TV show detection)
         episode_tracks = []
@@ -1157,6 +1288,7 @@ class RipEngine:
         self._lock = threading.Lock()
         self._rip_thread: Optional[threading.Thread] = None
         self._cancelled = False  # Flag to track manual cancellation
+        self._selected_angle: Optional[int] = None  # User-selected angle for multi-angle discs
 
         # Initialize MakeMKV wrapper - use host installation
         self.makemkv = MakeMKV(use_docker=False)
@@ -2204,7 +2336,8 @@ class RipEngine:
     def start_rip(self, device: str = "/dev/sr0", custom_title: str = None,
                   media_type: str = "movie", season_number: int = 0,
                   selected_tracks: List[int] = None, episode_mapping: Dict[int, dict] = None,
-                  series_title: str = "", tmdb_runtime_seconds: int = 0) -> bool:
+                  series_title: str = "", tmdb_runtime_seconds: int = 0,
+                  selected_angle: int = None) -> bool:
         """Start a new rip job
 
         Args:
@@ -2217,6 +2350,7 @@ class RipEngine:
             episode_mapping: Dict mapping track index to episode info
             series_title: Original series title (for TV)
             tmdb_runtime_seconds: Official TMDB runtime (for smart track selection)
+            selected_angle: User-selected track index for multi-angle discs
         """
         with self._lock:
             if self.current_job and self.current_job.status not in [RipStatus.IDLE, RipStatus.COMPLETE, RipStatus.ERROR]:
@@ -2241,6 +2375,9 @@ class RipEngine:
             # Store custom title if provided
             if custom_title:
                 self.current_job.identified_title = custom_title
+
+            # Store selected angle for multi-angle discs
+            self._selected_angle = selected_angle
 
         # Start rip in background thread - choose pipeline based on media type
         if media_type == "tv" and selected_tracks:
@@ -2269,7 +2406,7 @@ class RipEngine:
             self._update_step("detect", "active", "Reading disc...")
             job.status = RipStatus.DETECTING
 
-            disc_info = self.makemkv.get_disc_info(job.device)
+            disc_info = self.makemkv.get_disc_info(job.device, self.config)
             job.disc_label = disc_info.get("disc_label", "UNKNOWN")
             job.disc_type = disc_info.get("disc_type", "unknown")
             # Store fingerprint data for capture
@@ -2336,6 +2473,11 @@ class RipEngine:
 
             main_feature = disc_info.get("main_feature")
             fake_playlist_detected = False
+
+            # If user selected an angle, use that instead of auto-detected main feature
+            if self._selected_angle is not None:
+                activity.log_info(f"ANGLE: Using user-selected track {self._selected_angle} (overriding auto-detected {main_feature})")
+                main_feature = self._selected_angle
 
             # Smart track selection: if we have TMDB runtime, use it to find the best track
             # This handles Disney-style fake playlists with many similar-length tracks
