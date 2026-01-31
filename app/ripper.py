@@ -297,6 +297,9 @@ class RipJob:
     rip_method: str = "direct"  # "direct", "backup", or "recovery"
     rip_mode: str = "smart"  # "smart", "always_backup", "direct_only" - from config
     direct_failed: bool = False  # True if direct rip was attempted and failed
+    # Backup phase tracking for UI
+    backup_phase_complete: bool = False
+    backup_phase_percent: int = 0
     disc_ejected: bool = False  # True if disc was ejected after rip completed
     # Duplicate detection
     possible_duplicate: bool = False  # True if duplicate detected
@@ -353,6 +356,8 @@ class RipJob:
             "rip_mode": self.rip_mode,
             "direct_failed": self.direct_failed,
             "disc_ejected": self.disc_ejected,
+            "backup_phase_complete": self.backup_phase_complete,
+            "backup_phase_percent": self.backup_phase_percent,
             # Duplicate detection
             "possible_duplicate": self.possible_duplicate,
             "duplicate_match_type": self.duplicate_match_type,
@@ -1756,19 +1761,17 @@ class RipEngine:
                         raw_has_mkv = os.path.exists(raw_dir) and any(Path(raw_dir).glob("*.mkv")) if raw_dir else False
 
                         if is_backup_method:
-                            if raw_has_mkv:
-                                status_msg = f"Extracting MKV... {pct}%"
-                            elif pct >= 99:
-                                status_msg = "Finishing backup..."
+                            if self.current_job.backup_phase_complete:
+                                # Extraction phase - backup done, show extraction progress
+                                # pct is 50-100 for extraction, convert to 0-100
+                                extract_pct = max(0, (pct - 50) * 2)
+                                status_msg = f"Copying (✓) → Extracting ({extract_pct}%)"
                             else:
-                                status_msg = f"Copying disc... {pct}%"
+                                # Backup phase - pct is 0-50, convert to 0-100
+                                backup_pct = min(pct * 2, 100)
+                                status_msg = f"Copying ({backup_pct}%) → Extracting (--)"
                         else:
-                            if pct < 3:
-                                status_msg = f"Starting rip... {pct}%"
-                            elif pct > 90:
-                                status_msg = f"Finishing rip... {pct}%"
-                            else:
-                                status_msg = f"Ripping... {pct}%"
+                            status_msg = f"Direct ({pct}%)"
                         self._update_step("rip", "active", status_msg)
 
                         # Update ETA based on elapsed time and progress
@@ -2540,14 +2543,8 @@ class RipEngine:
 
             def progress_cb(percent):
                 self._set_progress(percent, f"{100-percent}% remaining")
-                # Dynamic status message based on progress
-                if percent < 3:
-                    status_msg = f"Starting rip... {percent}%"
-                elif percent > 90:
-                    status_msg = f"Finishing rip... {percent}%"
-                else:
-                    status_msg = f"Ripping... {percent}%"
-                self._update_step("rip", "active", status_msg)
+                # Show direct rip progress
+                self._update_step("rip", "active", f"Direct ({percent}%)")
                 # Log at 25%, 50%, 75% milestones
                 for milestone in [25, 50, 75]:
                     if percent >= milestone and last_milestone[0] < milestone:
@@ -2628,6 +2625,8 @@ class RipEngine:
                         activity.log_success(f"Found existing {disc_type} backup: {backup_size / (1024**3):.1f} GB - skipping backup phase")
                         existing_backup_valid = True
                         backup_success = True
+                        job.backup_phase_complete = True
+                        job.backup_phase_percent = 100
                     else:
                         activity.log_warning(f"Existing backup too small ({backup_size / (1024**3):.1f} GB) - deleting and re-backing up")
                         try:
@@ -2639,8 +2638,9 @@ class RipEngine:
                     # Reset progress for backup phase
                     def backup_progress_cb(percent):
                         # Backup is first half (0-50%), rip from backup is second half (50-100%)
+                        job.backup_phase_percent = percent
                         self._set_progress(percent // 2, "Copying disc...")
-                        self._update_step("rip", "active", f"Copying disc... {percent}%")
+                        self._update_step("rip", "active", f"Copying ({percent}%) → Extracting (--)")
 
                     # Backup the disc first
                     backup_success, backup_error, _ = self.makemkv.backup_disc(
@@ -2652,8 +2652,10 @@ class RipEngine:
                     )
 
                 if backup_success:
+                    job.backup_phase_complete = True
+                    job.backup_phase_percent = 100
                     activity.log_success("Backup complete, extracting MKV...")
-                    self._update_step("rip", "active", "Extracting MKV...")
+                    self._update_step("rip", "active", "Copying (✓) → Extracting (0%)")
 
                     # CRITICAL: Re-scan backup to get correct track index
                     # Track indices from disc scan may differ from backup scan!
@@ -2668,7 +2670,7 @@ class RipEngine:
                     def backup_rip_progress_cb(percent):
                         # Second half of progress (50-100%)
                         self._set_progress(50 + percent // 2, "Extracting MKV...")
-                        self._update_step("rip", "active", f"Extracting MKV... {percent}%")
+                        self._update_step("rip", "active", f"Copying (✓) → Extracting ({percent}%)")
 
                     # Rip from backup
                     success, error_msg, actual_path = self.makemkv.rip_from_backup(
