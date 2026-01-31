@@ -1691,6 +1691,9 @@ class RipEngine:
                                 activity.log_info("MakeMKV finished, starting post-processing")
                                 self.current_job.progress = 100
                                 self._update_step("rip", "complete", "Rip finished")
+                                # CRITICAL: Change status BEFORE starting thread to prevent
+                                # STATUS_CHECK from re-triggering on subsequent get_status() calls
+                                self.current_job.status = RipStatus.IDENTIFYING
                                 thread = threading.Thread(target=self._run_post_processing)
                                 thread.daemon = True
                                 thread.start()
