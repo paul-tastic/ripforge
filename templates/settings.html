@@ -239,21 +239,14 @@
     <!-- Auto-Rip Settings -->
     <section class="card">
         <h2>Auto-Rip</h2>
-        <p class="card-description">Configure automatic scanning and ripping behavior</p>
+        <p class="card-description">Configure automatic ripping behavior</p>
         <div class="settings-grid">
             <div class="field">
                 <label class="toggle-label">
-                    <input type="checkbox" id="auto-scan-on-insert" {% if config.ripping.auto_scan_on_insert != false %}checked{% endif %}>
-                    <span>Auto-Scan on Disc Insert</span>
-                </label>
-                <small>Automatically scan when a disc is inserted</small>
-            </div>
-            <div class="field">
-                <label class="toggle-label">
                     <input type="checkbox" id="auto-rip" {% if config.ripping.auto_rip != false %}checked{% endif %}>
-                    <span>Auto-Rip After Scan</span>
+                    <span>Auto-Rip</span>
                 </label>
-                <small>Start ripping automatically after countdown</small>
+                <small>Automatically scan and rip when a disc is inserted (skips if confidence is low)</small>
             </div>
             <div class="field">
                 <label>Auto-Rip Countdown (seconds)</label>
@@ -1042,7 +1035,6 @@
                 preferred_language: document.getElementById('preferred-language').value,
                 keep_commentary: document.getElementById('keep-commentary').checked,
                 verify_integrity: document.getElementById('verify-integrity').checked,
-                auto_scan_on_insert: document.getElementById('auto-scan-on-insert').checked,
                 auto_rip: document.getElementById('auto-rip').checked,
                 auto_rip_delay: parseInt(document.getElementById('auto-rip-delay').value),
                 confidence_threshold: parseInt(document.getElementById('confidence-threshold').value),
