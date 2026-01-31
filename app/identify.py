@@ -543,13 +543,7 @@ class SmartIdentifier:
             if pop_score > 0:
                 score_breakdown.append(f"popularity +{pop_score:.0f}")
 
-            # Year recency bonus
-            if movie_year >= 2020:
-                score += 10
-                score_breakdown.append("recent +10")
-            elif movie_year >= 2015:
-                score += 5
-                score_breakdown.append("recent +5")
+            # Year recency bonus removed - was causing mis-IDs like Walk the Line (2024 vs 2005)
 
             candidates.append({
                 'title': movie_title,
@@ -941,16 +935,7 @@ class SmartIdentifier:
                     score += 10
                     score_breakdown.append("popular +10")
 
-                # Year recency bonus
-                if show_year >= 2020:
-                    score += 15
-                    score_breakdown.append("recent +15")
-                elif show_year >= 2010:
-                    score += 10
-                    score_breakdown.append("recent +10")
-                elif show_year >= 2000:
-                    score += 5
-                    score_breakdown.append("recent +5")
+                # Year recency bonus removed - was causing mis-IDs
 
                 # Title match bonus - exact match gets boost
                 if show_title.upper() == title.upper():
