@@ -3,6 +3,7 @@
 RipForge - Disc Ripping Solution
 """
 
+import subprocess
 from flask import Flask
 from app.routes import main
 from app import config
@@ -28,6 +29,15 @@ if __name__ == '__main__':
     # Initialize the rip engine
     ripper.init_engine(cfg)
     print("  Rip engine initialized")
+
+    # Disable eject lock so physical button works
+    device = cfg.get('drive', {}).get('device', '/dev/sr0')
+    try:
+        subprocess.run(['eject', '-i', 'off', device], capture_output=True, timeout=5)
+        print(f"  Eject lock disabled for {device}")
+    except Exception:
+        pass  # Non-critical, don't fail startup
+
     activity.service_started()
     app = create_app()
 
