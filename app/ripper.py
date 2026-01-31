@@ -1667,7 +1667,9 @@ class RipEngine:
                     # where MakeMKV isn't running but we don't have MKV files yet.
                     # For TV/multi-track rips, MakeMKV stops between episodes - wait 5 seconds
                     # and re-check to avoid falsely triggering post-processing mid-rip.
-                    if not self._is_makemkv_running() and raw_has_mkv:
+                    # Only trigger STATUS_CHECK if we're still in RIPPING status
+                    # This prevents re-entry when already in IDENTIFYING (post-processing)
+                    if not self._is_makemkv_running() and raw_has_mkv and self.current_job.status == RipStatus.RIPPING:
                         # MakeMKV finished AND we have MKV output - but wait to confirm it's really done
                         if self.current_job.current_size_bytes > 0:
                             # Check debug logging setting
