@@ -927,20 +927,13 @@ class MakeMKV:
                 activity.log_info(f"BACKUP MakeMKV[{line_count}]: {line[:100]}")
 
             # Parse progress: PRGV:current,total,max
+            # NOTE: For backup mode, PRGV cycles 0-100 per segment, not overall.
+            # We count PRGV to know MakeMKV is working, but use file-size for actual progress.
             if line.startswith("PRGV:"):
                 prgv_count += 1
-                match = re.search(r'PRGV:(\d+),(\d+),(\d+)', line)
-                if match and progress_callback:
-                    current = int(match.group(1))
-                    max_val = int(match.group(3))
-                    if max_val > 0:
-                        percent = int((current / max_val) * 100)
-                        progress_callback(percent)
-                        if prgv_count == 1 or prgv_count % 100 == 0:
-                            activity.log_info(f"BACKUP: Progress {percent}%")
 
-            # Fallback: poll folder size if no PRGV and expected_size provided
-            if prgv_count == 0 and expected_size > 0 and progress_callback:
+            # For backup mode, always use file-size based progress (PRGV cycles per-segment)
+            if expected_size > 0 and progress_callback:
                 now = time.time()
                 if now - last_size_check >= 3:  # Check every 3 seconds
                     last_size_check = now
@@ -950,9 +943,10 @@ class MakeMKV:
                         if percent > last_progress:
                             progress_callback(percent)
                             last_progress = percent
-                            if debug_enabled:
-                                size_mb = current_size / (1024 * 1024)
-                                activity.log_info(f"BACKUP DEBUG: File size progress: {size_mb:.1f} MB ({percent}%)")
+                            # Log progress at reasonable intervals
+                            if percent % 10 == 0 or percent > 95:
+                                size_gb = current_size / (1024 ** 3)
+                                activity.log_info(f"BACKUP: {size_gb:.1f} GB ({percent}%)")
                     except:
                         pass
 
