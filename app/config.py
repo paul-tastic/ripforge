@@ -692,11 +692,63 @@ def import_existing_api_keys() -> dict:
     return keys
 
 
+def _get_users_from_tautulli(url: str, api_key: str) -> list:
+    """Fetch users from Tautulli API - more reliable for library shares"""
+    users = []
+    try:
+        r = requests.get(
+            f"{url}/api/v2",
+            params={'apikey': api_key, 'cmd': 'get_users'},
+            timeout=10
+        )
+        if r.status_code == 200:
+            data = r.json()
+            if data.get('response', {}).get('result') == 'success':
+                for user in data['response'].get('data', []):
+                    # Skip Local user (no email) and users without email
+                    if not user.get('email'):
+                        continue
+
+                    # Determine user type
+                    if user.get('is_admin'):
+                        user_type = 'owner'
+                    elif user.get('is_home_user'):
+                        user_type = 'home'
+                    else:
+                        user_type = 'shared'
+
+                    users.append({
+                        'username': user.get('friendly_name') or user.get('username', ''),
+                        'email': user['email'],
+                        'type': user_type,
+                        'thumb': user.get('thumb', ''),
+                        'is_active': user.get('is_active', 1) == 1
+                    })
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching users from Tautulli: {e}")
+
+    return users
+
+
 def get_plex_users() -> list:
-    """Retrieve Plex users (owner and shared) with their emails from Plex.tv API"""
+    """Retrieve Plex users with their emails.
+
+    Tries Tautulli first (better for library shares), falls back to Plex.tv API.
+    """
     users = []
     cfg = load_config()
 
+    # Try Tautulli first - it has the most complete user list
+    tautulli_cfg = cfg.get('integrations', {}).get('tautulli', {})
+    tautulli_url = tautulli_cfg.get('url', '')
+    tautulli_key = tautulli_cfg.get('api_key', '')
+
+    if tautulli_url and tautulli_key:
+        users = _get_users_from_tautulli(tautulli_url, tautulli_key)
+        if users:
+            return users
+
+    # Fall back to Plex.tv API
     plex_cfg = cfg.get('integrations', {}).get('plex', {})
     token = plex_cfg.get('token', '')
 
