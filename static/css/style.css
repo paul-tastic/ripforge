@@ -302,15 +302,6 @@ body {
     color: var(--success);
 }
 
-.auto-mode-item.warning {
-    background: rgba(255, 152, 0, 0.15);
-    color: var(--warning);
-}
-
-.auto-mode-item.makemkv-info {
-    font-size: 11px;
-}
-
 .status-display {
     display: flex;
     align-items: center;
@@ -509,6 +500,12 @@ body {
 .hw-subtext {
     font-size: 11px;
     color: var(--text-muted);
+    font-weight: 400;
+}
+
+.hw-warning {
+    font-size: 11px;
+    color: var(--warning);
     font-weight: 400;
 }
 

@@ -12,9 +12,6 @@
             <span class="auto-mode-item {% if config.ripping.auto_rip != false %}active{% endif %}">
                 Auto-rip: {% if config.ripping.auto_rip != false %}ON{% else %}OFF{% endif %}
             </span>
-            <span class="auto-mode-item makemkv-info" id="makemkv-info" style="display: none;">
-                MakeMKV <span id="makemkv-version"></span>: <span id="makemkv-status"></span>
-            </span>
         </div>
 
         <!-- Idle State -->
@@ -233,6 +230,10 @@
             <div class="hw-row">
                 <span class="hw-label">Docker</span>
                 <span class="hw-value" id="hw-docker">-</span>
+            </div>
+            <div class="hw-row" id="hw-makemkv-row" style="display: none;">
+                <span class="hw-label">MakeMKV</span>
+                <span class="hw-value" id="hw-makemkv">-</span>
             </div>
             <div class="hw-row">
                 <span class="hw-label">RipForge <span class="version-dot" id="version-dot" title="Checking...">●</span><span id="update-hint" class="update-hint"></span></span>
@@ -1183,22 +1184,26 @@
         fetch('/api/makemkv/info')
             .then(r => r.json())
             .then(data => {
-                const infoEl = document.getElementById('makemkv-info');
-                const versionEl = document.getElementById('makemkv-version');
-                const statusEl = document.getElementById('makemkv-status');
+                const rowEl = document.getElementById('hw-makemkv-row');
+                const valueEl = document.getElementById('hw-makemkv');
 
                 if (data.version && data.version !== 'unknown') {
-                    versionEl.textContent = 'v' + data.version;
-                    statusEl.textContent = data.message;
+                    let displayText = 'v' + data.version;
 
-                    // Add warning class if license is expiring or expired
-                    if (data.license_type === 'expired' || data.days_remaining <= 7) {
-                        infoEl.classList.add('warning');
-                    } else {
-                        infoEl.classList.remove('warning');
+                    // Only show expiration info for evaluation licenses
+                    if (data.license_type === 'evaluation') {
+                        if (data.days_remaining <= 0) {
+                            displayText += ' <span class="hw-warning">(expired)</span>';
+                        } else if (data.days_remaining <= 7) {
+                            displayText += ` <span class="hw-warning">(${data.days_remaining} days left)</span>`;
+                        } else {
+                            displayText += ` <span class="hw-subtext">(${data.days_remaining} days left)</span>`;
+                        }
                     }
+                    // Registered licenses just show version, no extra info needed
 
-                    infoEl.style.display = 'inline-block';
+                    valueEl.innerHTML = displayText;
+                    rowEl.style.display = '';
                 }
             })
             .catch(err => console.error('Error loading MakeMKV info:', err));

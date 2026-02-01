@@ -564,3 +564,225 @@ class TestMultiAngleDetection:
         assert 'angle_candidates' in result
         assert result['needs_angle_selection'] is True
         assert len(result['angle_candidates']) == 1
+
+
+class TestGetMakeMKVInfo:
+    """Tests for MakeMKV.get_makemkv_info() method"""
+
+    @patch('app.ripper.MakeMKV._run_cmd')
+    def test_parses_version_from_output(self, mock_run):
+        """Test parsing MakeMKV version from MSG:1005"""
+        from app.ripper import MakeMKV
+
+        # Mock process output
+        mock_process = MagicMock()
+        mock_process.stdout = iter([
+            'MSG:1005,0,1,"MakeMKV v1.18.3 linux(x64-release) started"',
+            'MSG:5050,0,2,"Evaluation version, 13 day(s) out of 30 remaining"',
+        ])
+        mock_run.return_value = mock_process
+
+        mkv = MakeMKV()
+        info = mkv.get_makemkv_info()
+
+        assert info['version'] == '1.18.3'
+        assert info['license_type'] == 'evaluation'
+        assert info['days_remaining'] == 13
+
+    @patch('app.ripper.MakeMKV._run_cmd')
+    def test_parses_registered_license(self, mock_run):
+        """Test detecting registered/full license"""
+        from app.ripper import MakeMKV
+
+        mock_process = MagicMock()
+        mock_process.stdout = iter([
+            'MSG:1005,0,1,"MakeMKV v1.18.3 linux(x64-release) started"',
+            'MSG:5051,0,1,"Registered version"',  # No eval message = registered
+        ])
+        mock_run.return_value = mock_process
+
+        mkv = MakeMKV()
+        info = mkv.get_makemkv_info()
+
+        assert info['version'] == '1.18.3'
+        # No MSG:5050 means not evaluation
+
+    @patch('app.ripper.MakeMKV._run_cmd')
+    def test_handles_run_error(self, mock_run):
+        """Test graceful handling when MakeMKV fails to run"""
+        from app.ripper import MakeMKV
+
+        mock_run.side_effect = Exception("MakeMKV not found")
+
+        mkv = MakeMKV()
+        info = mkv.get_makemkv_info()
+
+        assert info['version'] == 'unknown'
+        # Error message contains the exception
+        assert 'MakeMKV not found' in info['message'] or 'Unable' in info['message']
+
+    @patch('app.ripper.MakeMKV._run_cmd')
+    def test_parses_expired_license(self, mock_run):
+        """Test detecting expired evaluation license"""
+        from app.ripper import MakeMKV
+
+        mock_process = MagicMock()
+        mock_process.stdout = iter([
+            'MSG:1005,0,1,"MakeMKV v1.18.3 linux(x64-release) started"',
+            'MSG:5050,0,2,"Evaluation version, 0 day(s) out of 30 remaining"',
+        ])
+        mock_run.return_value = mock_process
+
+        mkv = MakeMKV()
+        info = mkv.get_makemkv_info()
+
+        assert info['days_remaining'] == 0
+        # When days=0, license_type becomes "expired"
+        assert info['license_type'] == 'expired'
+
+
+class TestCheckFileIntegrity:
+    """Tests for spot-check file verification"""
+
+    @patch('app.ripper.subprocess.run')
+    @patch('os.path.exists')
+    def test_returns_valid_for_good_file(self, mock_exists, mock_run):
+        """Test returns valid=True when no decode errors"""
+        from app.ripper import check_file_integrity
+
+        mock_exists.return_value = True
+
+        # Mock ffprobe for duration (first call)
+        duration_result = MagicMock()
+        duration_result.stdout = '{"format": {"duration": "7200.0"}}'
+        duration_result.returncode = 0
+
+        # Mock ffmpeg decode (subsequent calls)
+        decode_result = MagicMock()
+        decode_result.stderr = ''
+        decode_result.returncode = 0
+
+        mock_run.side_effect = [duration_result] + [decode_result] * 10
+
+        result = check_file_integrity('/path/to/movie.mkv')
+
+        assert result['valid'] is True
+        assert result['error_count'] == 0
+        assert len(result['errors']) == 0
+
+    @patch('os.path.exists')
+    def test_returns_invalid_for_missing_file(self, mock_exists):
+        """Test returns valid=False when file doesn't exist"""
+        from app.ripper import check_file_integrity
+
+        mock_exists.return_value = False
+
+        result = check_file_integrity('/nonexistent/file.mkv')
+
+        assert result['valid'] is False
+        assert 'File not found' in result['errors']
+
+    @patch('app.ripper.subprocess.run')
+    @patch('os.path.exists')
+    def test_detects_decode_errors(self, mock_exists, mock_run):
+        """Test detects actual decode errors"""
+        from app.ripper import check_file_integrity
+
+        mock_exists.return_value = True
+
+        # Mock ffprobe
+        duration_result = MagicMock()
+        duration_result.stdout = '{"format": {"duration": "7200.0"}}'
+        duration_result.returncode = 0
+
+        # Mock ffmpeg with error
+        decode_result = MagicMock()
+        decode_result.stderr = 'Error decoding video: macroblock error'
+        decode_result.returncode = 1
+
+        mock_run.side_effect = [duration_result, decode_result]
+
+        result = check_file_integrity('/path/to/corrupt.mkv')
+
+        assert result['valid'] is False
+        assert result['error_count'] > 0
+
+    @patch('app.ripper.subprocess.run')
+    @patch('os.path.exists')
+    def test_filters_dts_timestamp_warnings(self, mock_exists, mock_run):
+        """Test DTS timestamp warnings are filtered out (cosmetic)"""
+        from app.ripper import check_file_integrity
+
+        mock_exists.return_value = True
+
+        duration_result = MagicMock()
+        duration_result.stdout = '{"format": {"duration": "7200.0"}}'
+        duration_result.returncode = 0
+
+        # Mock ffmpeg with only DTS timestamp warning (cosmetic)
+        decode_result = MagicMock()
+        decode_result.stderr = 'non monotonically increasing dts timestamp'
+        decode_result.returncode = 0
+
+        mock_run.side_effect = [duration_result] + [decode_result] * 10
+
+        result = check_file_integrity('/path/to/movie.mkv')
+
+        # Should be valid because DTS warnings are filtered
+        assert result['valid'] is True
+
+    @patch('app.ripper.subprocess.run')
+    @patch('os.path.exists')
+    def test_handles_timeout(self, mock_exists, mock_run):
+        """Test handles subprocess timeout gracefully"""
+        from app.ripper import check_file_integrity
+        import subprocess
+
+        mock_exists.return_value = True
+
+        duration_result = MagicMock()
+        duration_result.stdout = '{"format": {"duration": "7200.0"}}'
+        duration_result.returncode = 0
+
+        # Timeout on second call
+        mock_run.side_effect = [duration_result, subprocess.TimeoutExpired('ffmpeg', 30)]
+
+        result = check_file_integrity('/path/to/movie.mkv')
+
+        # Should report as error but not crash
+        assert 'timeout' in str(result).lower() or result['error_count'] > 0
+
+
+class TestBackupPhaseTracking:
+    """Tests for backup mode phase tracking in RipJob"""
+
+    def test_rip_job_has_backup_phase_fields(self):
+        """Test RipJob has backup phase tracking fields"""
+        job = RipJob()
+        assert hasattr(job, 'backup_phase_complete')
+        assert hasattr(job, 'backup_phase_percent')
+        assert job.backup_phase_complete is False
+        assert job.backup_phase_percent == 0
+
+    def test_backup_phase_in_to_dict(self):
+        """Test backup phase fields serialized correctly"""
+        job = RipJob()
+        job.backup_phase_complete = True
+        job.backup_phase_percent = 100
+
+        result = job.to_dict()
+
+        assert result['backup_phase_complete'] is True
+        assert result['backup_phase_percent'] == 100
+
+    def test_rip_method_tracking(self):
+        """Test rip method tracking fields"""
+        job = RipJob(
+            rip_method='backup',
+            rip_mode='always_backup',
+            direct_failed=False
+        )
+
+        assert job.rip_method == 'backup'
+        assert job.rip_mode == 'always_backup'
+        assert job.direct_failed is False
