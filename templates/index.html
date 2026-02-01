@@ -1190,17 +1190,26 @@
                 if (data.version && data.version !== 'unknown') {
                     let displayText = 'v' + data.version;
 
-                    // Only show expiration info for evaluation licenses
                     if (data.license_type === 'evaluation') {
                         if (data.days_remaining <= 0) {
-                            displayText += ' <span class="hw-warning">(expired)</span>';
-                        } else if (data.days_remaining <= 7) {
-                            displayText += ` <span class="hw-warning">(${data.days_remaining} days left)</span>`;
+                            displayText += ' <span class="hw-warning">(Expired)</span>';
                         } else {
-                            displayText += ` <span class="hw-subtext">(${data.days_remaining} days left)</span>`;
+                            // Calculate expiration date
+                            const expireDate = new Date();
+                            expireDate.setDate(expireDate.getDate() + data.days_remaining);
+                            const dateStr = expireDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+                            if (data.days_remaining <= 7) {
+                                displayText += ` <span class="hw-warning">(Trial: ${dateStr})</span>`;
+                            } else {
+                                displayText += ` <span class="hw-subtext">(Trial: ${dateStr})</span>`;
+                            }
                         }
+                    } else if (data.license_type === 'expired') {
+                        displayText += ' <span class="hw-warning">(Expired)</span>';
+                    } else if (data.license_type === 'registered') {
+                        displayText += ' <span class="hw-subtext">(Licensed)</span>';
                     }
-                    // Registered licenses just show version, no extra info needed
 
                     valueEl.innerHTML = displayText;
                     rowEl.style.display = '';
