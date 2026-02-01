@@ -119,14 +119,17 @@ def set_default_audio_track(mkv_path: str, preferred_lang: str = "eng") -> bool:
 
 
 def check_file_integrity(mkv_path: str, progress_callback=None) -> dict:
-    """Check MKV file for corruption using ffmpeg decode test.
+    """Check MKV file for corruption using spot-check decode test.
 
-    Runs ffmpeg to decode the entire file and catches any decode errors.
-    This catches issues like:
+    Instead of decoding the entire file (slow, can hang on warning spam),
+    decodes 10 random 5-second segments across the file. This catches
+    most real corruption while completing in under a minute.
+
+    Catches issues like:
     - H.264 macroblock decode errors
-    - Timestamp/DTS issues
-    - Missing reference frames
+    - Audio decode failures
     - Truncated files
+    - Missing keyframes
 
     Args:
         mkv_path: Path to the MKV file to check
@@ -134,7 +137,7 @@ def check_file_integrity(mkv_path: str, progress_callback=None) -> dict:
 
     Returns:
         dict with keys:
-        - valid: bool - True if no errors found
+        - valid: bool - True if no decode errors found
         - errors: list - List of error messages found
         - error_count: int - Total number of errors
     """
@@ -151,7 +154,7 @@ def check_file_integrity(mkv_path: str, progress_callback=None) -> dict:
         return result
 
     try:
-        # Get file duration first for progress calculation
+        # Get file duration
         duration_result = subprocess.run([
             "ffprobe", "-v", "quiet", "-print_format", "json",
             "-show_entries", "format=duration", mkv_path
@@ -163,52 +166,59 @@ def check_file_integrity(mkv_path: str, progress_callback=None) -> dict:
             data = json_module.loads(duration_result.stdout)
             total_duration = float(data.get("format", {}).get("duration", 0))
 
-        # Run ffmpeg decode test - outputs errors to stderr
-        # -v error shows only errors, -f null discards output
-        process = subprocess.Popen(
-            ["ffmpeg", "-v", "error", "-progress", "pipe:1",
-             "-i", mkv_path, "-f", "null", "-"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
+        if total_duration < 10:
+            # Very short file - just validate container
+            activity.log_info(f"INTEGRITY: {os.path.basename(mkv_path)} too short for spot-check, validating container")
+            if progress_callback:
+                progress_callback(100)
+            return result
 
+        # Spot-check: decode 10 segments of 5 seconds each across the file
+        # Positions: 5%, 15%, 25%, ... 95% of duration
+        num_spots = 10
+        spot_duration = 5  # seconds per spot
         errors = []
-        current_time = 0
 
-        # Read progress from stdout, errors from stderr
-        import select
-        while process.poll() is None:
-            # Check for progress updates
-            if process.stdout:
-                line = process.stdout.readline()
-                if line.startswith("out_time_ms="):
-                    try:
-                        time_ms = int(line.split("=")[1].strip())
-                        current_time = time_ms / 1000000  # Convert to seconds
-                        if progress_callback and total_duration > 0:
-                            percent = min(99, int((current_time / total_duration) * 100))
-                            progress_callback(percent)
-                    except (ValueError, IndexError):
-                        pass
+        activity.log_info(f"INTEGRITY: Spot-checking {os.path.basename(mkv_path)} ({num_spots} segments)")
 
-        # Get any remaining stderr output
-        _, stderr = process.communicate(timeout=10)
-        if stderr:
-            # Parse error lines
-            for line in stderr.strip().split('\n'):
-                if line.strip():
-                    errors.append(line.strip())
+        for i in range(num_spots):
+            # Calculate position (5%, 15%, 25%, ... 95%)
+            position_pct = (i * 10) + 5
+            seek_time = (position_pct / 100) * total_duration
+
+            # Update progress
+            if progress_callback:
+                progress_callback(int((i / num_spots) * 100))
+
+            # Decode this segment with timeout
+            try:
+                proc = subprocess.run(
+                    ["ffmpeg", "-v", "error", "-ss", str(int(seek_time)),
+                     "-i", mkv_path, "-t", str(spot_duration), "-f", "null", "-"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30  # 30 second timeout per segment
+                )
+
+                # Collect errors (ignore DTS warnings - they're cosmetic)
+                if proc.stderr:
+                    for line in proc.stderr.strip().split('\n'):
+                        line = line.strip()
+                        if line and "non monotonically increasing dts" not in line.lower():
+                            errors.append(f"@{position_pct}%: {line}")
+
+            except subprocess.TimeoutExpired:
+                errors.append(f"@{position_pct}%: Segment decode timed out")
 
         if errors:
             result["valid"] = False
-            result["errors"] = errors[:20]  # Limit to first 20 errors
+            result["errors"] = errors[:20]  # Limit to first 20
             result["error_count"] = len(errors)
-            activity.log_warning(f"INTEGRITY: {os.path.basename(mkv_path)} has {len(errors)} errors")
+            activity.log_warning(f"INTEGRITY: {os.path.basename(mkv_path)} has {len(errors)} errors in spot-check")
             for err in errors[:5]:
                 activity.log_warning(f"INTEGRITY:   {err}")
         else:
-            activity.log_info(f"INTEGRITY: {os.path.basename(mkv_path)} passed integrity check")
+            activity.log_info(f"INTEGRITY: {os.path.basename(mkv_path)} passed spot-check ({num_spots} segments OK)")
 
         if progress_callback:
             progress_callback(100)
@@ -1813,6 +1823,10 @@ class RipEngine:
                     if not self._is_makemkv_running() and raw_has_mkv and self.current_job.status == RipStatus.RIPPING:
                         # MakeMKV finished AND we have MKV output - but wait to confirm it's really done
                         if self.current_job.current_size_bytes > 0:
+                            # CRITICAL: Change status IMMEDIATELY to prevent race condition
+                            # During the 5s sleep, other get_status() calls could also enter this block
+                            self.current_job.status = RipStatus.IDENTIFYING
+
                             # Check debug logging setting
                             from . import config as cfg_module
                             debug_cfg = cfg_module.load_config()
@@ -1828,14 +1842,14 @@ class RipEngine:
                                 activity.log_info("MakeMKV finished, starting post-processing")
                                 self.current_job.progress = 100
                                 self._update_step("rip", "complete", "Rip finished")
-                                # CRITICAL: Change status BEFORE starting thread to prevent
-                                # STATUS_CHECK from re-triggering on subsequent get_status() calls
-                                self.current_job.status = RipStatus.IDENTIFYING
                                 thread = threading.Thread(target=self._run_post_processing)
                                 thread.daemon = True
                                 thread.start()
-                            elif debug_enabled:
-                                activity.log_info("STATUS_CHECK: MakeMKV restarted (likely next episode), skipping post-processing")
+                            else:
+                                # MakeMKV restarted (likely next TV episode) - go back to ripping
+                                self.current_job.status = RipStatus.RIPPING
+                                if debug_enabled:
+                                    activity.log_info("STATUS_CHECK: MakeMKV restarted (likely next episode), resuming rip status")
 
                 return self.current_job.to_dict()
             return None
