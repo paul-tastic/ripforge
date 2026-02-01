@@ -326,8 +326,82 @@ def send_test_email(recipients: list) -> bool:
     return send_email(recipients, subject, body, html=True)
 
 
-def send_weekly_recap(recipients: list) -> bool:
-    """Send weekly recap of ripping activity with movie posters, ratings, and blurbs"""
+def _build_content_card(item: dict, is_tv: bool = False) -> str:
+    """Build HTML card for a movie or TV show"""
+    poster_url = item.get('poster_url', '')
+    if poster_url:
+        poster_html = f'<img src="{poster_url}" alt="" style="width: 100px; height: 150px; object-fit: cover; border-radius: 6px;">'
+    else:
+        icon = "📺" if is_tv else "🎬"
+        poster_html = f'<div style="width: 100px; height: 150px; background: #333; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #666; font-size: 32px;">{icon}</div>'
+
+    disc_badge = item.get('disc_type', '').upper()
+    badge_color = "#0095d9" if disc_badge == "BLURAY" else "#f97316" if disc_badge == "DVD" else "#666"
+
+    # Truncate overview to ~120 chars
+    overview = item.get('overview', '')
+    if len(overview) > 120:
+        overview = overview[:117] + '...'
+
+    # Build ratings display (movies only - TV shows don't have RT scores in the same way)
+    rt_rating = item.get('rt_rating', 0)
+    imdb_rating = item.get('imdb_rating', 0)
+    ratings_html = ""
+    if rt_rating:
+        tomato = "🍅" if rt_rating >= 60 else "🥫"
+        ratings_html += f'<span style="font-size: 12px; color: #fff; margin-right: 12px;">{tomato} {rt_rating}%</span>'
+    if imdb_rating:
+        ratings_html += f'<span style="font-size: 12px; color: #f5c518;">⭐ {imdb_rating:.1f}</span>'
+
+    # Runtime display
+    runtime = item.get('runtime_str', '')
+
+    # For TV shows, add season info
+    subtitle_parts = []
+    if item.get('year'):
+        subtitle_parts.append(str(item['year']))
+    if runtime:
+        subtitle_parts.append(runtime)
+    if is_tv and item.get('seasons_modified'):
+        seasons = item['seasons_modified']
+        if len(seasons) == 1:
+            subtitle_parts.append(f"Season {seasons[0]}")
+        else:
+            subtitle_parts.append(f"Seasons {', '.join(map(str, seasons))}")
+    subtitle = ' • '.join(subtitle_parts)
+
+    # Badge section
+    badge_html = ""
+    if disc_badge:
+        badge_html = f'<span style="font-size: 10px; background: {badge_color}; color: #fff; padding: 2px 8px; border-radius: 4px; font-weight: 600;">{disc_badge}</span>'
+
+    return f"""
+    <div style="display: flex; gap: 16px; padding: 16px; background: #1a1a1a; border-radius: 8px; margin-bottom: 12px;">
+        {poster_html}
+        <div style="flex: 1;">
+            <div style="font-size: 17px; font-weight: 600; color: #fff; margin-bottom: 4px;">{item.get('title', 'Unknown')}</div>
+            <div style="font-size: 12px; color: #888; margin-bottom: 6px;">{subtitle}</div>
+            <div style="margin-bottom: 8px;">{ratings_html}</div>
+            <div style="font-size: 12px; color: #aaa; line-height: 1.4; margin-bottom: 10px;">{overview}</div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                {badge_html}
+                <span style="font-size: 11px; color: #888;">{item.get('size_gb', 0):.1f} GB</span>
+            </div>
+        </div>
+    </div>
+    """
+
+
+def send_weekly_recap(recipients: list, test_mode: bool = False) -> bool:
+    """Send weekly recap of library additions with movie posters, ratings, and blurbs.
+
+    Uses filesystem scan to detect recently added content - more reliable than
+    tracking rip history which can have stale/duplicate data.
+
+    Args:
+        recipients: List of email addresses to send to
+        test_mode: If True, only send to paul@dotvector.com regardless of recipients list
+    """
     from . import activity
 
     # Get config for email settings
@@ -336,55 +410,38 @@ def send_weekly_recap(recipients: list) -> bool:
     from_name = email_cfg.get('from_name', 'Plex Media Server')
     weekly_subject = email_cfg.get('weekly_subject', 'Weekly Digest - New Additions')
 
-    # Get rips from the past week
-    rips_this_week = activity.get_recent_rips(days=7)
-    total_size = sum(rip.get('size_gb', 0) for rip in rips_this_week)
+    # Override recipients in test mode
+    if test_mode:
+        recipients = ['paul@dotvector.com']
+
+    # Scan filesystem for recently added content
+    content = activity.scan_library_for_recent(days=7)
+    movies = content.get('movies', [])
+    tv_shows = content.get('tv', [])
+
+    total_count = len(movies) + len(tv_shows)
+    total_size = sum(m.get('size_gb', 0) for m in movies) + sum(t.get('size_gb', 0) for t in tv_shows)
 
     # Build subject with count
-    subject = f"{weekly_subject} ({len(rips_this_week)} titles)" if rips_this_week else weekly_subject
+    subject = f"{weekly_subject} ({total_count} titles)" if total_count else weekly_subject
 
-    if rips_this_week:
-        # Build movie cards with posters, ratings, and blurbs
-        movie_cards = ""
-        for rip in rips_this_week:
-            poster_url = rip.get('poster_url', '')
-            poster_html = f'<img src="{poster_url}" alt="" style="width: 100px; height: 150px; object-fit: cover; border-radius: 6px;">' if poster_url else '<div style="width: 100px; height: 150px; background: #333; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #666; font-size: 32px;">🎬</div>'
+    if total_count:
+        # Build movie cards section
+        movies_section = ""
+        if movies:
+            movie_cards = "".join(_build_content_card(m, is_tv=False) for m in movies)
+            movies_section = f"""
+            <h2 style="color: #fff; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; margin-top: 24px; border-bottom: 1px solid #333; padding-bottom: 8px;">🎬 Movies ({len(movies)})</h2>
+            {movie_cards}
+            """
 
-            disc_badge = rip.get('disc_type', '').upper()
-            badge_color = "#0095d9" if disc_badge == "BLURAY" else "#f97316"
-
-            # Truncate overview to ~120 chars
-            overview = rip.get('overview', '')
-            if len(overview) > 120:
-                overview = overview[:117] + '...'
-
-            # Build ratings display
-            rt_rating = rip.get('rt_rating', 0)
-            imdb_rating = rip.get('imdb_rating', 0)
-            ratings_html = ""
-            if rt_rating:
-                # Fresh tomato for >= 60%, rotten for < 60%
-                tomato = "🍅" if rt_rating >= 60 else "🥫"
-                ratings_html += f'<span style="font-size: 12px; color: #fff; margin-right: 12px;">{tomato} {rt_rating}%</span>'
-            if imdb_rating:
-                ratings_html += f'<span style="font-size: 12px; color: #f5c518;">⭐ {imdb_rating:.1f}</span>'
-
-            movie_cards += f"""
-            <div style="display: flex; gap: 16px; padding: 16px; background: #1a1a1a; border-radius: 8px; margin-bottom: 12px;">
-                {poster_html}
-                <div style="flex: 1;">
-                    <div style="font-size: 17px; font-weight: 600; color: #fff; margin-bottom: 4px;">{rip.get('title', 'Unknown')}</div>
-                    <div style="font-size: 12px; color: #888; margin-bottom: 6px;">
-                        {rip.get('year', '')} • {rip.get('runtime', '')}
-                    </div>
-                    <div style="margin-bottom: 8px;">{ratings_html}</div>
-                    <div style="font-size: 12px; color: #aaa; line-height: 1.4; margin-bottom: 10px;">{overview}</div>
-                    <div style="display: flex; gap: 8px; align-items: center;">
-                        <span style="font-size: 10px; background: {badge_color}; color: #fff; padding: 2px 8px; border-radius: 4px; font-weight: 600;">{disc_badge or 'DISC'}</span>
-                        <span style="font-size: 11px; color: #888;">{rip.get('size_gb', 0):.1f} GB</span>
-                    </div>
-                </div>
-            </div>
+        # Build TV shows section
+        tv_section = ""
+        if tv_shows:
+            tv_cards = "".join(_build_content_card(t, is_tv=True) for t in tv_shows)
+            tv_section = f"""
+            <h2 style="color: #fff; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; margin-top: 24px; border-bottom: 1px solid #333; padding-bottom: 8px;">📺 TV Shows ({len(tv_shows)})</h2>
+            {tv_cards}
             """
 
         body = f"""
@@ -401,7 +458,7 @@ def send_weekly_recap(recipients: list) -> bool:
     </div>
     <div style="display: flex; gap: 16px; margin-bottom: 24px;">
         <div style="flex: 1; background: #1a1a1a; padding: 16px; border-radius: 8px; text-align: center;">
-            <div style="font-size: 32px; font-weight: bold; color: #e5a00d;">{len(rips_this_week)}</div>
+            <div style="font-size: 32px; font-weight: bold; color: #e5a00d;">{total_count}</div>
             <div style="color: #888; font-size: 11px; text-transform: uppercase;">New Titles</div>
         </div>
         <div style="flex: 1; background: #1a1a1a; padding: 16px; border-radius: 8px; text-align: center;">
@@ -410,9 +467,8 @@ def send_weekly_recap(recipients: list) -> bool:
         </div>
     </div>
 
-    <h2 style="color: #fff; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;">Recently Added</h2>
-
-    {movie_cards}
+    {movies_section}
+    {tv_section}
 
     <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #333; text-align: center;">
         <p style="color: #666; font-size: 11px; margin: 0;">

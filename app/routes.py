@@ -1293,31 +1293,15 @@ def api_newsletter_preview():
 
 @main.route('/api/newsletter/send-test', methods=['POST'])
 def api_newsletter_send_test():
-    """Send a test weekly recap email (to first enabled recipient only)"""
+    """Send a test weekly recap email (always sends to paul@dotvector.com)"""
     from . import email as email_module
 
-    cfg = config.load_config()
-    raw_recipients = cfg.get('notifications', {}).get('email', {}).get('recipients', [])
-
-    # Get enabled recipients only
-    enabled_recipients = []
-    for r in raw_recipients:
-        if isinstance(r, str):
-            enabled_recipients.append(r)
-        elif isinstance(r, dict) and r.get('enabled', True):
-            enabled_recipients.append(r.get('email'))
-
-    if not enabled_recipients:
-        return jsonify({'success': False, 'error': 'No enabled recipients. Enable at least one email in Newsletter Settings.'})
-
-    # Only send to first enabled recipient for testing
-    test_recipient = [enabled_recipients[0]]
-
     try:
-        success = email_module.send_weekly_recap(test_recipient)
+        # test_mode=True forces recipient to paul@dotvector.com only
+        success = email_module.send_weekly_recap([], test_mode=True)
         return jsonify({
             'success': success,
-            'recipients': test_recipient,
+            'recipients': ['paul@dotvector.com'],
             'error': None if success else 'Failed to send email'
         })
     except Exception as e:

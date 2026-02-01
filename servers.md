@@ -184,3 +184,110 @@ Does NOT share: file paths, usernames, IP addresses, or any personal data
 
 - `logs/disc_captures.jsonl` - Local capture of all scanned discs (detailed)
 - `config/community_db_cache.json` - Cached copy of community database
+
+---
+
+## Media Server (Plex + *Arr Stack)
+
+All services run on the same machine as RipForge (192.168.0.104).
+
+| Component | Port | Purpose |
+|-----------|------|---------|
+| **Plex** | 32400 | Media streaming |
+| **Overseerr** | 5055 | Request UI |
+| **Radarr** | 7878 | Movie management |
+| **Sonarr** | 8989 | TV management |
+| **Prowlarr** | 9696 | Indexer management |
+| **SABnzbd** | 8080 | Usenet downloads |
+| **qBittorrent** | 8085 | Torrent downloads |
+| **Tautulli** | 8181 | Plex statistics |
+
+### Docker Setup
+
+All services run as Docker containers on the `media-stack_default` network.
+
+```
+/mnt/media/docker/
+├── plex/
+├── overseerr/
+├── radarr/
+├── sonarr/
+├── prowlarr/
+├── sabnzbd/
+├── qbittorrent/
+└── tautulli/
+```
+
+### Overseerr Setup
+
+Overseerr must have Radarr and Sonarr configured in **Settings → Services**:
+- Use hostname `radarr` or `sonarr` (Docker network names) or `192.168.0.104`
+- SSL: Off
+- Enter API keys from table below
+
+### API Keys
+
+| Service | API Key |
+|---------|---------|
+| SABnzbd | `98d6b1f28ca24d88a92798b53435a394` |
+| Prowlarr | `6932a52b59f7482da54e14fa795eff39` |
+| Radarr | `92112d5454e04d18943743270139c330` |
+| Sonarr | `3ed3a08a09334948918eec2b41c4b255` |
+
+### Request Flow
+
+```
+User Request (Overseerr)
+        ↓
+  Radarr/Sonarr (media management)
+        ↓
+  Prowlarr (searches indexers)
+        ↓
+  NZBGeek (returns NZB files)
+        ↓
+  SABnzbd (downloads from Usenet)
+        ↓
+  Plex (scans and serves)
+```
+
+### Usenet Provider
+
+| Setting | Value |
+|---------|-------|
+| Provider | Newshosting |
+| Server | news.newshosting.com |
+| Port | 563 (SSL) |
+| Username | g74mavj770 |
+| Connections | 50 |
+
+### Indexers
+
+| Indexer | API Key | Retention | Notes |
+|---------|---------|-----------|-------|
+| NZBGeek | `W9WJwnQZnC02HGOVoXODLL1ZrmjhOSrM` | ~5800 days | Auto via Prowlarr |
+| NZBPlanet | `8e26d26d8a3a480f6d77e9ab4d1da8d1` | 7300 days | Auto via Prowlarr, lifetime |
+| NZBFinder | `dc4cfd54ddc154db99e59ca43c882a33` | - | Manual fallback (free tier) |
+
+### Docker Commands
+
+```bash
+# View all containers
+docker ps
+
+# View logs
+docker logs -f sabnzbd
+docker logs -f radarr
+
+# Restart a service
+docker restart sabnzbd
+
+# Check network
+docker network inspect media-stack_default
+```
+
+### DNS Configuration
+
+Server uses Cloudflare DNS for privacy (configured in netplan):
+- Primary: 1.1.1.1
+- Secondary: 1.0.0.1
+

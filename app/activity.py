@@ -240,6 +240,328 @@ def get_recent_rips(days: int = 7, respect_digest_reset: bool = True) -> list:
     return rips
 
 
+def scan_library_for_recent(days: int = 7, respect_digest_reset: bool = True) -> dict:
+    """
+    Scan filesystem for recently added content instead of relying on rip_history.json.
+    Returns dict with 'movies' and 'tv' lists, each containing metadata for display.
+    """
+    from datetime import timedelta
+    from . import config
+    import os
+
+    cfg = config.load_config()
+    movies_path = cfg.get('paths', {}).get('movies', '/mnt/media/movies')
+    tv_path = cfg.get('paths', {}).get('tv', '/mnt/media/tv')
+
+    # Determine cutoff time
+    cutoff_time = datetime.now() - timedelta(days=days)
+    if respect_digest_reset:
+        digest_reset = cfg.get('notifications', {}).get('email', {}).get('digest_reset_at')
+        if digest_reset:
+            reset_time = datetime.fromisoformat(digest_reset)
+            if reset_time > cutoff_time:
+                cutoff_time = reset_time
+
+    cutoff_timestamp = cutoff_time.timestamp()
+
+    result = {'movies': [], 'tv': []}
+
+    # Scan movies directory
+    if movies_path and os.path.isdir(movies_path):
+        for folder_name in os.listdir(movies_path):
+            if folder_name.startswith('.'):
+                continue
+            folder_path = os.path.join(movies_path, folder_name)
+            if not os.path.isdir(folder_path):
+                continue
+
+            # Check folder modification time
+            mtime = os.path.getmtime(folder_path)
+            if mtime < cutoff_timestamp:
+                continue
+
+            # Get folder size and check for MKV files
+            total_size = 0
+            has_mkv = False
+            for f in os.listdir(folder_path):
+                if f.endswith('.mkv'):
+                    has_mkv = True
+                    total_size += os.path.getsize(os.path.join(folder_path, f))
+
+            if not has_mkv:
+                continue
+
+            # Parse title and year from folder name (format: "Title (Year)")
+            import re
+            match = re.match(r'^(.+?)\s*\((\d{4})\)$', folder_name)
+            if match:
+                title = match.group(1).strip()
+                year = int(match.group(2))
+            else:
+                title = folder_name
+                year = 0
+
+            # Fetch metadata from Radarr
+            metadata = _fetch_movie_metadata_from_radarr(title, year)
+
+            result['movies'].append({
+                'title': title,
+                'year': year,
+                'content_type': 'movie',
+                'size_gb': round(total_size / (1024**3), 1),
+                'folder_path': folder_path,
+                'added_at': datetime.fromtimestamp(mtime).isoformat(),
+                **metadata
+            })
+
+    # Scan TV directory
+    if tv_path and os.path.isdir(tv_path):
+        for show_name in os.listdir(tv_path):
+            if show_name.startswith('.'):
+                continue
+            show_path = os.path.join(tv_path, show_name)
+            if not os.path.isdir(show_path):
+                continue
+
+            # Check if any season folder was modified recently
+            show_mtime = 0
+            total_size = 0
+            seasons_modified = []
+
+            for item in os.listdir(show_path):
+                item_path = os.path.join(show_path, item)
+                if os.path.isdir(item_path) and item.lower().startswith('season'):
+                    season_mtime = os.path.getmtime(item_path)
+                    if season_mtime >= cutoff_timestamp:
+                        show_mtime = max(show_mtime, season_mtime)
+                        # Extract season number
+                        season_match = re.search(r'(\d+)', item)
+                        if season_match:
+                            seasons_modified.append(int(season_match.group(1)))
+                        # Count MKV size in this season
+                        for f in os.listdir(item_path):
+                            if f.endswith('.mkv'):
+                                total_size += os.path.getsize(os.path.join(item_path, f))
+
+            if not show_mtime:
+                continue
+
+            # Fetch metadata from Sonarr
+            metadata = _fetch_tv_metadata_from_sonarr(show_name)
+
+            result['tv'].append({
+                'title': show_name,
+                'year': metadata.get('year', 0),
+                'content_type': 'tv',
+                'size_gb': round(total_size / (1024**3), 1),
+                'folder_path': show_path,
+                'added_at': datetime.fromtimestamp(show_mtime).isoformat(),
+                'seasons_modified': sorted(seasons_modified),
+                **metadata
+            })
+
+    # Sort by added_at descending (newest first)
+    result['movies'].sort(key=lambda x: x.get('added_at', ''), reverse=True)
+    result['tv'].sort(key=lambda x: x.get('added_at', ''), reverse=True)
+
+    return result
+
+
+def _fetch_movie_metadata_from_radarr(title: str, year: int = 0) -> dict:
+    """Fetch movie metadata from Radarr for digest display"""
+    from . import config
+
+    result = {
+        'poster_url': '',
+        'runtime_str': '',
+        'overview': '',
+        'rt_rating': 0,
+        'imdb_rating': 0.0,
+        'disc_type': ''
+    }
+
+    try:
+        cfg = config.load_config()
+        radarr_url = cfg.get('integrations', {}).get('radarr', {}).get('url', 'http://localhost:7878')
+        radarr_key = cfg.get('integrations', {}).get('radarr', {}).get('api_key', '')
+
+        if not radarr_key:
+            return result
+
+        # First try to find in existing Radarr library
+        resp = requests.get(
+            f"{radarr_url}/api/v3/movie",
+            headers={"X-Api-Key": radarr_key},
+            timeout=10
+        )
+
+        if resp.status_code == 200:
+            movies = resp.json()
+            # Find matching movie in library
+            for movie in movies:
+                movie_title = movie.get('title', '')
+                movie_year = movie.get('year', 0)
+                # Match by title (case-insensitive) and year if available
+                if movie_title.lower() == title.lower() and (not year or movie_year == year):
+                    result['year'] = movie_year
+                    result['overview'] = movie.get('overview', '')
+
+                    # Runtime
+                    runtime_min = movie.get('runtime', 0)
+                    if runtime_min:
+                        hours = runtime_min // 60
+                        mins = runtime_min % 60
+                        result['runtime_str'] = f"{hours}h {mins}m" if hours else f"{mins}m"
+
+                    # Ratings
+                    ratings = movie.get('ratings', {})
+                    if 'rottenTomatoes' in ratings:
+                        result['rt_rating'] = int(ratings['rottenTomatoes'].get('value', 0))
+                    if 'imdb' in ratings:
+                        result['imdb_rating'] = float(ratings['imdb'].get('value', 0))
+
+                    # Poster
+                    images = movie.get('images', [])
+                    for img in images:
+                        if img.get('coverType') == 'poster':
+                            remote_url = img.get('remoteUrl', '')
+                            result['poster_url'] = remote_url.replace('/original/', '/w500/')
+                            break
+
+                    # Detect disc type from file quality
+                    movie_file = movie.get('movieFile', {})
+                    quality = movie_file.get('quality', {}).get('quality', {})
+                    source = quality.get('source', '').lower()
+                    if 'bluray' in source:
+                        result['disc_type'] = 'BLURAY'
+                    elif 'dvd' in source:
+                        result['disc_type'] = 'DVD'
+                    elif source:
+                        result['disc_type'] = source.upper()
+
+                    return result
+
+        # If not in library, try lookup
+        search_term = f"{title} {year}" if year else title
+        resp = requests.get(
+            f"{radarr_url}/api/v3/movie/lookup",
+            params={"term": search_term},
+            headers={"X-Api-Key": radarr_key},
+            timeout=10
+        )
+
+        if resp.status_code == 200:
+            movies = resp.json()
+            if movies:
+                movie = movies[0]
+                result['overview'] = movie.get('overview', '')
+
+                runtime_min = movie.get('runtime', 0)
+                if runtime_min:
+                    hours = runtime_min // 60
+                    mins = runtime_min % 60
+                    result['runtime_str'] = f"{hours}h {mins}m" if hours else f"{mins}m"
+
+                ratings = movie.get('ratings', {})
+                if 'rottenTomatoes' in ratings:
+                    result['rt_rating'] = int(ratings['rottenTomatoes'].get('value', 0))
+                if 'imdb' in ratings:
+                    result['imdb_rating'] = float(ratings['imdb'].get('value', 0))
+
+                images = movie.get('images', [])
+                for img in images:
+                    if img.get('coverType') == 'poster':
+                        remote_url = img.get('remoteUrl', '')
+                        result['poster_url'] = remote_url.replace('/original/', '/w500/')
+                        break
+
+    except Exception as e:
+        log_warning(f"Failed to fetch metadata for movie '{title}': {e}")
+
+    return result
+
+
+def _fetch_tv_metadata_from_sonarr(show_name: str) -> dict:
+    """Fetch TV show metadata from Sonarr for digest display"""
+    from . import config
+
+    result = {
+        'year': 0,
+        'poster_url': '',
+        'runtime_str': '',
+        'overview': '',
+        'disc_type': ''
+    }
+
+    try:
+        cfg = config.load_config()
+        sonarr_url = cfg.get('integrations', {}).get('sonarr', {}).get('url', 'http://localhost:8989')
+        sonarr_key = cfg.get('integrations', {}).get('sonarr', {}).get('api_key', '')
+
+        if not sonarr_key:
+            return result
+
+        # Search Sonarr library
+        resp = requests.get(
+            f"{sonarr_url}/api/v3/series",
+            headers={"X-Api-Key": sonarr_key},
+            timeout=10
+        )
+
+        if resp.status_code == 200:
+            shows = resp.json()
+            for show in shows:
+                if show.get('title', '').lower() == show_name.lower():
+                    result['year'] = show.get('year', 0)
+                    result['overview'] = show.get('overview', '')
+
+                    # Runtime (per episode)
+                    runtime_min = show.get('runtime', 0)
+                    if runtime_min:
+                        result['runtime_str'] = f"{runtime_min}m/ep"
+
+                    # Poster
+                    images = show.get('images', [])
+                    for img in images:
+                        if img.get('coverType') == 'poster':
+                            remote_url = img.get('remoteUrl', '')
+                            result['poster_url'] = remote_url.replace('/original/', '/w500/')
+                            break
+
+                    return result
+
+        # If not in library, try lookup
+        resp = requests.get(
+            f"{sonarr_url}/api/v3/series/lookup",
+            params={"term": show_name},
+            headers={"X-Api-Key": sonarr_key},
+            timeout=10
+        )
+
+        if resp.status_code == 200:
+            shows = resp.json()
+            if shows:
+                show = shows[0]
+                result['year'] = show.get('year', 0)
+                result['overview'] = show.get('overview', '')
+
+                runtime_min = show.get('runtime', 0)
+                if runtime_min:
+                    result['runtime_str'] = f"{runtime_min}m/ep"
+
+                images = show.get('images', [])
+                for img in images:
+                    if img.get('coverType') == 'poster':
+                        remote_url = img.get('remoteUrl', '')
+                        result['poster_url'] = remote_url.replace('/original/', '/w500/')
+                        break
+
+    except Exception as e:
+        log_warning(f"Failed to fetch metadata for TV show '{show_name}': {e}")
+
+    return result
+
+
 def reset_digest_list():
     """Mark current time as digest reset - clears the "recently added" list for next digest"""
     from . import config
