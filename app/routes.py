@@ -2041,6 +2041,102 @@ def library():
     return render_template('library.html', config=cfg)
 
 
+def _get_radarr_poster_lookup() -> dict:
+    """Build poster URL lookup from Radarr library"""
+    lookup = {}
+    try:
+        cfg = config.load_config()
+        radarr_url = cfg.get('integrations', {}).get('radarr', {}).get('url', 'http://localhost:7878')
+        radarr_key = cfg.get('integrations', {}).get('radarr', {}).get('api_key', '')
+
+        if not radarr_key:
+            return lookup
+
+        resp = requests.get(
+            f"{radarr_url}/api/v3/movie",
+            headers={"X-Api-Key": radarr_key},
+            timeout=15
+        )
+
+        if resp.status_code == 200:
+            for movie in resp.json():
+                title = movie.get('title', '')
+                year = movie.get('year', 0)
+                path = movie.get('path', '')
+
+                # Get poster URL
+                poster_url = ''
+                for img in movie.get('images', []):
+                    if img.get('coverType') == 'poster':
+                        poster_url = img.get('remoteUrl', '').replace('/original/', '/w500/')
+                        break
+
+                if poster_url:
+                    # Key by folder name (last part of path)
+                    if path:
+                        folder_name = os.path.basename(path.rstrip('/'))
+                        lookup[folder_name.lower()] = poster_url
+
+                    # Also key by title variations
+                    if title:
+                        if year:
+                            lookup[f"{title} ({year})".lower()] = poster_url
+                        lookup[title.lower()] = poster_url
+
+    except Exception as e:
+        print(f"Error fetching Radarr library: {e}")
+
+    return lookup
+
+
+def _get_sonarr_poster_lookup() -> dict:
+    """Build poster URL lookup from Sonarr library"""
+    lookup = {}
+    try:
+        cfg = config.load_config()
+        sonarr_url = cfg.get('integrations', {}).get('sonarr', {}).get('url', 'http://localhost:8989')
+        sonarr_key = cfg.get('integrations', {}).get('sonarr', {}).get('api_key', '')
+
+        if not sonarr_key:
+            return lookup
+
+        resp = requests.get(
+            f"{sonarr_url}/api/v3/series",
+            headers={"X-Api-Key": sonarr_key},
+            timeout=15
+        )
+
+        if resp.status_code == 200:
+            for show in resp.json():
+                title = show.get('title', '')
+                year = show.get('year', 0)
+                path = show.get('path', '')
+
+                # Get poster URL
+                poster_url = ''
+                for img in show.get('images', []):
+                    if img.get('coverType') == 'poster':
+                        poster_url = img.get('remoteUrl', '').replace('/original/', '/w500/')
+                        break
+
+                if poster_url:
+                    # Key by folder name (last part of path)
+                    if path:
+                        folder_name = os.path.basename(path.rstrip('/'))
+                        lookup[folder_name.lower()] = poster_url
+
+                    # Also key by title variations
+                    if title:
+                        if year:
+                            lookup[f"{title} ({year})".lower()] = poster_url
+                        lookup[title.lower()] = poster_url
+
+    except Exception as e:
+        print(f"Error fetching Sonarr library: {e}")
+
+    return lookup
+
+
 @main.route('/api/library/list')
 def api_library_list():
     """List all movies and TV shows in the library folders"""
@@ -2085,6 +2181,10 @@ def api_library_list():
             poster_lookup[title.lower()] = poster_url
             poster_lookup[normalize_title(title)] = poster_url
 
+    # Fetch poster lookups from Radarr/Sonarr (fills gaps for non-ripped content)
+    radarr_posters = _get_radarr_poster_lookup()
+    sonarr_posters = _get_sonarr_poster_lookup()
+
     def parse_folder_name(folder_name):
         """Parse 'Title (Year)' format from folder name"""
         match = re.match(r'^(.+?)\s*\((\d{4})\)$', folder_name)
@@ -2092,7 +2192,7 @@ def api_library_list():
             return match.group(1).strip(), match.group(2)
         return folder_name, None
 
-    def get_folder_info(folder_path, folder_name):
+    def get_folder_info(folder_path, folder_name, is_movie=True):
         """Get info about a library folder"""
         from datetime import datetime
 
@@ -2132,6 +2232,15 @@ def api_library_list():
         if not poster_url:
             poster_url = poster_lookup.get(normalize_title(title))
 
+        # Fall back to Radarr/Sonarr lookup if not in rip history
+        if not poster_url:
+            arr_lookup = radarr_posters if is_movie else sonarr_posters
+            poster_url = arr_lookup.get(folder_name.lower())
+            if not poster_url and year:
+                poster_url = arr_lookup.get(f"{title} ({year})".lower())
+            if not poster_url:
+                poster_url = arr_lookup.get(title.lower())
+
         return {
             'folder_name': folder_name,
             'title': title,
@@ -2160,7 +2269,7 @@ def api_library_list():
         for folder_name in os.listdir(tv_path):
             folder_path = os.path.join(tv_path, folder_name)
             if os.path.isdir(folder_path):
-                info = get_folder_info(folder_path, folder_name)
+                info = get_folder_info(folder_path, folder_name, is_movie=False)
                 # TV shows may not have MKV directly in root
                 info['has_mkv'] = True  # Assume valid if folder exists
                 tv.append(info)
