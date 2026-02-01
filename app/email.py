@@ -376,16 +376,16 @@ def _build_content_card(item: dict, is_tv: bool = False) -> str:
         badge_html = f'<span style="font-size: 10px; background: {badge_color}; color: #fff; padding: 2px 8px; border-radius: 4px; font-weight: 600;">{disc_badge}</span>'
 
     return f"""
-    <div style="display: flex; gap: 16px; padding: 16px; background: #1a1a1a; border-radius: 8px; margin-bottom: 12px;">
+    <div style="display: flex; padding: 16px; background: #1a1a1a; border-radius: 8px; margin-bottom: 12px;">
         {poster_html}
-        <div style="flex: 1;">
+        <div style="flex: 1; padding-left: 16px;">
             <div style="font-size: 17px; font-weight: 600; color: #fff; margin-bottom: 4px;">{item.get('title', 'Unknown')}</div>
             <div style="font-size: 12px; color: #888; margin-bottom: 6px;">{subtitle}</div>
             <div style="margin-bottom: 8px;">{ratings_html}</div>
             <div style="font-size: 12px; color: #aaa; line-height: 1.4; margin-bottom: 10px;">{overview}</div>
-            <div style="display: flex; gap: 8px; align-items: center;">
+            <div style="display: flex; align-items: center;">
                 {badge_html}
-                <span style="font-size: 11px; color: #888;">{item.get('size_gb', 0):.1f} GB</span>
+                <span style="font-size: 11px; color: #888; margin-left: 8px;">{item.get('size_gb', 0):.1f} GB</span>
             </div>
         </div>
     </div>
