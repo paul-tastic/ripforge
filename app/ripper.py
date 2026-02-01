@@ -2471,7 +2471,26 @@ class RipEngine:
             self._update_step("detect", "active", "Reading disc...")
             job.status = RipStatus.DETECTING
 
-            disc_info = self.makemkv.get_disc_info(job.device, self.config)
+            # Retry disc scan if drive isn't ready (common on first attempt after insert)
+            max_retries = 3
+            retry_delay = 5  # seconds
+            disc_info = None
+
+            for attempt in range(max_retries):
+                disc_info = self.makemkv.get_disc_info(job.device, self.config)
+
+                # Check if we got valid data (has tracks or at least a disc label)
+                has_tracks = len(disc_info.get("tracks", [])) > 0
+                has_label = disc_info.get("disc_label", "") != ""
+
+                if has_tracks or has_label:
+                    break  # Success
+
+                if attempt < max_retries - 1:
+                    activity.log_warning(f"DISC SCAN: Drive not ready, retrying in {retry_delay}s... (attempt {attempt + 1}/{max_retries})")
+                    self._update_step("detect", "active", f"Waiting for drive... ({attempt + 1}/{max_retries})")
+                    time.sleep(retry_delay)
+
             job.disc_label = disc_info.get("disc_label", "UNKNOWN")
             job.disc_type = disc_info.get("disc_type", "unknown")
             # Store fingerprint data for capture
@@ -3123,7 +3142,26 @@ class RipEngine:
             self._update_step("detect", "active", "Reading disc...")
             job.status = RipStatus.DETECTING
 
-            disc_info = self.makemkv.get_disc_info(job.device, self.config)
+            # Retry disc scan if drive isn't ready (common on first attempt after insert)
+            max_retries = 3
+            retry_delay = 5  # seconds
+            disc_info = None
+
+            for attempt in range(max_retries):
+                disc_info = self.makemkv.get_disc_info(job.device, self.config)
+
+                # Check if we got valid data (has tracks or at least a disc label)
+                has_tracks = len(disc_info.get("tracks", [])) > 0
+                has_label = disc_info.get("disc_label", "") != ""
+
+                if has_tracks or has_label:
+                    break  # Success
+
+                if attempt < max_retries - 1:
+                    activity.log_warning(f"DISC SCAN: Drive not ready, retrying in {retry_delay}s... (attempt {attempt + 1}/{max_retries})")
+                    self._update_step("detect", "active", f"Waiting for drive... ({attempt + 1}/{max_retries})")
+                    time.sleep(retry_delay)
+
             job.disc_label = disc_info.get("disc_label", "UNKNOWN")
             job.disc_type = disc_info.get("disc_type", "unknown")
 
