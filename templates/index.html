@@ -12,6 +12,9 @@
             <span class="auto-mode-item {% if config.ripping.auto_rip != false %}active{% endif %}">
                 Auto-rip: {% if config.ripping.auto_rip != false %}ON{% else %}OFF{% endif %}
             </span>
+            <span class="auto-mode-item makemkv-info" id="makemkv-info" style="display: none;">
+                MakeMKV <span id="makemkv-version"></span>: <span id="makemkv-status"></span>
+            </span>
         </div>
 
         <!-- Idle State -->
@@ -471,6 +474,7 @@
         loadHardware();
         loadActivityLog();
         loadReviewQueue();     // Load review queue
+        loadMakeMKVInfo();     // Load MakeMKV version and license info
         startDiscPolling();    // Start polling for disc insertion
         // Refresh status every 2 seconds (faster for progress bar updates)
         setInterval(loadStatus, 2000);
@@ -1174,6 +1178,31 @@
     }
 
     document.getElementById('btn-update').addEventListener('click', performUpdate);
+
+    function loadMakeMKVInfo() {
+        fetch('/api/makemkv/info')
+            .then(r => r.json())
+            .then(data => {
+                const infoEl = document.getElementById('makemkv-info');
+                const versionEl = document.getElementById('makemkv-version');
+                const statusEl = document.getElementById('makemkv-status');
+
+                if (data.version && data.version !== 'unknown') {
+                    versionEl.textContent = 'v' + data.version;
+                    statusEl.textContent = data.message;
+
+                    // Add warning class if license is expiring or expired
+                    if (data.license_type === 'expired' || data.days_remaining <= 7) {
+                        infoEl.classList.add('warning');
+                    } else {
+                        infoEl.classList.remove('warning');
+                    }
+
+                    infoEl.style.display = 'inline-block';
+                }
+            })
+            .catch(err => console.error('Error loading MakeMKV info:', err));
+    }
 
     function loadStatus() {
         fetch('/api/status')

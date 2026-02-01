@@ -405,6 +405,74 @@ class MakeMKV:
         )
         return process
 
+    def get_makemkv_info(self) -> Dict:
+        """Get MakeMKV version and license information.
+
+        Returns:
+            Dict with keys:
+            - version: str - MakeMKV version (e.g., "1.18.3")
+            - license_type: str - "evaluation", "registered", or "expired"
+            - days_remaining: int - Days remaining for evaluation (0 if registered/expired)
+            - message: str - Human-readable status message
+        """
+        info = {
+            "version": "unknown",
+            "license_type": "unknown",
+            "days_remaining": 0,
+            "message": "Unable to get MakeMKV info"
+        }
+
+        try:
+            # Quick info call to get version and license status
+            # We don't need a disc, just run with no args to get startup messages
+            args = ["-r", "info", "disc:999"]  # Invalid disc to get quick response
+            process = self._run_cmd(args)
+
+            for line in process.stdout:
+                line = line.strip()
+
+                # Parse version: MSG:1005,0,1,"MakeMKV v1.18.3 linux(x64-release) started"
+                if line.startswith("MSG:1005,"):
+                    match = re.search(r'MakeMKV v(\d+\.\d+\.\d+)', line)
+                    if match:
+                        info["version"] = match.group(1)
+
+                # Parse evaluation: MSG:5050,0,2,"Evaluation version, 13 day(s) out of 30 remaining"
+                if line.startswith("MSG:5050,"):
+                    match = re.search(r'(\d+) day\(s\) out of (\d+) remaining', line)
+                    if match:
+                        info["days_remaining"] = int(match.group(1))
+                        info["license_type"] = "evaluation"
+                        days = info["days_remaining"]
+                        if days <= 0:
+                            info["message"] = "License expired"
+                            info["license_type"] = "expired"
+                        elif days <= 7:
+                            info["message"] = f"⚠️ {days} days remaining"
+                        else:
+                            info["message"] = f"{days} days remaining"
+
+                # Parse expired: MSG:5021 - "This application version is too old"
+                if line.startswith("MSG:5021,"):
+                    info["license_type"] = "expired"
+                    info["days_remaining"] = 0
+                    info["message"] = "License expired - update MakeMKV"
+
+                # Check for registered version (no evaluation message means registered)
+                # We'll set this as default if we got version but no eval message
+
+            # If we got version but no license message, assume registered
+            if info["version"] != "unknown" and info["license_type"] == "unknown":
+                info["license_type"] = "registered"
+                info["message"] = "Registered"
+
+            process.wait(timeout=5)
+
+        except Exception as e:
+            info["message"] = f"Error: {str(e)}"
+
+        return info
+
     def get_disc_info(self, device: str = "/dev/sr0", config: dict = None) -> Dict:
         """Get information about the disc in the drive.
 

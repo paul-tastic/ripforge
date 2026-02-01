@@ -900,6 +900,17 @@ def api_drive_status():
     return jsonify(config.get_optical_drive_status())
 
 
+@main.route('/api/makemkv/info')
+def api_makemkv_info():
+    """Get MakeMKV version and license status"""
+    engine = ripper.get_engine()
+    if not engine:
+        return jsonify({'error': 'Engine not initialized'}), 500
+
+    info = engine.makemkv.get_makemkv_info()
+    return jsonify(info)
+
+
 @main.route('/api/version')
 def api_version():
     """Get version info and check for updates"""
